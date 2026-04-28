@@ -335,6 +335,20 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     }
   }
 
+  if (sandbox) {
+    const passedEnvFlags = Object.keys(env)
+      .map((key) => `-e ${key}`)
+      .join(" ");
+    const flags = [process.env.SANDBOX_FLAGS, passedEnvFlags]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    if (flags) {
+      env.SANDBOX_FLAGS = flags;
+      loggedEnv.SANDBOX_FLAGS = flags;
+    }
+  }
+
   const runtimeSessionParams = parseObject(runtime.sessionParams);
   const runtimeSessionId = asString(runtimeSessionParams.sessionId, runtime.sessionId ?? "");
   const runtimeSessionCwd = asString(runtimeSessionParams.cwd, "");
