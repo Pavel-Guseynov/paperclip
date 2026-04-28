@@ -159,6 +159,7 @@ describe("gemini remote execution", () => {
     expect(restoreWorkspaceFromSshExecution).toHaveBeenCalledTimes(1);
   });
 
+
   it("resumes saved Gemini sessions for remote SSH execution only when the identity matches", async () => {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-gemini-remote-resume-"));
     cleanupDirs.push(rootDir);
