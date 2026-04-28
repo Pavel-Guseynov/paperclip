@@ -100,5 +100,6 @@ describe("gemini local execution", () => {
     const env = call![3].env;
     expect(env.SANDBOX_FLAGS).toBeDefined();
     expect(env.SANDBOX_FLAGS).toContain("-e PAPERCLIP_RUN_ID");
+    expect(env.SANDBOX_FLAGS).toContain(`-v ${path.join(os.homedir(), ".gemini", "skills")}:/home/node/.gemini/skills:ro`);
   });
 });

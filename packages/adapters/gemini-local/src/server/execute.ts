@@ -340,7 +340,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const passedEnvFlags = Object.keys(env)
       .map((key) => `-e ${key}`)
       .join(" ");
-    const flags = [process.env.SANDBOX_FLAGS, passedEnvFlags]
+    const skillsDir = executionTargetIsRemote && remoteSkillsDir
+      ? remoteSkillsDir
+      : path.join(os.homedir(), ".gemini", "skills");
+    // We explicitly mount the host's skills directory into the container's default HOME (/home/node)
+    // so that the sandbox can access the skills injected by Paperclip without requiring the user
+    // to manually mount their entire host home directory (which breaks on NixOS and other systems).
+    const mounts = `-v ${skillsDir}:/home/node/.gemini/skills:ro`;
+    const flags = [process.env.SANDBOX_FLAGS, passedEnvFlags, mounts]
       .filter(Boolean)
       .join(" ")
       .trim();
