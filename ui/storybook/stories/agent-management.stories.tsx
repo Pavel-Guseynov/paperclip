@@ -409,6 +409,7 @@ function StorybookQueryFixtures({ children }: { children: ReactNode }) {
   queryClient.setQueryData([...queryKeys.liveRuns(COMPANY_ID), "dashboard"], liveRuns);
   queryClient.setQueryData(queryKeys.instance.generalSettings, { censorUsernameInLogs: false });
   queryClient.setQueryData(queryKeys.agents.adapterModels(COMPANY_ID, "codex_local"), [
+    { id: "gpt-5.5", label: "GPT-5.5" },
     { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
     { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
