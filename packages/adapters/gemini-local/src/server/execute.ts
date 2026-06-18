@@ -259,6 +259,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (!hasExplicitApiKey && authToken) {
     env.PAPERCLIP_API_KEY = authToken;
   }
+  
   const effectiveEnv = Object.fromEntries(
     Object.entries({ ...process.env, ...env }).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -332,6 +333,27 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         localSkillsDir ? fs.rm(path.dirname(localSkillsDir), { recursive: true, force: true }).catch(() => undefined) : Promise.resolve(),
       ]);
       throw error;
+    }
+  }
+
+  if (sandbox) {
+    const passedEnvFlags = Object.keys(env)
+      .map((key) => `-e ${key}`)
+      .join(" ");
+    const skillsDir = executionTargetIsRemote && remoteSkillsDir
+      ? remoteSkillsDir
+      : path.join(os.homedir(), ".gemini", "skills");
+    // We explicitly mount the host's skills directory into the container's default HOME (/home/node)
+    // so that the sandbox can access the skills injected by Paperclip without requiring the user
+    // to manually mount their entire host home directory (which breaks on NixOS and other systems).
+    const mounts = `-v ${skillsDir}:/home/node/.gemini/skills:ro`;
+    const flags = [process.env.SANDBOX_FLAGS, passedEnvFlags, mounts]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    if (flags) {
+      env.SANDBOX_FLAGS = flags;
+      loggedEnv.SANDBOX_FLAGS = flags;
     }
   }
 
