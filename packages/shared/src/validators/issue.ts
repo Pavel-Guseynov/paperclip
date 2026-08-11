@@ -881,6 +881,8 @@ export const updateIssueSchema = objectWithoutDefaults(
     onBehalfOfUserId: z.string().trim().min(1).optional().nullable(),
     reviewInteractionId: z.string().guid().optional(),
     reviewRequest: issueReviewRequestSchema.optional().nullable(),
+    /** Delivery evidence for a terminal approval — required when the policy sets `evidenceRequired`. */
+    evidence: issueExecutionEvidenceSchema.optional().nullable(),
     reopen: z.boolean().optional(),
     resume: z.boolean().optional(),
     interrupt: z.boolean().optional(),
@@ -1041,6 +1043,12 @@ export const addIssueCommentSchema = z.object({
   body: multilineTextSchema.pipe(z.string().min(1)),
   attachmentIds: issueCommentAttachmentIdsSchema.optional(),
   onBehalfOfUserId: z.string().trim().min(1).optional().nullable(),
+  /**
+   * Delivery evidence for the auto-approval path: a reviewer's approving comment can
+   * close the final stage, so it must be able to carry the same structured proof as
+   * a direct status update. Ignored when the policy does not require it.
+   */
+  evidence: issueExecutionEvidenceSchema.optional().nullable(),
   authorType: issueCommentAuthorTypeSchema.optional(),
   presentation: issueCommentPresentationSchema.nullable().optional(),
   metadata: issueCommentMetadataSchema.nullable().optional(),
