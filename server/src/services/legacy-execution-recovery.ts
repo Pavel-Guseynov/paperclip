@@ -42,6 +42,16 @@ export function legacyExecutionNeedsReconciliation(
   // that the bootstrap evidence proves never started. Keep unknown outcomes held.
   if ((run.errorCode === "workspace_git_scan_timeout" || run.errorCode === "workspace_git_scan_saturated") &&
       evidence?.kind === "bootstrap" && evidence.providerWorkStarted === false) return false;
+  // Physical workspace validation failures precede provider execution. They are
+  // integrity failures, not un-reconciled provider side-effects.
+  if (
+    run.errorCode === "workspace_validation_failed" ||
+    Boolean(
+      (run.resultJson as Record<string, unknown> | null)?.workspaceValidation,
+    )
+  ) {
+    return false;
+  }
   if (executionFailureRetryCount(run) >= 2) return true;
   return !(
     evidence?.kind === "bootstrap" && evidence.providerWorkStarted === false

@@ -1475,6 +1475,8 @@ async function inspectGitWorktreeBranchIncoherence(input: {
     repoRoot: path.resolve(input.repoRoot),
     expectedBranch: input.expectedBranchName,
     actualBranch: input.actualBranchName,
+    actualHeadSha,
+    reissueBaseRef: input.actualBranchName ?? actualHeadSha,
     cleanliness,
     inProgressOperation,
     statusEntryCount: statusLines?.length ?? null,
@@ -3748,6 +3750,22 @@ export async function ensurePersistedExecutionWorkspaceAvailable(input: {
       expectedBranchName: realized.branchName,
     });
     if (!validation.valid) {
+      if (validation.reasonCode === "branch_mismatch" && realized.branchName) {
+        const actualBranch = await runGit(
+          ["symbolic-ref", "--quiet", "--short", "HEAD"],
+          reuseWorktreePath,
+        ).catch(() => null);
+        const evidence = await inspectGitWorktreeBranchIncoherence({
+          db: input.db ?? null,
+          repoRoot,
+          worktreePath: reuseWorktreePath,
+          expectedBranchName: realized.branchName,
+          actualBranchName: actualBranch,
+          sourceIssue: input.issue,
+          executionWorkspaceId: input.workspace.id ?? null,
+        });
+        throw branchIncoherenceValidationFailure(evidence);
+      }
       throw new WorkspaceRuntimeValidationFailure(
         `Persisted git worktree "${reuseWorktreePath}" is not reusable (${validation.reason}).`,
         {
