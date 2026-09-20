@@ -1203,4 +1203,103 @@ describe("issue execution policy routes", () => {
       }),
     );
   });
+
+  it("rejects terminal approval with 409 and rolls back without updating issue status when delivery verification fails", async () => {
+    mockAccessService.hasPermission.mockResolvedValue(true);
+    mockAccessService.canUser.mockResolvedValue(true);
+    const stageId = "44444444-4444-4444-8444-444444444444";
+    const agentId = "33333333-3333-4333-8333-333333333333";
+    const policy = {
+      stages: [
+        {
+          id: stageId,
+          type: "approval" as const,
+          participants: [{ type: "agent" as const, agentId }],
+        },
+      ],
+      evidenceRequired: true,
+    };
+    const state = {
+      status: "pending" as const,
+      currentStageId: stageId,
+      currentStageIndex: 0,
+      currentStageType: "approval" as const,
+      currentParticipant: { type: "agent" as const, agentId },
+      completedStageIds: [],
+      returnAssignee: null,
+      reviewRequest: null,
+      lastDecisionId: null,
+      lastDecisionOutcome: null,
+    };
+    mockIssueService.getById.mockResolvedValue({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "user-creator",
+      identifier: "PAP-1002",
+      title: "Terminal approval issue",
+      executionPolicy: policy,
+      executionState: state,
+    });
+    mockIssueService.getByIdForUpdate.mockResolvedValue({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "user-creator",
+      identifier: "PAP-1002",
+      title: "Terminal approval issue",
+      executionPolicy: policy,
+      executionState: state,
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/pulls/55")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            number: 55,
+            state: "open",
+            merged: false,
+            base: { ref: "master" },
+            head: { sha: "abcdef1234567890abcdef1234567890abcdef12" },
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 404 } as Response;
+    });
+
+    try {
+      const app = await createApp({
+        type: "agent",
+        agentId: "33333333-3333-4333-8333-333333333333",
+        companyId: "company-1",
+        runId: "55555555-5555-4555-8555-555555555555",
+      });
+
+      const res = await request(app)
+        .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        .send({
+          status: "done",
+          comment: "Looks good to land",
+          evidence: {
+            pr: 55,
+            mergedSha: "abcdef1234567890abcdef1234567890abcdef12",
+            repo: "paperclipai/paperclip",
+          },
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("delivery_unverified_not_merged");
+      expect(mockIssueService.update).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
