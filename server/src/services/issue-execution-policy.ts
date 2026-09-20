@@ -9,9 +9,16 @@ import type {
   IssueExecutionStagePrincipal,
   IssueExecutionState,
   IssueMonitorScheduledBy,
+  IssueTerminalEvidence,
+  VerifiedDeliveryReceipt,
 } from "@paperclipai/shared";
 import { issueExecutionPolicySchema, issueExecutionStateSchema } from "@paperclipai/shared";
-import { unprocessable } from "../errors.js";
+import { conflict, unprocessable } from "../errors.js";
+import {
+  isOperationTask,
+  DELIVERY_ERROR_CODES,
+  createDeliveryVerificationService,
+} from "./delivery-verification.js";
 
 type AssigneeLike = {
   assigneeAgentId?: string | null;
@@ -57,7 +64,18 @@ type TransitionInput = {
   monitorExplicitlyUpdated?: boolean;
 };
 
-type NormalizedEvidence = { pr: string; mergedSha: string; checkRun: string | null; note: string | null };
+type NormalizedEvidence = {
+  pr: string;
+  mergedSha: string;
+  headSha?: string | null;
+  baseBranch?: string | null;
+  repo?: string | null;
+  repoUrl?: string | null;
+  checkRun: string | null;
+  note: string | null;
+  verified?: boolean;
+  receipt?: VerifiedDeliveryReceipt | Record<string, unknown> | null;
+};
 
 type TransitionResult = {
   patch: Record<string, unknown>;
@@ -418,6 +436,7 @@ export function normalizeIssueExecutionPolicy(input: unknown): IssueExecutionPol
     ...(reviewPreset ? { reviewPreset } : {}),
     ...(authorizationPolicy ? { authorizationPolicy } : {}),
     ...(parsed.data.maxReviewRounds != null ? { maxReviewRounds: parsed.data.maxReviewRounds } : {}),
+    ...(parsed.data.evidenceRequired != null ? { evidenceRequired: parsed.data.evidenceRequired } : {}),
   };
 }
 
@@ -505,33 +524,56 @@ function assertTerminalEvidence(evidence: TransitionInput["evidence"]): Normaliz
     throw unprocessable(
       "This issue's policy sets evidenceRequired: closing the final stage needs `evidence` "
       + "with `pr` and `mergedSha` (and optionally `checkRun`).",
+      { code: "delivery_evidence_missing" },
     );
   }
   const missing: string[] = [];
-  const pr = (evidence as { pr?: unknown }).pr;
+  const rawObj = evidence as Record<string, unknown>;
+  const pr = rawObj.pr;
   if (pr == null || (typeof pr !== "number" && String(pr).trim() === "")) missing.push("pr");
 
-  const sha = (evidence as { mergedSha?: unknown }).mergedSha;
+  const sha = rawObj.mergedSha;
   const shaText = typeof sha === "string" ? sha.trim() : "";
   if (!shaText) missing.push("mergedSha");
   else if (!/^[0-9a-f]{7,40}$/i.test(shaText)) {
     throw unprocessable(`evidence.mergedSha must be a git SHA (7-40 hex chars), received "${shaText}".`);
   }
 
+  const headSha = typeof rawObj.headSha === "string" ? rawObj.headSha.trim() : null;
+  if (headSha && !/^[0-9a-f]{7,40}$/i.test(headSha)) {
+    throw unprocessable(`evidence.headSha must be a git SHA (7-40 hex chars), received "${headSha}".`);
+  }
+
   if (missing.length > 0) {
     throw unprocessable(
       `evidence is missing ${missing.join(" and ")}. A terminal approval must name the pull request `
       + "and the SHA that actually landed.",
+      { code: "delivery_evidence_missing" },
     );
   }
-  const checkRun = (evidence as { checkRun?: unknown }).checkRun;
-  const note = (evidence as { note?: unknown }).note;
-  return {
+  const checkRun = rawObj.checkRun;
+  const note = rawObj.note;
+  const baseBranch = typeof rawObj.baseBranch === "string" && rawObj.baseBranch.trim() ? rawObj.baseBranch.trim() : null;
+  const repo = typeof rawObj.repo === "string" && rawObj.repo.trim() ? rawObj.repo.trim() : null;
+  const repoUrl = typeof rawObj.repoUrl === "string" && rawObj.repoUrl.trim() ? rawObj.repoUrl.trim() : null;
+  const verified = typeof rawObj.verified === "boolean" ? rawObj.verified : undefined;
+  const receipt = rawObj.receipt && typeof rawObj.receipt === "object" ? (rawObj.receipt as Record<string, unknown>) : undefined;
+
+  const normalized: NormalizedEvidence = {
     pr: String(pr).trim(),
     mergedSha: shaText,
     checkRun: checkRun == null || String(checkRun).trim() === "" ? null : String(checkRun).trim(),
     note: typeof note === "string" && note.trim() !== "" ? note.trim().slice(0, 500) : null,
   };
+
+  if (headSha != null) normalized.headSha = headSha;
+  if (baseBranch != null) normalized.baseBranch = baseBranch;
+  if (repo != null) normalized.repo = repo;
+  if (repoUrl != null) normalized.repoUrl = repoUrl;
+  if (verified !== undefined) normalized.verified = verified;
+  if (receipt !== undefined) normalized.receipt = receipt;
+
+  return normalized;
 }
 
 /**
@@ -546,6 +588,67 @@ function normalizeOptionalEvidence(evidence: TransitionInput["evidence"]): Norma
   } catch {
     return null;
   }
+}
+
+export async function verifyStageTerminalEvidence(
+  stage: { evidenceRequired?: boolean | null },
+  evidence: IssueTerminalEvidence | null | undefined,
+  context: {
+    issue: {
+      id: string;
+      companyId: string;
+      kind?: string | null;
+      labels?: Array<{ name?: string } | string> | null;
+      originKind?: string | null;
+    };
+    policy?: IssueExecutionPolicy | null;
+    repoUrl?: string | null;
+    baseRef?: string | null;
+    reviewedHeadSha?: string | null;
+    deliveryVerifier?: {
+      verifyTerminalDelivery: (input: any) => Promise<any>;
+    };
+  },
+): Promise<{ verifiedReceipt?: VerifiedDeliveryReceipt | null; evidence?: IssueTerminalEvidence | null } | null> {
+  if (isOperationTask(context.issue)) {
+    return { verifiedReceipt: null, evidence: null };
+  }
+
+  const verifier = context.deliveryVerifier ?? createDeliveryVerificationService();
+
+  if (stage.evidenceRequired || context.policy?.evidenceRequired) {
+    if (!evidence || !evidence.pr || !evidence.mergedSha) {
+      throw unprocessable(
+        "A terminal approval requires delivery evidence (`pr` and `mergedSha`).",
+        { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
+      );
+    }
+    const result = await verifier.verifyTerminalDelivery({
+      issue: context.issue,
+      evidence,
+      repoUrl: context.repoUrl ?? (typeof evidence.repoUrl === "string" ? evidence.repoUrl : (typeof evidence.repo === "string" ? evidence.repo : null)),
+      baseRef: context.baseRef ?? (typeof evidence.baseBranch === "string" ? evidence.baseBranch : null),
+      reviewedHeadSha: context.reviewedHeadSha ?? (typeof evidence.headSha === "string" ? evidence.headSha : null),
+      policy: context.policy,
+    });
+
+    if (!result.verified) {
+      throw conflict(result.reason || "Delivery verification failed", {
+        code: result.errorCode || DELIVERY_ERROR_CODES.NOT_MERGED,
+      });
+    }
+
+    return {
+      verifiedReceipt: result.receipt,
+      evidence: {
+        ...evidence,
+        verified: true,
+        receipt: result.receipt,
+      },
+    };
+  }
+
+  return { verifiedReceipt: null, evidence };
 }
 
 function selectStageParticipant(

@@ -722,6 +722,42 @@ export interface IssueExecutionState {
   changesRequestedCount?: number;
 }
 
+export interface VerifiedDeliveryReceipt {
+  verifiedAt: string;
+  provider: "github" | "gitea" | "generic";
+  repo?: string;
+  repository: string;
+  pr?: number;
+  pullRequestNumber: number;
+  headSha: string;
+  mergedSha: string;
+  baseBranch: string;
+  checksPassed?: boolean;
+  checksSummary: {
+    status?: "passed";
+    total: number;
+    passed: number;
+    failed: number;
+    pending: number;
+  };
+  reachable: boolean;
+  checkRun?: string | number | null;
+  note?: string | null;
+}
+
+export interface IssueTerminalEvidence {
+  pr: string | number;
+  mergedSha: string;
+  headSha?: string | null;
+  baseBranch?: string | null;
+  repo?: string | null;
+  repoUrl?: string | null;
+  checkRun?: string | number | null;
+  note?: string | null;
+  verified?: boolean;
+  receipt?: VerifiedDeliveryReceipt | null;
+}
+
 export interface IssueExecutionDecision {
   id: string;
   companyId: string;
@@ -732,6 +768,7 @@ export interface IssueExecutionDecision {
   actorUserId: string | null;
   outcome: IssueExecutionDecisionOutcome;
   body: string;
+  evidence?: (IssueTerminalEvidence & { verified?: boolean; receipt?: VerifiedDeliveryReceipt | null }) | Record<string, unknown> | null;
   createdByRunId: string | null;
   createdAt: Date;
   updatedAt: Date;
