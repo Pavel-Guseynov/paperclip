@@ -92,6 +92,11 @@ async function handleMcpGatewayProtocol(
       return;
     }
     if (body.method === "notifications/initialized") {
+      await toolGateway.initializeNamedGatewayProtocol({
+        ...locator,
+        bearerToken: token,
+        callerHeaders: headers,
+      });
       res.status(202).end();
       return;
     }
