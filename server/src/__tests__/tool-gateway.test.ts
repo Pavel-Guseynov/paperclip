@@ -667,6 +667,20 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         .set("authorization", `Bearer ${tamperToken(token.token)}`)
         .send({ jsonrpc: "2.0", method: "notifications/initialized" })
         .expect(401);
+
+      const initialized = await request(app)
+        .post(`/api/tool-gateway/gateways/${created.id}/mcp`)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: "init", method: "initialize" })
+        .expect(200);
+      expect(initialized.body.result.serverInfo.name).toBe("Paperclip MCP Gateway");
+
+      await request(app)
+        .post(`/api/tool-gateway/gateways/${created.id}/mcp`)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+        .expect(202);
+
       const listed = await request(app)
         .post(publicEndpoint)
         .set("authorization", `Bearer ${token.token}`)
@@ -675,6 +689,13 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
       const visibleToolNames = listed.body.result.tools.map((tool: { name: string }) => tool.name);
       expect(visibleToolNames).toContain(gatewayToolName);
       expect(visibleToolNames).not.toContain("mcp-remote-fixture:update_note");
+
+      const managedListed = await request(app)
+        .post(`/api/tool-gateway/gateways/${created.id}/mcp`)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: "managed-list", method: "tools/list" })
+        .expect(200);
+      expect(managedListed.body.result.tools.map((tool: { name: string }) => tool.name)).toContain(gatewayToolName);
 
       const toolOnlyResources = await request(app)
         .post(`/api/tool-gateway/gateways/${created.id}/mcp`)
