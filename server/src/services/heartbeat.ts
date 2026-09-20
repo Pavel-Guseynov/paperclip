@@ -1151,10 +1151,14 @@ function isRetryableInteractionContinuationInfrastructureFailure(
     "error" | "errorCode" | "resultJson"
   >,
 ) {
-  if (
-    run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
-    run.errorCode === "process_lost"
-  ) {
+  if (run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE) {
+    const payload = parseObject(parseObject(run.resultJson).workspaceValidation);
+    if (payload?.reason === "git_worktree_branch_incoherence") {
+      return false;
+    }
+    return true;
+  }
+  if (run.errorCode === "process_lost") {
     return true;
   }
 
@@ -2756,7 +2760,7 @@ type WorkspaceValidationFailureLike =
       resultJson: Record<string, unknown>;
     };
 
-function isWorkspaceValidationFailure(
+function isWorkspaceValidationFailureDirect(
   error: unknown,
 ): error is WorkspaceValidationFailureLike {
   if (error instanceof WorkspaceValidationFailure) return true;
@@ -2768,6 +2772,33 @@ function isWorkspaceValidationFailure(
     typeof maybe.resultJson === "object" &&
     !Array.isArray(maybe.resultJson),
   );
+}
+
+function findWorkspaceValidationFailure(
+  error: unknown,
+): WorkspaceValidationFailureLike | null {
+  let current = error;
+  const visited = new Set<unknown>();
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    if (isWorkspaceValidationFailureDirect(current)) {
+      return current;
+    }
+    current = "cause" in current ? (current as { cause?: unknown }).cause : null;
+  }
+  return null;
+}
+
+export function isWorkspaceValidationFailure(
+  error: unknown,
+): error is WorkspaceValidationFailureLike {
+  return findWorkspaceValidationFailure(error) !== null;
+}
+
+export function getWorkspaceValidationFailure(
+  error: unknown,
+): WorkspaceValidationFailureLike | null {
+  return findWorkspaceValidationFailure(error);
 }
 
 function isWorkspaceValidationFailedRun(
@@ -5965,8 +5996,9 @@ export async function provisionExecutionWorkspaceForFreshnessDecision<
   try {
     restored = (await input.restoreExistingWorkspace?.()) ?? null;
   } catch (error) {
-    if (isWorkspaceValidationFailure(error)) {
-      throw error;
+    const wsFailure = findWorkspaceValidationFailure(error);
+    if (wsFailure) {
+      throw wsFailure;
     }
     reuseFailure = formatInheritedExecutionWorkspaceReuseFailure({
       reason: "inherited_workspace_reuse_failed",
@@ -15307,7 +15339,8 @@ export function heartbeatService(
         : null;
     const shouldQuarantineWorkspaceForRetry =
       workspaceValidationRetryPayload !== null &&
-      Object.keys(workspaceValidationRetryPayload).length > 0;
+      Object.keys(workspaceValidationRetryPayload).length > 0 &&
+      workspaceValidationRetryPayload.reason !== "git_worktree_branch_incoherence";
     const retryContextSnapshot: Record<string, unknown> = withRecoveryContext(
       {
         ...contextSnapshot,
@@ -23448,7 +23481,7 @@ export function heartbeatService(
                   }
                 } catch (repairErr) {
                   const workspaceValidationFailure =
-                    isWorkspaceValidationFailure(repairErr) ? repairErr : null;
+                    getWorkspaceValidationFailure(repairErr);
                   finalizeBranchMetadata = {
                     executionWorkspaceId: branchInspection.workspaceRecord.id,
                     ...initialManagedGitWorktreeBranch,
@@ -25011,9 +25044,7 @@ export function heartbeatService(
           err instanceof Error ? err.message : "Unknown adapter failure",
           await getCurrentUserRedactionOptions(),
         );
-        const workspaceValidationFailure = isWorkspaceValidationFailure(err)
-          ? err
-          : null;
+        const workspaceValidationFailure = getWorkspaceValidationFailure(err);
         const configurationIncompleteFailure = isConfigurationIncompleteFailure(
           err,
         )
@@ -25264,11 +25295,8 @@ export function heartbeatService(
         // A missing secret/env binding is a known pre-dispatch configuration gap,
         // not an opaque setup crash. Surface it with its own errorCode so the
         // recovery path routes it to a human owner instead of looping retries.
-        const workspaceValidationSetupFailure = isWorkspaceValidationFailure(
-          outerErr,
-        )
-          ? outerErr
-          : null;
+        const workspaceValidationSetupFailure =
+          getWorkspaceValidationFailure(outerErr);
         const configurationIncompleteSetupFailure =
           isConfigurationIncompleteFailure(outerErr) ? outerErr : null;
         const unresolvedBaseRefSetupFailure = isUnresolvedWorkspaceBaseRefError(
