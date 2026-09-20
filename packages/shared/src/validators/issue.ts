@@ -442,6 +442,38 @@ export const issueExecutionMonitorPolicySchema = z.object({
 export const issueExecutionEvidenceSchema = z.object({
   pr: z.union([z.number().int().positive(), z.string().trim().min(1)]),
   mergedSha: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, "mergedSha must be a git SHA"),
+  headSha: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, "headSha must be a git SHA").optional().nullable(),
+  baseBranch: z.string().trim().min(1).optional().nullable(),
+  repo: z.string().trim().min(1).optional().nullable(),
+  repoUrl: z.string().trim().min(1).optional().nullable(),
+  checkRun: z.union([z.number().int().positive(), z.string().trim().min(1)]).optional().nullable(),
+  note: z.string().trim().max(500).optional().nullable(),
+  verified: z.boolean().optional().nullable(),
+  receipt: z.record(z.string(), z.unknown()).optional().nullable(),
+});
+
+export const terminalEvidenceSchema = issueExecutionEvidenceSchema;
+export const issueTerminalEvidenceSchema = issueExecutionEvidenceSchema;
+
+export const verifiedDeliveryReceiptSchema = z.object({
+  verifiedAt: z.string().min(1),
+  provider: z.enum(["github", "gitea", "generic"]),
+  repo: z.string().trim().min(1).optional(),
+  repository: z.string().trim().min(1),
+  pr: z.number().int().positive().optional(),
+  pullRequestNumber: z.number().int().positive(),
+  headSha: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, "headSha must be a git SHA"),
+  mergedSha: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, "mergedSha must be a git SHA"),
+  baseBranch: z.string().trim().min(1),
+  checksPassed: z.boolean().optional(),
+  checksSummary: z.object({
+    status: z.literal("passed").optional(),
+    total: z.number().int().nonnegative(),
+    passed: z.number().int().nonnegative(),
+    failed: z.literal(0),
+    pending: z.literal(0),
+  }),
+  reachable: z.boolean(),
   checkRun: z.union([z.number().int().positive(), z.string().trim().min(1)]).optional().nullable(),
   note: z.string().trim().max(500).optional().nullable(),
 });

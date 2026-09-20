@@ -784,6 +784,8 @@ export type {
   IssueWatchdog,
   IssueWatchdogStatus,
   IssueWatchdogSummary,
+  IssueTerminalEvidence,
+  VerifiedDeliveryReceipt,
 } from "./issue.js";
 export type {
   IssueTreeControlPreview,

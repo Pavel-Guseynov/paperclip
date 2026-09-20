@@ -298,7 +298,13 @@ import {
   parseIssueExecutionState,
   redactIssueMonitorExternalRef,
   setIssueExecutionPolicyMonitorScheduledBy,
+  verifyStageTerminalEvidence,
 } from "../services/issue-execution-policy.js";
+import {
+  verifyTerminalDelivery,
+  isOperationTask,
+  DELIVERY_ERROR_CODES,
+} from "../services/delivery-verification.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import {
@@ -13174,6 +13180,37 @@ export function issueRoutes(
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
       });
+      if (transition.decision?.evidence) {
+        const verifiedResult = await verifyStageTerminalEvidence(
+          { evidenceRequired: Boolean(nextExecutionPolicy?.evidenceRequired) },
+          transition.decision.evidence as any,
+          {
+            issue: existing,
+            policy: nextExecutionPolicy,
+            repoUrl:
+              typeof (transition.decision.evidence as any).repoUrl === "string"
+                ? (transition.decision.evidence as any).repoUrl
+                : typeof (transition.decision.evidence as any).repo === "string"
+                ? (transition.decision.evidence as any).repo
+                : null,
+            baseRef:
+              typeof (transition.decision.evidence as any).baseBranch === "string"
+                ? (transition.decision.evidence as any).baseBranch
+                : null,
+            reviewedHeadSha:
+              typeof (transition.decision.evidence as any).headSha === "string"
+                ? (transition.decision.evidence as any).headSha
+                : null,
+          },
+        );
+        if (verifiedResult?.verifiedReceipt) {
+          transition.decision.evidence = {
+            ...transition.decision.evidence,
+            verified: true,
+            receipt: verifiedResult.verifiedReceipt,
+          };
+        }
+      }
       const decisionId = transition.decision ? randomUUID() : null;
       if (decisionId) {
         const nextExecutionState = transition.patch.executionState;
@@ -17602,6 +17639,37 @@ export function issueRoutes(
           evidence:
             req.body.evidence === undefined ? undefined : req.body.evidence,
         });
+        if (transition.decision?.evidence) {
+          const verifiedResult = await verifyStageTerminalEvidence(
+            { evidenceRequired: Boolean(currentExecutionPolicy?.evidenceRequired) },
+            transition.decision.evidence as any,
+            {
+              issue: currentIssue,
+              policy: currentExecutionPolicy,
+              repoUrl:
+                typeof (transition.decision.evidence as any).repoUrl === "string"
+                  ? (transition.decision.evidence as any).repoUrl
+                  : typeof (transition.decision.evidence as any).repo === "string"
+                  ? (transition.decision.evidence as any).repo
+                  : null,
+              baseRef:
+                typeof (transition.decision.evidence as any).baseBranch === "string"
+                  ? (transition.decision.evidence as any).baseBranch
+                  : null,
+              reviewedHeadSha:
+                typeof (transition.decision.evidence as any).headSha === "string"
+                  ? (transition.decision.evidence as any).headSha
+                  : null,
+            },
+          );
+          if (verifiedResult?.verifiedReceipt) {
+            transition.decision.evidence = {
+              ...transition.decision.evidence,
+              verified: true,
+              receipt: verifiedResult.verifiedReceipt,
+            };
+          }
+        }
         const decisionId = transition.decision ? randomUUID() : null;
         if (decisionId) {
           const nextExecutionState = transition.patch.executionState;
@@ -17692,6 +17760,7 @@ export function issueRoutes(
                 actorUserId: actor.actorType === "user" ? actor.actorId : null,
                 outcome: transition.decision.outcome,
                 body: transition.decision.body,
+                evidence: transition.decision.evidence ?? null,
                 createdByRunId: actor.runId ?? null,
               });
             }
