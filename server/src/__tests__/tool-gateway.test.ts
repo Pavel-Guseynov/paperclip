@@ -5488,4 +5488,258 @@ rl.on("line", (line) => {
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
   });
+
+  describe("run-scoped gateway session-token verification", () => {
+    it("authenticates tools/list and tools/call using Authorization Bearer pcgt_* through its advertised expiry", async () => {
+      const company = await createCompany(db);
+      const agent = await createAgent(db, company.id);
+      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
+      const localTool = await createLocalStdioMcpTool(db, company.id, {
+        applicationKey: "local-demo",
+        connectionName: "Local Demo",
+        toolName: "echo",
+        title: "Local echo",
+      });
+      const expectedToolName = expectedConnectedToolName({
+        applicationKey: "local-demo",
+        connectionId: localTool.connection.id,
+        toolName: "echo",
+      });
+      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "catalog_entry",
+        effect: "include",
+        catalogEntryId: localTool.catalogEntry.id,
+      });
+
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+
+      const session = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+        ttlMs: 60_000,
+      });
+
+      expect(session.token).toMatch(/^pcgt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]+$/i);
+
+      // tools/list via Authorization: Bearer
+      const listRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${session.token}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.body).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: expectedToolName }),
+      ]));
+      expect(JSON.stringify(listRes.body)).not.toContain(session.token);
+
+      // tools/call via Authorization: Bearer
+      const callRes = await request(app)
+        .post("/api/tool-gateway/tools/call")
+        .set("Authorization", `Bearer ${session.token}`)
+        .send({
+          tool: expectedToolName,
+          parameters: { message: "hello" },
+        });
+      expect(callRes.status).toBe(200);
+      expect(callRes.body).toMatchObject({
+        status: "completed",
+        result: expect.objectContaining({ content: "local:hello" }),
+      });
+      expect(JSON.stringify(callRes.body)).not.toContain(session.token);
+
+      // tools/list via x-paperclip-tool-gateway-token header
+      const headerListRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("x-paperclip-tool-gateway-token", session.token);
+      expect(headerListRes.status).toBe(200);
+
+      // Controlled clock verification near expiry boundary and after expiry
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        // 1 second before expiry: success
+        vi.setSystemTime(new Date(session.expiresAt.getTime() - 1_000));
+        const nearExpiryRes = await request(app)
+          .get("/api/tool-gateway/tools")
+          .set("Authorization", `Bearer ${session.token}`);
+        expect(nearExpiryRes.status).toBe(200);
+
+        // 1 second after expiry: rejected with session_expired
+        vi.setSystemTime(new Date(session.expiresAt.getTime() + 1_000));
+        const expiredRes = await request(app)
+          .get("/api/tool-gateway/tools")
+          .set("Authorization", `Bearer ${session.token}`);
+        expect(expiredRes.status).toBe(401);
+        expect(expiredRes.body).toMatchObject({
+          reasonCode: "session_expired",
+        });
+        expect(JSON.stringify(expiredRes.body)).not.toContain(session.token);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("rejects revoked, cross-session, malformed, inactive-run, and cross-protocol tokens with stable reason codes", async () => {
+      const company = await createCompany(db);
+      const agent = await createAgent(db, company.id);
+      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
+      const localTool = await createLocalStdioMcpTool(db, company.id, {
+        applicationKey: "local-demo",
+        connectionName: "Local Demo",
+        toolName: "echo",
+        title: "Local echo",
+      });
+      const expectedToolName = expectedConnectedToolName({
+        applicationKey: "local-demo",
+        connectionId: localTool.connection.id,
+        toolName: "echo",
+      });
+      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "catalog_entry",
+        effect: "include",
+        catalogEntryId: localTool.catalogEntry.id,
+      });
+
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+
+      const sessionA = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+      const sessionB = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+
+      // 1. Rejection after revocation
+      await gateway.revokeSession({
+        companyId: company.id,
+        sessionId: sessionA.id,
+      });
+      const revokedRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${sessionA.token}`);
+      expect(revokedRes.status).toBe(401);
+      expect(revokedRes.body).toMatchObject({
+        reasonCode: "session_revoked",
+      });
+      expect(JSON.stringify(revokedRes.body)).not.toContain(sessionA.token);
+
+      // 2. Cross-session token (Session A id with Session B secret)
+      const secretB = sessionB.token.split(".")[1];
+      const crossSessionToken = `pcgt_${sessionA.id}.${secretB}`;
+      const crossSessionRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${crossSessionToken}`);
+      expect(crossSessionRes.status).toBe(401);
+      expect(crossSessionRes.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(crossSessionRes.body)).not.toContain(crossSessionToken);
+
+      // 3. Non-existent session ID
+      const nonExistentToken = `pcgt_${randomUUID()}.${secretB}`;
+      const nonExistentRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${nonExistentToken}`);
+      expect(nonExistentRes.status).toBe(401);
+      expect(nonExistentRes.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(nonExistentRes.body)).not.toContain(nonExistentToken);
+
+      // 4. Malformed tokens
+      for (const badToken of [
+        `pcgt_not-a-uuid.${secretB}`,
+        `pcgt_${sessionB.id}`,
+        `pcgt_${sessionB.id}.`,
+        "pcgt_malformed",
+        "not-even-a-prefix",
+      ]) {
+        const malformedRes = await request(app)
+          .get("/api/tool-gateway/tools")
+          .set("Authorization", `Bearer ${badToken}`);
+        expect(malformedRes.status).toBe(401);
+        expect(malformedRes.body).toMatchObject({
+          reasonCode: "session_token_malformed",
+        });
+        expect(JSON.stringify(malformedRes.body)).not.toContain(badToken);
+      }
+
+      // 5. Rejection of pcgw_* on pcgt_*-only routes (tools/list and tools/call)
+      const namedGateway = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: { name: `GW ${randomUUID()}`, profileId: profile.id, defaultProfileMode: "gateway_only" },
+      });
+      const gwToken = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: { name: "test-gw-token", clientLabel: "test-gw-token", subjectType: "heartbeat_run", subjectId: run.id },
+      });
+
+      const pcgwOnSessionRoute = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${gwToken.token}`);
+      expect(pcgwOnSessionRoute.status).toBe(401);
+      expect(pcgwOnSessionRoute.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(pcgwOnSessionRoute.body)).not.toContain(gwToken.token);
+
+      const pcgwOnCallRoute = await request(app)
+        .post("/api/tool-gateway/tools/call")
+        .set("Authorization", `Bearer ${gwToken.token}`)
+        .send({ tool: expectedToolName, parameters: { message: "hi" } });
+      expect(pcgwOnCallRoute.status).toBe(401);
+      expect(pcgwOnCallRoute.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(pcgwOnCallRoute.body)).not.toContain(gwToken.token);
+
+      // 6. Rejection of pcgt_* on pcgw_* route
+      const pcgtOnNamedGw = await request(app)
+        .post(`/mcp/gateways/${namedGateway.gatewayPublicId}`)
+        .set("Authorization", `Bearer ${sessionB.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      expect(pcgtOnNamedGw.status).toBe(401);
+      expect(pcgtOnNamedGw.body).toMatchObject({
+        error: { data: { reasonCode: "gateway_token_invalid" } },
+      });
+      expect(JSON.stringify(pcgtOnNamedGw.body)).not.toContain(sessionB.token);
+
+      // 7. Rejection with session_run_inactive when heartbeat run completes
+      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, run.id));
+      const inactiveRunRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${sessionB.token}`);
+      expect(inactiveRunRes.status).toBe(401);
+      expect(inactiveRunRes.body).toMatchObject({
+        reasonCode: "session_run_inactive",
+      });
+      expect(JSON.stringify(inactiveRunRes.body)).not.toContain(sessionB.token);
+
+      // 8. Verify audit logs do not leak any raw token material
+      const allAudits = await db.select().from(activityLog);
+      const serializedAudits = JSON.stringify(allAudits);
+      expect(serializedAudits).not.toContain(sessionA.token);
+      expect(serializedAudits).not.toContain(sessionB.token);
+      expect(serializedAudits).not.toContain(gwToken.token);
+    });
+  });
 });
+
