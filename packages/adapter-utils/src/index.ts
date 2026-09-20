@@ -157,3 +157,20 @@ export type {
   SandboxCallbackBridgeWorkerHandle,
   StartedSandboxCallbackBridgeServer,
 } from "./sandbox-callback-bridge.js";
+export {
+  classifyAddress,
+  detectExecutionNamespace,
+  resolveRuntimeCallbackEndpoint,
+  validateRuntimeEndpointReachability,
+  formatReachabilityDiagnostic,
+  sanitizeUrlForDiagnostics,
+} from "./reachability.js";
+export type {
+  AddressClass,
+  ExecutionNamespace,
+  ReachabilityFailurePhase,
+  ResolvedRuntimeCallbackEndpoint,
+  RuntimeReachabilityDiagnostics,
+  ReachabilityValidationResult,
+} from "./reachability.js";
+

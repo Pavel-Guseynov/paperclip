@@ -4425,11 +4425,19 @@ function configuredPaperclipApiBaseUrl(): string | null {
     : null;
 }
 
-function paperclipApiBaseUrl(): string {
-  const configured = configuredPaperclipApiBaseUrl();
+function configuredPaperclipRuntimeApiBaseUrl(): string | null {
+  const runtime = readNonEmptyString(process.env.PAPERCLIP_RUNTIME_API_URL);
+  if (runtime) {
+    return runtime.replace(/\/+$/, "").replace(/\/api$/, "");
+  }
+  return configuredPaperclipApiBaseUrl();
+}
+
+function paperclipRuntimeApiBaseUrl(): string {
+  const configured = configuredPaperclipRuntimeApiBaseUrl();
   if (!configured) {
     throw new Error(
-      "PAPERCLIP_API_URL is required to deliver managed runtime MCP servers",
+      "PAPERCLIP_RUNTIME_API_URL or PAPERCLIP_API_URL is required to deliver managed runtime MCP servers",
     );
   }
   return configured;
@@ -4749,7 +4757,7 @@ export async function buildPaperclipRuntimeMcpServers(input: {
   return [
     {
       name: "paperclip-assigned",
-      url: `${paperclipApiBaseUrl()}/mcp/gateways/${gateway!.gatewayPublicId}`,
+      url: `${paperclipRuntimeApiBaseUrl()}/mcp/gateways/${gateway!.gatewayPublicId}`,
       token: token.token,
       connectionId: `assignment:${assignmentDigest}`,
     },
@@ -4783,7 +4791,7 @@ function createAdapterRuntimeToolAccess(input: {
   // tests invoke heartbeat execution without booting an HTTP server, however;
   // in that context there is no reachable endpoint to advertise and runtime
   // tools should simply remain unavailable instead of failing the run.
-  const baseUrl = configuredPaperclipApiBaseUrl();
+  const baseUrl = configuredPaperclipRuntimeApiBaseUrl();
   if (!baseUrl) return undefined;
   return Object.freeze({
     version: 1,
@@ -23889,8 +23897,8 @@ export function heartbeatService(
                 connectionId: "paperclip-runtime-tools",
               });
             }
-            if (authToken && configuredPaperclipApiBaseUrl() && issueRef) {
-              runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipApiBaseUrl()}/api/mcp/project-tools`,
+            if (authToken && configuredPaperclipRuntimeApiBaseUrl() && issueRef) {
+              runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipRuntimeApiBaseUrl()}/api/mcp/project-tools`,
                 token: authToken, connectionId: "paperclip-project-tools" });
             }
             const runtimeMcp = createAdapterRuntimeMcpAccess(runtimeMcpServers);
