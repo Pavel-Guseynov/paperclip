@@ -8,7 +8,9 @@ import { captureException } from "../sentry.js";
 import { COMPANY_IMPORT_API_PATH } from "../routes/company-import-paths.js";
 import { logger } from "./logger.js";
 import { isSecretSensitiveHttpRequest } from "./http-log-policy.js";
+import { sanitizeCredentialText } from "./http-log-redaction.js";
 import {
+  collectRequestCredentials,
   collectSensitiveStringValues,
   redactSensitiveValueOccurrences,
 } from "./redact-sensitive.js";
@@ -51,8 +53,19 @@ function attachErrorContext(
   payload: ErrorContext["error"],
   rawError?: Error,
 ) {
+  const credentials = collectRequestCredentials(req);
+  const sanitizedPayload = {
+    ...payload,
+    message: sanitizeCredentialText(payload.message),
+    stack: payload.stack ? sanitizeCredentialText(payload.stack) : undefined,
+  };
+  const scrubbedPayload = redactSensitiveValueOccurrences(
+    sanitizedPayload,
+    credentials,
+  ) as ErrorContext["error"];
+
   (res as any).__errorContext = {
-    error: payload,
+    error: scrubbedPayload,
     method: req.method,
     url: req.originalUrl,
     reqBody: req.body,
@@ -77,11 +90,10 @@ function sanitizeSecretSensitiveResponse(
   req: Request,
   value: unknown,
 ): unknown {
-  if (!isSecretSensitiveHttpRequest(req.method, req.originalUrl)) return value;
-  return redactSensitiveValueOccurrences(
-    value,
-    collectSensitiveStringValues(req.body),
-  );
+  const credentials = collectRequestCredentials(req);
+  const sanitized =
+    typeof value === "string" ? sanitizeCredentialText(value) : value;
+  return redactSensitiveValueOccurrences(sanitized, credentials);
 }
 
 /** Report a server-side crash to every error sink. */

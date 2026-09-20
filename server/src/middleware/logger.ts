@@ -1,7 +1,12 @@
 import pino from "pino";
 import type { Logger } from "pino";
 import { pinoHttp } from "pino-http";
-import { HTTP_LOG_REDACT_PATHS } from "./http-log-redaction.js";
+import {
+  HTTP_LOG_REDACT_PATHS,
+  redactSensitiveHeaders,
+  sanitizeCredentialText,
+  sanitizeErrorObject,
+} from "./http-log-redaction.js";
 import {
   isPrivateWebhookHttpRequest,
   isSecretSensitiveHttpRequest,
@@ -18,16 +23,57 @@ const sharedOpts = {
   singleLine: true,
 };
 
+export function wrapLoggerWithRedaction(log: Logger): Logger {
+  const originalChild = log.child.bind(log);
+  (log as any).child = function (bindings: any, options?: any) {
+    const sanitizedBindings = redactSensitive(bindings) as Record<
+      string,
+      unknown
+    >;
+    const childLogger = originalChild(sanitizedBindings, options);
+    return wrapLoggerWithRedaction(childLogger);
+  };
+  return log;
+}
+
+const basePinoOptions = {
+  redact: [...HTTP_LOG_REDACT_PATHS],
+  serializers: {
+    headers: (h: unknown) =>
+      h && typeof h === "object"
+        ? redactSensitiveHeaders(h as Record<string, unknown>)
+        : h,
+    err: (e: unknown) => sanitizeErrorObject(e),
+  },
+  hooks: {
+    logMethod(inputArgs: unknown[], method: any) {
+      const sanitizedArgs = inputArgs.map((arg) => {
+        if (arg instanceof Error) {
+          return sanitizeErrorObject(arg);
+        }
+        if (typeof arg === "string") {
+          return sanitizeCredentialText(arg);
+        }
+        if (arg && typeof arg === "object") {
+          return redactSensitive(arg);
+        }
+        return arg;
+      });
+      return method.apply(this, sanitizedArgs);
+    },
+  },
+};
+
 const isProduction = process.env.NODE_ENV === "production";
-export const logger = isProduction
+const rawLogger = isProduction
   ? pino({
       level: process.env.PAPERCLIP_LOG_LEVEL?.trim() || "info",
-      redact: [...HTTP_LOG_REDACT_PATHS],
+      ...basePinoOptions,
     })
   : pino(
       {
         level: process.env.PAPERCLIP_LOG_LEVEL?.trim() || "debug",
-        redact: [...HTTP_LOG_REDACT_PATHS],
+        ...basePinoOptions,
       },
       pino.transport({
         target: "pino-pretty",
@@ -39,6 +85,8 @@ export const logger = isProduction
         },
       }),
     );
+
+export const logger = wrapLoggerWithRedaction(rawLogger);
 
 function requestClassificationUrl(req: {
   originalUrl?: unknown;
@@ -82,7 +130,7 @@ export function createHttpLogger(baseLogger: Logger) {
   return pinoHttp({
     logger: baseLogger,
     serializers: {
-      req(req: Record<string, unknown> & { url?: unknown }) {
+      req(req: Record<string, unknown> & { url?: unknown; headers?: unknown }) {
         if (
           isPrivateWebhook({
             method: typeof req.method === "string" ? req.method : undefined,
@@ -98,12 +146,17 @@ export function createHttpLogger(baseLogger: Logger) {
             url: privateWebhookLogUrl(req.url),
           };
         }
+        const headers =
+          req.headers && typeof req.headers === "object"
+            ? redactSensitiveHeaders(req.headers as Record<string, unknown>)
+            : req.headers;
         return {
           ...req,
           url:
             typeof req.url === "string"
               ? stripSecretBearingUrlParts(req.url)
               : req.url,
+          headers,
           // The URL policy intentionally drops all query parameters. The default
           // serializer also exposes the parsed query separately, so omit that
           // duplicate path instead of letting credentials bypass the URL scrub.
@@ -112,6 +165,7 @@ export function createHttpLogger(baseLogger: Logger) {
       },
       res(
         res: Record<string, unknown> & {
+          headers?: unknown;
           raw?: {
             req?: { method?: string; originalUrl?: unknown; url?: unknown };
           };
@@ -119,9 +173,18 @@ export function createHttpLogger(baseLogger: Logger) {
       ) {
         // A provider error may also be reflected in response headers. Keep the
         // same content-free contract on both sides of a webhook request.
-        return res.raw?.req && isPrivateWebhook(res.raw.req)
-          ? { statusCode: res.statusCode }
-          : res;
+        if (res.raw?.req && isPrivateWebhook(res.raw.req)) {
+          return { statusCode: res.statusCode };
+        }
+        if (res.headers && typeof res.headers === "object") {
+          return {
+            ...res,
+            headers: redactSensitiveHeaders(
+              res.headers as Record<string, unknown>,
+            ),
+          };
+        }
+        return res;
       },
     },
     customLogLevel(_req, res, err) {
@@ -142,22 +205,32 @@ export function createHttpLogger(baseLogger: Logger) {
         return `${req.method} ${requestLogUrl(req)} ${res.statusCode} — request failed`;
       }
       const ctx = (res as any).__errorContext;
-      const errMsg =
+      const rawErrMsg =
         ctx?.error?.message ||
         err?.message ||
         (res as any).err?.message ||
         "unknown error";
-      return `${req.method} ${stripSecretBearingUrlParts(req.url ?? "")} ${res.statusCode} — ${errMsg}`;
+      const errMsg = sanitizeCredentialText(rawErrMsg);
+      const safeUrl = requestLogUrl(req);
+      return `${req.method} ${safeUrl} ${res.statusCode} — ${errMsg}`;
     },
-    customErrorObject(req, _res, _err, value) {
+    customErrorObject(req, _res, err, value) {
       // pino-http serializes res.err independently of customProps/errorContext.
       // Do not rely on a particular error handler having sanitized an SDK Error.
-      return isPrivateWebhook(req)
-        ? {
-            ...value,
-            err: { type: "Error", message: "Chat webhook request failed" },
-          }
-        : value;
+      if (isPrivateWebhook(req)) {
+        return {
+          ...value,
+          err: { type: "Error", message: "Chat webhook request failed" },
+        };
+      }
+      const rawError = (value as any)?.err ?? err;
+      if (rawError) {
+        return {
+          ...value,
+          err: sanitizeErrorObject(rawError),
+        };
+      }
+      return value;
     },
     customProps(req, res) {
       if (res.statusCode >= 400) {

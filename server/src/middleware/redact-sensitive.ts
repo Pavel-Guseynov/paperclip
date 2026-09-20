@@ -11,6 +11,11 @@
 // objects/arrays. Caps depth so a hostile or accidental cycle can't pin
 // the logger.
 
+import {
+  isCredentialBearingHeader,
+  sanitizeCredentialText,
+} from "./http-log-redaction.js";
+
 const SENSITIVE_KEYS = new Set<string>([
   // Provider setup payloads deliberately group all durable authentication
   // material under `credentials`. Redact the whole subtree instead of trying
@@ -47,10 +52,22 @@ const SENSITIVE_KEYS = new Set<string>([
   // Redact the whole container instead of maintaining a second key allowlist.
   "testcredentials",
   "authorization",
+  "proxyauthorization",
+  "proxy_authorization",
   "auth_token",
   "authtoken",
   "session_token",
   "sessiontoken",
+  "gatewaytoken",
+  "gateway_token",
+  "toolgatewaytoken",
+  "tool_gateway_token",
+  "x-paperclip-tool-gateway-token",
+  "x-paperclip-github-capability",
+  "x-paperclip-dev-server-status-token",
+  "x-paperclip-cloud-runtime-identity",
+  "x-paperclip-cloud-control",
+  "x-paperclip-signature",
   "private_key",
   "privatekey",
   // Defense in depth for legacy, malformed, or provider-specific payloads
@@ -109,7 +126,8 @@ const URLISH_KEYS = new Set<string>([
 ]);
 
 function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEYS.has(key.toLowerCase());
+  const normalized = key.toLowerCase();
+  return SENSITIVE_KEYS.has(normalized) || isCredentialBearingHeader(normalized);
 }
 
 function isUrlishKey(key: string): boolean {
@@ -136,7 +154,11 @@ export function stripSecretBearingUrlParts(value: string): string {
 
 export function redactSensitive(value: unknown, depth = 0): unknown {
   if (depth > MAX_DEPTH) return undefined;
-  if (value === null || typeof value !== "object") return value;
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return sanitizeCredentialText(value);
+  }
+  if (typeof value !== "object") return value;
   if (Array.isArray(value)) {
     if (depth + 1 > MAX_DEPTH) return undefined;
     return value.map((entry) => redactSensitive(entry, depth + 1));
@@ -147,8 +169,12 @@ export function redactSensitive(value: unknown, depth = 0): unknown {
       out[key] = REDACTED;
       continue;
     }
-    if (typeof entry === "string" && isUrlishKey(key)) {
-      out[key] = stripSecretBearingUrlParts(entry);
+    if (typeof entry === "string") {
+      if (isUrlishKey(key)) {
+        out[key] = stripSecretBearingUrlParts(entry);
+      } else {
+        out[key] = sanitizeCredentialText(entry);
+      }
       continue;
     }
     out[key] = redactSensitive(entry, depth + 1);
@@ -249,3 +275,51 @@ export function redactSensitiveValueOccurrences(
 
   return visit(redacted, 0);
 }
+
+/** Collects all submitted credentials from headers, query parameters, and body. */
+export function collectRequestCredentials(req: {
+  headers?: Record<string, unknown> | unknown;
+  body?: unknown;
+  query?: Record<string, unknown> | unknown;
+}): string[] {
+  const creds = new Set<string>();
+  if (req.headers && typeof req.headers === "object") {
+    for (const [name, val] of Object.entries(
+      req.headers as Record<string, unknown>,
+    )) {
+      if (typeof val === "string" && isCredentialBearingHeader(name)) {
+        const trimmed = val.trim();
+        if (trimmed.length > 0) {
+          creds.add(trimmed);
+          const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
+          if (bearerMatch?.[1]) {
+            creds.add(bearerMatch[1].trim());
+          }
+        }
+      } else if (Array.isArray(val) && isCredentialBearingHeader(name)) {
+        for (const item of val) {
+          if (typeof item === "string" && item.trim().length > 0) {
+            creds.add(item.trim());
+          }
+        }
+      }
+    }
+  }
+  if (req.query && typeof req.query === "object") {
+    for (const [name, val] of Object.entries(
+      req.query as Record<string, unknown>,
+    )) {
+      if (typeof val === "string" && isCredentialBearingHeader(name)) {
+        const trimmed = val.trim();
+        if (trimmed.length > 0) creds.add(trimmed);
+      }
+    }
+  }
+  if (req.body) {
+    for (const val of collectSensitiveStringValues(req.body)) {
+      creds.add(val);
+    }
+  }
+  return [...creds];
+}
+
