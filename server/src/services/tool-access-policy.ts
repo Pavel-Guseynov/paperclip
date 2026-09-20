@@ -1409,7 +1409,20 @@ export function toolAccessPolicyService(db: Db) {
         eq(toolInvocations.companyId, input.companyId),
         eq(toolInvocations.idempotencyKey, idempotencyKey),
       ));
-      if (existing) return { invocation: existing, replayed: true, actionRequest: null };
+      if (existing) {
+        if (existing.status === "timed_out") {
+          throw conflict(
+            "A previous write invocation timed out with an ambiguous outcome; cannot be automatically replayed",
+            {
+              code: "ambiguous_invocation_timeout",
+              invocationId: existing.id,
+              tool: ctx.toolName,
+              status: existing.status,
+            },
+          );
+        }
+        return { invocation: existing, replayed: true, actionRequest: null };
+      }
     }
     const status = accessDecision.decision === "allow"
       ? "authorized"

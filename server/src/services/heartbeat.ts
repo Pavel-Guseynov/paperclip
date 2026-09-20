@@ -4560,6 +4560,7 @@ export async function buildPaperclipRuntimeMcpServers(input: {
       ((Boolean(runIdentity?.activeIdentityContextId) &&
         (connection.config?.sourceTemplateKey === "github" ||
           connection.transportConfig?.sourceTemplateKey === "github")) ||
+        connection.healthStatus === "degraded" ||
         !isToolConnectionAttentionHealth(connection.healthStatus)) &&
       (connection.transport === "mcp_remote" ||
         connection.transport === "local_stdio"),
@@ -4571,7 +4572,8 @@ export async function buildPaperclipRuntimeMcpServers(input: {
         connection.transport === "local_stdio") &&
       (!connection.enabled ||
         connection.status !== "active" ||
-        isToolConnectionAttentionHealth(connection.healthStatus)),
+        (connection.healthStatus !== "degraded" &&
+          isToolConnectionAttentionHealth(connection.healthStatus))),
   );
   if (unhealthyConnections.length && input.onUnavailableAssignedConnections) {
     try {
