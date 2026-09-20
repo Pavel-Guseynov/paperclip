@@ -133,6 +133,7 @@ import {
   dispositionRepairDelayMs,
   DISPOSITION_REPAIR_MAX_ATTEMPTS,
 } from "./disposition-repair.js";
+import { reconcileReviewHandoffAfterBlockerClear } from "./review-handoff-retry.js";
 import {
   createActiveRunWatchdog,
   WatchdogDecisionApplicationError,
@@ -3427,6 +3428,15 @@ export function recoveryService(
         if (resolved) {
           result.resolved += 1;
           result.issueIds.push(issue.id);
+          if (issue.status === "in_review") {
+            await reconcileReviewHandoffAfterBlockerClear(db, {
+              issueId: issue.id,
+              companyId: issue.companyId,
+              enqueueWakeup: deps.enqueueWakeup,
+              treeControlSvc,
+              source: "reconcileActiveRecoveryActions",
+            });
+          }
         }
         continue;
       }
@@ -4731,6 +4741,26 @@ export function recoveryService(
             } else {
               result.skipped += 1;
             }
+          } else if (!participantLatestRun) {
+            const handoffResult = await reconcileReviewHandoffAfterBlockerClear(
+              db,
+              {
+                issueId: issue.id,
+                companyId: issue.companyId,
+                enqueueWakeup: deps.enqueueWakeup,
+                treeControlSvc,
+                source: "reconcileStrandedAssignedIssues.no_participant_run",
+              },
+            );
+            if (handoffResult.action === "enqueued") {
+              result.reviewParticipantRequeued += 1;
+              result.issueIds.push(issue.id);
+            } else if (handoffResult.action === "exhausted") {
+              result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
           } else {
             result.skipped += 1;
           }
@@ -5281,6 +5311,39 @@ export function recoveryService(
         .orderBy(asc(issues.id))
         .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
     };
+
+    if (opts?.blockerIssueId) {
+      try {
+        const inReviewDependents = await db
+          .select({ id: issues.id, companyId: issues.companyId })
+          .from(issueRelations)
+          .innerJoin(issues, eq(issueRelations.relatedIssueId, issues.id))
+          .where(
+            and(
+              eq(issueRelations.type, "blocks"),
+              eq(issueRelations.issueId, opts.blockerIssueId),
+              opts.companyId
+                ? eq(issueRelations.companyId, opts.companyId)
+                : undefined,
+              eq(issues.status, "in_review"),
+            ),
+          );
+        for (const dep of inReviewDependents) {
+          await reconcileReviewHandoffAfterBlockerClear(db, {
+            issueId: dep.id,
+            companyId: dep.companyId,
+            enqueueWakeup: deps.enqueueWakeup,
+            treeControlSvc,
+            source: "reconcileResolvedDependencyWakeBackstop",
+          });
+        }
+      } catch (err) {
+        logger.warn(
+          { err, blockerIssueId: opts.blockerIssueId },
+          "failed to reconcile in_review dependents in resolved dependency backstop",
+        );
+      }
+    }
 
     let candidateRows = await queryCandidates(
       useCursor ? resolvedDependencyWakeBackstopCandidateCursor : null,

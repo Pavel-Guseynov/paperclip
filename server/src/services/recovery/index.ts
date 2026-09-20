@@ -77,3 +77,23 @@ export type {
   StrandedRecoveryEscalationNotice,
   StrandedRecoveryNoticeSeed,
 } from "./stranded-notice.js";
+export {
+  DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
+  EXECUTION_APPROVAL_REQUESTED_REASON,
+  EXECUTION_REVIEW_REQUESTED_REASON,
+  buildExecutionStageWakeContext,
+  buildReviewHandoffRetryIdempotencyKey,
+  decideReviewHandoffRetry,
+  escalateReviewHandoffExhaustion,
+  getPendingReviewStageTarget,
+  hasActiveReviewRun,
+  hasQueuedReviewRetry,
+  hasValidReviewBlocker,
+  reconcileReviewHandoffAfterBlockerClear,
+} from "./review-handoff-retry.js";
+export type {
+  DecideReviewHandoffRetryParams,
+  PendingReviewStageTarget,
+  ReviewHandoffRetryDecision,
+} from "./review-handoff-retry.js";
+

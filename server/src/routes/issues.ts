@@ -201,6 +201,7 @@ import {
   isReviewPathRecoveryIdempotencyConflict,
   REVIEW_PATH_RECOVERY_INSTRUCTION,
 } from "../services/recovery/review-path-recovery.js";
+import { reconcileReviewHandoffAfterBlockerClear } from "../services/recovery/review-handoff-retry.js";
 import { hydrateSuccessfulRunHandoffLiveness } from "../services/successful-run-handoff-state.js";
 import {
   TASK_WATCHDOG_ORIGIN_KIND,
@@ -9478,6 +9479,20 @@ export function issueRoutes(
       for (const publication of postCommitActivityPublications)
         publishActivity(publication);
       await flushIssuePostCommitActions(postCommitIssueActions);
+
+      if (result.issue.status === "in_review") {
+        void reconcileReviewHandoffAfterBlockerClear(db, {
+          issueId: result.issue.id,
+          companyId: result.issue.companyId,
+          enqueueWakeup: (agentId, request) => heartbeat.wakeup(agentId, request),
+          source: "routes.issues.recovery_action_resolved",
+        }).catch((err) => {
+          logger.warn(
+            { err, issueId: result.issue.id },
+            "failed to reconcile review handoff after recovery action resolution",
+          );
+        });
+      }
 
       await routinesSvc.syncRunStatusForIssue(result.issue.id);
 
