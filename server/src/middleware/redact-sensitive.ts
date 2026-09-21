@@ -322,4 +322,3 @@ export function collectRequestCredentials(req: {
   }
   return [...creds];
 }
-

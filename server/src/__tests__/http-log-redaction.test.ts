@@ -1099,4 +1099,3 @@ describe("HTTP logger redaction", () => {
     expect(log.reqQuery).toBeUndefined();
   });
 });
-
