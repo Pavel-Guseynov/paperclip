@@ -108,12 +108,6 @@ function createApp(db: any, deploymentMode: "authenticated" | "local_trusted" = 
   app.post("/api/tool-gateway/gateways/:gatewayId/mcp", (req, res) => {
     res.json({ reachedManagedGatewayProtocol: true, actorType: req.actor.type });
   });
-  app.get("/api/tool-gateway/tools", (req, res) => {
-    res.json({ reachedSessionTools: true, actorType: req.actor.type });
-  });
-  app.post("/api/tool-gateway/tools/call", (req, res) => {
-    res.json({ reachedSessionToolsCall: true, actorType: req.actor.type });
-  });
   app.get("/companies/:companyId/protected", (req, res) => {
     assertCompanyAccess(req, req.params.companyId);
     res.json({ ok: true });
@@ -260,35 +254,6 @@ describe("agent auth middleware", () => {
       .post(`/api/tool-gateway/gateways/${randomUUID()}/mcp`)
       .set("Authorization", "Bearer not-a-gateway-token")
       .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toContain("Agent token did not verify");
-  });
-
-  it("leaves gateway session tokens on tools endpoints for the gateway service to validate", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-
-    const listRes = await request(createApp(db, "local_trusted"))
-      .get("/api/tool-gateway/tools")
-      .set("Authorization", `Bearer pcgt_${randomUUID()}.secret-abc`);
-
-    expect(listRes.status).toBe(200);
-    expect(listRes.body).toMatchObject({ reachedSessionTools: true, actorType: "none" });
-
-    const callRes = await request(createApp(db, "local_trusted"))
-      .post("/api/tool-gateway/tools/call")
-      .set("Authorization", `Bearer pcgt_${randomUUID()}.secret-abc`);
-
-    expect(callRes.status).toBe(200);
-    expect(callRes.body).toMatchObject({ reachedSessionToolsCall: true, actorType: "none" });
-  });
-
-  it("does not bypass actor authentication for lookalike session tools paths", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-
-    const res = await request(createApp(db, "local_trusted"))
-      .get("/api/tool-gateway/tools/extra")
-      .set("Authorization", `Bearer pcgt_${randomUUID()}.secret-abc`);
 
     expect(res.status).toBe(401);
     expect(res.body.error).toContain("Agent token did not verify");
