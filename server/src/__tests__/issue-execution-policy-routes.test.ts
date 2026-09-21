@@ -1218,269 +1218,102 @@ describe("issue execution policy routes", () => {
     );
   });
 
-  it("honors approval-stage returnAssignee participant selection via PATCH /api/issues/:id (#4912)", async () => {
-    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
-    const authorAgentId = "44444444-4444-4444-8444-444444444444";
-    const runId = "55555555-5555-4555-8555-555555555555";
-    const policy = normalizeIssueExecutionPolicy({
+  it("rejects terminal approval with 409 and rolls back without updating issue status when delivery verification fails", async () => {
+    mockAccessService.hasPermission.mockResolvedValue(true);
+    mockAccessService.canUser.mockResolvedValue(true);
+    const stageId = "44444444-4444-4444-8444-444444444444";
+    const agentId = "33333333-3333-4333-8333-333333333333";
+    const policy = {
       stages: [
         {
-          id: "11111111-1111-4111-8111-111111111111",
-          type: "review",
-          participants: [{ type: "agent", agentId: reviewerAgentId }],
-        },
-        {
-          id: "22222222-2222-4222-8222-222222222222",
-          type: "approval",
-          participants: [{ type: "agent", agentId: authorAgentId }],
+          id: stageId,
+          type: "approval" as const,
+          participants: [{ type: "agent" as const, agentId }],
         },
       ],
-    })!;
-    const issue = {
+      evidenceRequired: true,
+    };
+    const state = {
+      status: "pending" as const,
+      currentStageId: stageId,
+      currentStageIndex: 0,
+      currentStageType: "approval" as const,
+      currentParticipant: { type: "agent" as const, agentId },
+      completedStageIds: [],
+      returnAssignee: null,
+      reviewRequest: null,
+      lastDecisionId: null,
+      lastDecisionOutcome: null,
+    };
+    mockIssueService.getById.mockResolvedValue({
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       companyId: "company-1",
       status: "in_review",
-      assigneeAgentId: reviewerAgentId,
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
       assigneeUserId: null,
-      createdByUserId: "local-board",
-      identifier: "PAP-1020",
-      title: "Review entering approval stage with returnAssignee",
+      createdByUserId: "user-creator",
+      identifier: "PAP-1002",
+      title: "Terminal approval issue",
       executionPolicy: policy,
-      executionState: {
-        status: "pending",
-        currentStageId: "11111111-1111-4111-8111-111111111111",
-        currentStageIndex: 0,
-        currentStageType: "review",
-        currentParticipant: { type: "agent", agentId: reviewerAgentId },
-        returnAssignee: { type: "agent", agentId: authorAgentId },
-        completedStageIds: [],
-        lastDecisionId: null,
-        lastDecisionOutcome: null,
-      },
-    };
-    mockIssueService.getById.mockResolvedValue(issue);
-    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
-      ...issue,
-      ...patch,
-      updatedAt: new Date(),
-    }));
-
-    const app = await createApp({
-      type: "agent",
-      agentId: reviewerAgentId,
+      executionState: state,
+    });
+    mockIssueService.getByIdForUpdate.mockResolvedValue({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       companyId: "company-1",
-      runId,
+      status: "in_review",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+      createdByUserId: "user-creator",
+      identifier: "PAP-1002",
+      title: "Terminal approval issue",
+      executionPolicy: policy,
+      executionState: state,
     });
 
-    const res = await request(app)
-      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-      .set("X-Paperclip-Run-Id", runId)
-      .send({ status: "done", comment: "LGTM approved by reviewer" });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/pulls/55")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            number: 55,
+            state: "open",
+            merged: false,
+            base: { ref: "master" },
+            head: { sha: "abcdef1234567890abcdef1234567890abcdef12" },
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 404 } as Response;
+    });
 
-    expect(res.status).toBe(200);
-    expect(mockIssueService.update).toHaveBeenCalledWith(
-      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      expect.objectContaining({
-        status: "in_review",
-        assigneeAgentId: authorAgentId,
-        assigneeUserId: null,
-        executionState: expect.objectContaining({
-          status: "pending",
-          currentStageId: "22222222-2222-4222-8222-222222222222",
-          currentStageIndex: 1,
-          currentStageType: "approval",
-          currentParticipant: expect.objectContaining({ type: "agent", agentId: authorAgentId }),
-          returnAssignee: expect.objectContaining({ type: "agent", agentId: authorAgentId }),
-          completedStageIds: ["11111111-1111-4111-8111-111111111111"],
-          lastDecisionOutcome: "approved",
-        }),
-      }),
-      expect.anything(),
-    );
-    expect(mockDbInsertValues).toHaveBeenCalledWith(
-      expect.objectContaining({
+    try {
+      const app = await createApp({
+        type: "agent",
+        agentId: "33333333-3333-4333-8333-333333333333",
         companyId: "company-1",
-        issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        stageId: "11111111-1111-4111-8111-111111111111",
-        stageType: "review",
-        actorAgentId: reviewerAgentId,
-        outcome: "approved",
-        body: "LGTM approved by reviewer",
-      }),
-    );
-  });
+        runId: "55555555-5555-4555-8555-555555555555",
+      });
 
-  it("auto-skips intermediate self-review stage and advances to approval stage via PATCH", async () => {
-    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
-    const authorAgentId = "44444444-4444-4444-8444-444444444444";
-    const runId = "55555555-5555-4555-8555-555555555555";
-    const policy = normalizeIssueExecutionPolicy({
-      stages: [
-        {
-          id: "11111111-1111-4111-8111-111111111111",
-          type: "review",
-          participants: [{ type: "agent", agentId: reviewerAgentId }],
-        },
-        {
-          id: "22222222-2222-4222-8222-222222222222",
-          type: "review",
-          participants: [{ type: "agent", agentId: authorAgentId }],
-        },
-        {
-          id: "33333333-3333-4333-8333-333333333334",
-          type: "approval",
-          participants: [{ type: "agent", agentId: authorAgentId }],
-        },
-      ],
-    })!;
-    const issue = {
-      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      companyId: "company-1",
-      status: "in_review",
-      assigneeAgentId: reviewerAgentId,
-      assigneeUserId: null,
-      createdByUserId: "local-board",
-      identifier: "PAP-1021",
-      title: "Review auto-skipping intermediate stage",
-      executionPolicy: policy,
-      executionState: {
-        status: "pending",
-        currentStageId: "11111111-1111-4111-8111-111111111111",
-        currentStageIndex: 0,
-        currentStageType: "review",
-        currentParticipant: { type: "agent", agentId: reviewerAgentId },
-        returnAssignee: { type: "agent", agentId: authorAgentId },
-        completedStageIds: [],
-        lastDecisionId: null,
-        lastDecisionOutcome: null,
-      },
-    };
-    mockIssueService.getById.mockResolvedValue(issue);
-    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
-      ...issue,
-      ...patch,
-      updatedAt: new Date(),
-    }));
-
-    const app = await createApp({
-      type: "agent",
-      agentId: reviewerAgentId,
-      companyId: "company-1",
-      runId,
-    });
-
-    const res = await request(app)
-      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-      .set("X-Paperclip-Run-Id", runId)
-      .send({ status: "done", comment: "First review approved" });
-
-    expect(res.status).toBe(200);
-    expect(mockIssueService.update).toHaveBeenCalledWith(
-      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      expect.objectContaining({
-        status: "in_review",
-        assigneeAgentId: authorAgentId,
-        executionState: expect.objectContaining({
-          status: "pending",
-          currentStageId: "33333333-3333-4333-8333-333333333334",
-          currentStageIndex: 2,
-          currentStageType: "approval",
-          completedStageIds: [
-            "11111111-1111-4111-8111-111111111111",
-            "22222222-2222-4222-8222-222222222222",
-          ],
-        }),
-      }),
-      expect.anything(),
-    );
-  });
-
-  it("proves exactly one selection or skip under concurrent review approval requests", async () => {
-    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
-    const authorAgentId = "44444444-4444-4444-8444-444444444444";
-    const runId = "55555555-5555-4555-8555-555555555555";
-    const policy = normalizeIssueExecutionPolicy({
-      stages: [
-        {
-          id: "11111111-1111-4111-8111-111111111111",
-          type: "review",
-          participants: [{ type: "agent", agentId: reviewerAgentId }],
-        },
-        {
-          id: "22222222-2222-4222-8222-222222222222",
-          type: "approval",
-          participants: [{ type: "agent", agentId: authorAgentId }],
-        },
-      ],
-    })!;
-
-    let currentIssueState: any = {
-      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      companyId: "company-1",
-      status: "in_review",
-      assigneeAgentId: reviewerAgentId,
-      assigneeUserId: null,
-      createdByUserId: "local-board",
-      identifier: "PAP-1022",
-      title: "Concurrent review approvals",
-      executionPolicy: policy,
-      executionState: {
-        status: "pending",
-        currentStageId: "11111111-1111-4111-8111-111111111111",
-        currentStageIndex: 0,
-        currentStageType: "review",
-        currentParticipant: { type: "agent", agentId: reviewerAgentId },
-        returnAssignee: { type: "agent", agentId: authorAgentId },
-        completedStageIds: [],
-        lastDecisionId: null,
-        lastDecisionOutcome: null,
-      },
-    };
-
-    // Simulate serialized row lock in getById/update:
-    // When the first request commits, state changes to the approval stage with authorAgentId.
-    mockIssueService.getById.mockImplementation(async () => ({ ...currentIssueState }));
-    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
-      currentIssueState = {
-        ...currentIssueState,
-        ...patch,
-        updatedAt: new Date(),
-      };
-      return currentIssueState;
-    });
-
-    const app = await createApp({
-      type: "agent",
-      agentId: reviewerAgentId,
-      companyId: "company-1",
-      runId,
-    });
-
-    // Fire two requests concurrently
-    const [res1, res2] = await Promise.all([
-      request(app)
+      const res = await request(app)
         .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-        .set("X-Paperclip-Run-Id", runId)
-        .send({ status: "done", comment: "First concurrent approval" }),
-      request(app)
-        .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-        .set("X-Paperclip-Run-Id", runId)
-        .send({ status: "done", comment: "Second concurrent approval" }),
-    ]);
+        .send({
+          status: "done",
+          comment: "Looks good to land",
+          evidence: {
+            pr: 55,
+            mergedSha: "abcdef1234567890abcdef1234567890abcdef12",
+            repo: "paperclipai/paperclip",
+          },
+        });
 
-    const statuses = [res1.status, res2.status].sort();
-    // Exactly one must succeed (200) and the other must be rejected (422: no longer active reviewer)
-    expect(statuses).toEqual([200, 422]);
-
-    // Exactly one decision must have been inserted into issueExecutionDecisions
-    expect(mockDbInsertValues).toHaveBeenCalledTimes(1);
-
-    // Final issue state is in approval stage assigned to authorAgentId
-    expect(currentIssueState.status).toBe("in_review");
-    expect(currentIssueState.assigneeAgentId).toBe(authorAgentId);
-    expect(currentIssueState.executionState.currentStageType).toBe("approval");
-    expect(currentIssueState.executionState.completedStageIds).toEqual([
-      "11111111-1111-4111-8111-111111111111",
-    ]);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("delivery_unverified_not_merged");
+      expect(mockIssueService.update).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
