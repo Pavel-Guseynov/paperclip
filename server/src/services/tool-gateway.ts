@@ -3456,7 +3456,7 @@ export function createToolGatewayService(
         current &&
         current.healthStatus === "ok" &&
         current.lastHealthAt &&
-        current.lastHealthAt > options.observedAt
+        new Date(current.lastHealthAt).getTime() >= options.observedAt.getTime()
       ) {
         return;
       }
@@ -5768,6 +5768,7 @@ export function createToolGatewayService(
     invocationId: string,
     callerHeaders?: ExecuteGatewayToolInput["callerHeaders"],
     useDefaultTimeout = false,
+    startedAt?: Date,
   ): Promise<RemoteHttpExecutionResult> {
     const { entry, connection } = await resolveConnectedRemoteTool(
       session,
@@ -5818,7 +5819,7 @@ export function createToolGatewayService(
         dispatched: true,
       },
     };
-    const invocationStartedAt = new Date();
+    const invocationStartedAt = startedAt ?? new Date();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     timer.unref?.();
@@ -10325,6 +10326,7 @@ export function createToolGatewayService(
                 invocationId,
                 input.callerHeaders,
                 input.timeoutMs === undefined,
+                new Date(startedAt),
               )
             : tool.providerType === "mcp_local_stdio"
               ? await executeLocalStdioTool(
