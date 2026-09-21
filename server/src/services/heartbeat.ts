@@ -1152,10 +1152,6 @@ function isRetryableInteractionContinuationInfrastructureFailure(
   >,
 ) {
   if (run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE) {
-    const payload = parseObject(parseObject(run.resultJson).workspaceValidation);
-    if (payload?.reason === "git_worktree_branch_incoherence") {
-      return false;
-    }
     return true;
   }
   if (run.errorCode === "process_lost") {
@@ -15339,8 +15335,7 @@ export function heartbeatService(
         : null;
     const shouldQuarantineWorkspaceForRetry =
       workspaceValidationRetryPayload !== null &&
-      Object.keys(workspaceValidationRetryPayload).length > 0 &&
-      workspaceValidationRetryPayload.reason !== "git_worktree_branch_incoherence";
+      Object.keys(workspaceValidationRetryPayload).length > 0;
     const retryContextSnapshot: Record<string, unknown> = withRecoveryContext(
       {
         ...contextSnapshot,
