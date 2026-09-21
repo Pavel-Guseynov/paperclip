@@ -290,10 +290,18 @@ export function collectRequestCredentials(req: {
       if (typeof val === "string" && isCredentialBearingHeader(name)) {
         const trimmed = val.trim();
         if (trimmed.length > 0) {
-          creds.add(trimmed);
+          if (!/^(?:Bearer|Basic|Digest)$/i.test(trimmed)) {
+            creds.add(trimmed);
+          }
           const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
           if (bearerMatch?.[1]) {
-            creds.add(bearerMatch[1].trim());
+            const tokenCandidate = bearerMatch[1].trim();
+            if (
+              tokenCandidate.length > 0 &&
+              !/^(?:<token>|<[^>]+>|token)$/i.test(tokenCandidate)
+            ) {
+              creds.add(tokenCandidate);
+            }
           }
         }
       } else if (Array.isArray(val) && isCredentialBearingHeader(name)) {

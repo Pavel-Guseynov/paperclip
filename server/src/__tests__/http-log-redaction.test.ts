@@ -6,7 +6,10 @@ import { pinoHttp } from "pino-http";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../errors.js";
-import { HTTP_LOG_REDACT_PATHS } from "../middleware/http-log-redaction.js";
+import {
+  HTTP_LOG_REDACT_PATHS,
+  sanitizeCredentialText,
+} from "../middleware/http-log-redaction.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { testAdapterEnvironmentSchema } from "@paperclipai/shared";
 import {
@@ -1130,5 +1133,16 @@ describe("HTTP logger redaction", () => {
     expect(log.req.query).toBeUndefined();
     expect(log.reqQuery).toBeUndefined();
   });
-});
 
+  it("preserves diagnostic bearer prose and error messages without over-redaction", () => {
+    const diagnosticMessage =
+      "Empty bearer token; provide Authorization: Bearer <token>";
+    expect(sanitizeCredentialText(diagnosticMessage)).toBe(diagnosticMessage);
+
+    const credentialMessage =
+      "Failed with Authorization: Bearer secret-agent-token-9988";
+    expect(sanitizeCredentialText(credentialMessage)).toBe(
+      "Failed with Authorization: Bearer [REDACTED]",
+    );
+  });
+});

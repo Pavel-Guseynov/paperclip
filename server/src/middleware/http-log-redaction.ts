@@ -108,7 +108,8 @@ export function redactSensitiveHeaders(
   return out;
 }
 
-const BEARER_AUTH_PATTERN = /Bearer\s+[^\s"',;`]+/gi;
+const BEARER_AUTH_PATTERN =
+  /\bBearer\s+(?!(?:<token>|<[^>]+>|token|tokens|credentials?|auth|header)(?:[\s"',;`.]|$))[^\s"',;`]+/gi;
 const GATEWAY_TOKEN_PATTERN = /\bpcg[wt]_[A-Za-z0-9_.-]+\b/g;
 const URL_CREDENTIAL_QUERY_PATTERN =
   /([?&](?:token|sessionToken|gatewayToken|gateway_token|toolGatewayToken|tool_gateway_token|x-paperclip-tool-gateway-token|access_token|refresh_token|secret|api_key)=)[^&#\s]+/gi;
