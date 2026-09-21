@@ -238,21 +238,14 @@ async function assertNoSymlinkComponents(
   }
 }
 
-function decodeLsofPath(raw: string): string {
-  const bytes: number[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    if (
-      raw[i] === "\\" &&
-      raw[i + 1] === "x" &&
-      /^[0-9a-fA-F]{2}$/.test(raw.slice(i + 2, i + 4))
-    ) {
-      bytes.push(parseInt(raw.slice(i + 2, i + 4), 16));
-      i += 3;
-    } else {
-      bytes.push(raw.charCodeAt(i));
+export function decodeLsofPath(raw: string): string {
+  return raw.replace(/(?:\\x[0-9a-fA-F]{2})+/g, (match) => {
+    const bytes: number[] = [];
+    for (let i = 0; i < match.length; i += 4) {
+      bytes.push(parseInt(match.slice(i + 2, i + 4), 16));
     }
-  }
-  return Buffer.from(bytes).toString("utf8");
+    return Buffer.from(bytes).toString("utf8");
+  });
 }
 
 async function openedFilePath(fd: number): Promise<string> {
