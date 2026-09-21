@@ -26,6 +26,7 @@ import {
   issueQuestionResponseDeliveries,
   issueThreadInteractions,
   issues,
+  reviewAdmissions,
   toolActionRequests,
   toolOauthStates,
 } from "@paperclipai/db";
@@ -353,6 +354,25 @@ function isNativeCompletionReview(
       ? (payload.target as Record<string, unknown>)
       : {};
   return target.type === "custom" && target.key === "native_completion_review";
+}
+
+function isRevisionKeyedReview(
+  row: Pick<IssueThreadInteractionRow, "kind" | "payload">,
+) {
+  if (row.kind !== "request_confirmation") return false;
+  const payload =
+    row.payload &&
+    typeof row.payload === "object" &&
+    !Array.isArray(row.payload)
+      ? (row.payload as unknown as Record<string, unknown>)
+      : {};
+  const target =
+    payload.target &&
+    typeof payload.target === "object" &&
+    !Array.isArray(payload.target)
+      ? (payload.target as Record<string, unknown>)
+      : {};
+  return target.type === "custom" && target.key === "revision_keyed_review";
 }
 
 export const DEFAULT_RESOLVER_POLICY_BY_KIND: Record<
@@ -2204,6 +2224,27 @@ export function issueThreadInteractionService(
         acceptedPlanTarget?.issueId === issueContext.id &&
         acceptedPlanTarget.key === "plan" &&
         issueContext.workMode === "planning";
+      if (isRevisionKeyedReview(lockedCurrent)) {
+        const payload = lockedCurrent.payload as any;
+        const admissionId = payload?.target?.revisionId;
+        if (admissionId) {
+          await tx
+            .update(reviewAdmissions)
+            .set({
+              status: "completed",
+              decision: "approved",
+              decisionReason: (args.input as any)?.reason ?? null,
+              decidedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(reviewAdmissions.id, admissionId),
+                eq(reviewAdmissions.status, "in_review"),
+              ),
+            );
+        }
+      }
       if (isNativeCompletionReview(lockedCurrent)) {
         const otherPending = await tx.select({ id: issueThreadInteractions.id })
           .from(issueThreadInteractions).where(and(
@@ -2483,8 +2524,30 @@ export function issueThreadInteractionService(
         issueContext.status === "in_review" &&
         (lockedCurrent.continuationPolicy === "wake_assignee" ||
           rejectedPlanNeedsRevision);
+      if (isRevisionKeyedReview(lockedCurrent)) {
+        const payload = lockedCurrent.payload as any;
+        const admissionId = payload?.target?.revisionId;
+        if (admissionId) {
+          await tx
+            .update(reviewAdmissions)
+            .set({
+              status: "completed",
+              decision: "changes_requested",
+              decisionReason: reason || null,
+              decidedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(reviewAdmissions.id, admissionId),
+                eq(reviewAdmissions.status, "in_review"),
+              ),
+            );
+        }
+      }
       if (
         isNativeCompletionReview(lockedCurrent) ||
+        isRevisionKeyedReview(lockedCurrent) ||
         shouldResumeReviewedIssue
       ) {
         await issueService(db).update(
