@@ -1,6 +1,4 @@
 {
-  "id": "9a7a89fb-6868-4119-b531-e83c6dda6592",
-  "prevId": "8d202a5a-5d6b-44d9-9336-3bb39a8b99bc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2037,12 +2035,6 @@
         "icon": {
           "name": "icon",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "appearance": {
-          "name": "appearance",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -37422,26 +37414,6 @@
           "notNull": true,
           "default": true
         },
-        "setup_pending": {
-          "name": "setup_pending",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "archived": {
-          "name": "archived",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "last_webhook_delivery": {
-          "name": "last_webhook_delivery",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "cron_expression": {
           "name": "cron_expression",
           "type": "text",
@@ -37694,100 +37666,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.routine_webhook_test_receipts": {
-      "name": "routine_webhook_test_receipts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "trigger_id": {
-          "name": "trigger_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "delivery_key_hash": {
-          "name": "delivery_key_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "received_at": {
-          "name": "received_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "routine_webhook_test_receipts_delivery_uq": {
-          "name": "routine_webhook_test_receipts_delivery_uq",
-          "columns": [
-            {
-              "expression": "trigger_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "delivery_key_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "routine_webhook_test_receipts_company_id_companies_id_fk": {
-          "name": "routine_webhook_test_receipts_company_id_companies_id_fk",
-          "tableFrom": "routine_webhook_test_receipts",
-          "tableTo": "companies",
-          "columnsFrom": [
-            "company_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "routine_webhook_test_receipts_trigger_id_routine_triggers_id_fk": {
-          "name": "routine_webhook_test_receipts_trigger_id_routine_triggers_id_fk",
-          "tableFrom": "routine_webhook_test_receipts",
-          "tableTo": "routine_triggers",
-          "columnsFrom": [
-            "trigger_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -47921,8 +47799,10 @@
   "policies": {},
   "views": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
-  }
+    "tables": {},
+    "columns": {}
+  },
+  "id": "309463ae-70cd-4c21-9352-d386ee78ec98",
+  "prevId": "4770ad6d-2cdc-45c4-af89-c300fd134d91"
 }
