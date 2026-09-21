@@ -878,7 +878,10 @@ function readNativeCompletionReviewForWake(input: {
   status: string;
 }) {
   const target = readObject(readObject(input.payload).target);
-  if (target.type !== "custom" || target.key !== "native_completion_review")
+  if (
+    target.type !== "custom" ||
+    (target.key !== "native_completion_review" && target.key !== "revision_keyed_review")
+  )
     return null;
   const result = readConfirmationResultForWake(input.result);
   return {
