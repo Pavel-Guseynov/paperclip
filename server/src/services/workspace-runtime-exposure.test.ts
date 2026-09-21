@@ -327,6 +327,7 @@ function startInput(options?: {
   expose?: Record<string, unknown> | null;
   port?: Record<string, unknown> | number;
   command?: string;
+  executionWorkspaceId?: string;
 }) {
   const expose = options?.expose === undefined ? DECLARED_EXPOSE : options.expose;
   return {
@@ -348,7 +349,7 @@ function startInput(options?: {
       created: false,
       branchCreatedByRuntime: false,
     },
-    executionWorkspaceId: EXECUTION_WORKSPACE_ID,
+    executionWorkspaceId: options?.executionWorkspaceId ?? EXECUTION_WORKSPACE_ID,
     config: {
       workspaceRuntime: {
         services: [{
@@ -372,14 +373,19 @@ describe("workspace runtime tailscale_https lifecycle", () => {
     const { broker, calls } = createBroker();
     installDeps({ broker });
 
-    const [runtime] = await startRuntimeServicesForWorkspaceControl(startInput());
+    const port = await findFreeExposureAppPort(RUNTIME_EXPOSURE_APP_PORT_MIN);
+    const executionWorkspaceId = "11111111-2222-4333-8444-555566667771";
+    const [runtime] = await startRuntimeServicesForWorkspaceControl(startInput({
+      executionWorkspaceId,
+      port,
+    }));
     expect(calls.slice(0, 2)).toEqual(["reserve", "expose"]);
-    expect(runtime.port).toBeGreaterThanOrEqual(42000);
+    expect(runtime.port).toBe(port);
     expect(runtime.url).toBe(`https://runner.tail123.ts.net:${runtime.port}`);
     expect(runtime.exposure?.state).toBe("ready");
 
     await stopRuntimeServicesForExecutionWorkspace({
-      executionWorkspaceId: EXECUTION_WORKSPACE_ID,
+      executionWorkspaceId,
       runtimeServiceId: runtime.id,
     });
     expect(calls).toEqual(["reserve", "expose", "remove"]);
@@ -389,7 +395,14 @@ describe("workspace runtime tailscale_https lifecycle", () => {
     const { broker, calls } = createBroker();
     installDeps({ broker, probeHealth: async () => false });
 
-    await expect(startRuntimeServicesForWorkspaceControl(startInput())).rejects.toThrow(/HTTPS exposure failed/);
+    const port = await findFreeExposureAppPort(RUNTIME_EXPOSURE_APP_PORT_MIN + 1);
+    const executionWorkspaceId = "11111111-2222-4333-8444-555566667772";
+    await expect(
+      startRuntimeServicesForWorkspaceControl(startInput({
+        executionWorkspaceId,
+        port,
+      })),
+    ).rejects.toThrow(/HTTPS exposure failed/);
     expect(calls).toEqual(["reserve", "expose", "remove"]);
   }, 15_000);
 });
