@@ -1152,10 +1152,6 @@ function isRetryableInteractionContinuationInfrastructureFailure(
   >,
 ) {
   if (run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE) {
-    const payload = parseObject(parseObject(run.resultJson).workspaceValidation);
-    if (payload?.reason === "git_worktree_branch_incoherence") {
-      return false;
-    }
     return true;
   }
   if (run.errorCode === "process_lost") {
