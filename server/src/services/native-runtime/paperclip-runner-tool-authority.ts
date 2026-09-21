@@ -26,7 +26,7 @@ import { workspaceFileResourceService } from "../workspace-file-resources.js";
 import { badRequest, forbidden } from "../../errors.js";
 import { searchRunnerApi } from "./runner-api-catalog.js";
 import { executeRunnerApi, validateRunnerApiCall, RUNNER_API_MAX_BYTES, type RunnerApiFile } from "./runner-api-client.js";
-import { and, desc, eq, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   activityLog,
@@ -41,6 +41,7 @@ import {
   issueDocuments,
   issues,
   issueThreadInteractions,
+  reviewAdmissions,
 } from "@paperclipai/db";
 import { CAPABILITY_SEMANTIC_TOOL_CATALOG } from "../../vendor/paperclip-runner/index.js";
 import { agentService } from "../agents.js";
@@ -48,6 +49,8 @@ import { approvalService } from "../approvals.js";
 import { documentService } from "../documents.js";
 import { issueService } from "../issues.js";
 import { issueThreadInteractionService } from "../issue-thread-interactions.js";
+import { createDeliveryVerificationService } from "../delivery-verification.js";
+import { createReviewAdmissionService } from "../review-admission.js";
 import { getNativeReviewAssignment, readNativeReviewAssignmentContext, type NativeReviewAssignmentContext } from "./native-review-participant.js";
 import { childReviewOutcomes } from "./child-review-outcomes.js";
 import { persistActivity, publishActivity } from "../activity-log.js";
@@ -158,6 +161,32 @@ export class PaperclipRunnerToolAuthority {
           .filter((tool) => NATIVE_REVIEW_READ_TOOLS.has(tool.operationId))
           .map((tool) => ({ name: tool.operationId, description: tool.description, inputSchema: tool.inputSchema })),
         {
+          name: "read_pr",
+          description: "Inspect the pull request under review, including status, head commit, base branch, changed files, and checks summary.",
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              pullNumber: { type: "integer", description: "Pull request number (defaults to the assigned review PR)." },
+              includeDiff: { type: "boolean", description: "Whether to include the list of changed files and line addition/deletion summaries." },
+            },
+          },
+        },
+        {
+          name: "submit_review",
+          description: "Record your immutable decision on the completion review assigned to this run. Inspect the submitted work with read_pr first. Accept only if it satisfies the criteria; otherwise reject with specific changes required. After recording the decision, report your review complete with paperclip_finish.",
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              decision: { type: "string", enum: ["accept", "reject"], description: "The review verdict" },
+              reason: { type: "string", description: "Required when rejecting: the specific changes the worker must make." },
+              summary: { type: "string", description: "Optional summary of the review evaluation." },
+            },
+            required: ["decision"],
+          },
+        },
+        {
           name: "resolve_review",
           description: "Record your decision on the one completion review assigned to this run. Inspect the submitted work first. Accept only if it meets the request; otherwise reject with specific changes. This does not change task ownership. After recording the decision, report your review complete with paperclip_finish. Do not redo the worker's task or wait for your own parent task to become runnable.",
           inputSchema: {
@@ -232,7 +261,8 @@ export class PaperclipRunnerToolAuthority {
     arguments: unknown;
   }): Promise<unknown> {
     if (this.binding.nativeReview) {
-      if (call.tool === "resolve_review") return this.#resolveReview(call.arguments);
+      if (call.tool === "submit_review" || call.tool === "resolve_review") return this.#resolveReview(call.arguments);
+      if (call.tool === "read_pr") return this.#readPr(call.arguments);
       if (!NATIVE_REVIEW_READ_TOOLS.has(call.tool)) {
         throw forbidden("This review run may only inspect the assigned task and resolve its review.");
       }
@@ -666,7 +696,74 @@ export class PaperclipRunnerToolAuthority {
       body: JSON.stringify(input.decision === "reject" ? { reason } : {}),
     });
     if (!response.ok) throw new Error(`Review decision was not accepted (${response.status}): ${(await response.text()).slice(0, 2_000)}`);
+
+    // Synchronize review admission record if present
+    try {
+      const admission = await this.db
+        .select()
+        .from(reviewAdmissions)
+        .where(
+          and(
+            eq(reviewAdmissions.companyId, this.binding.companyId),
+            eq(reviewAdmissions.issueId, this.binding.issueId),
+            inArray(reviewAdmissions.status, ["admitted", "in_review", "completed"]),
+          ),
+        )
+        .orderBy(desc(reviewAdmissions.createdAt))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+
+      if (admission) {
+        const reviewAdmissionService = createReviewAdmissionService(this.db);
+        await reviewAdmissionService.recordReviewDecision({
+          companyId: this.binding.companyId,
+          admissionId: admission.id,
+          decision: input.decision === "accept" ? "accept" : "reject",
+          reason,
+          actorId: this.binding.agentId,
+          actorType: "agent",
+        });
+      }
+    } catch {
+      // Non-fatal if interaction already resolved
+    }
+
     return { interactionId: review.interaction.id, status: expectedStatus };
+  }
+
+  async #readPr(args: unknown): Promise<unknown> {
+    const input = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
+    const pullNumberArg = typeof input.pullNumber === "number" && input.pullNumber > 0 ? input.pullNumber : undefined;
+    const includeDiff = Boolean(input.includeDiff);
+
+    // Look up admission from reviewAdmissions
+    const admission = await this.db
+      .select()
+      .from(reviewAdmissions)
+      .where(
+        and(
+          eq(reviewAdmissions.companyId, this.binding.companyId),
+          eq(reviewAdmissions.issueId, this.binding.issueId),
+        ),
+      )
+      .orderBy(desc(reviewAdmissions.createdAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+
+    const prDetails = admission?.prDetails as Record<string, unknown> | null;
+    const pullNumber = pullNumberArg ?? (typeof prDetails?.pullNumber === "number" ? prDetails.pullNumber : undefined);
+
+    if (!pullNumber) {
+      throw badRequest("No pull request number is available for this review task.");
+    }
+
+    const deliveryVerification = createDeliveryVerificationService();
+    return deliveryVerification.readPullRequest({
+      pr: pullNumber,
+      repo: typeof prDetails?.repo === "string" ? prDetails.repo : null,
+      repoUrl: typeof prDetails?.repoUrl === "string" ? prDetails.repoUrl : null,
+      includeDiff,
+    });
   }
 
   async #reportProgress(input: Record<string, unknown>): Promise<unknown> {

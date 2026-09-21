@@ -1,6 +1,7 @@
 import type {
   IssueExecutionPolicy,
   IssueTerminalEvidence,
+  PRReadResult,
   VerifiedDeliveryReceipt,
 } from "@paperclipai/shared";
 import { HttpError } from "../errors.js";
@@ -16,6 +17,8 @@ export const DELIVERY_ERROR_CODES = {
   CHECKS_PENDING: "delivery_unverified_checks_pending",
   UNREACHABLE: "delivery_unverified_unreachable",
   REPOSITORY_UNAVAILABLE: "delivery_unverified_repository_unavailable",
+  DISPOSITION_INVALID: "delivery_unverified_disposition_invalid",
+  WORK_PRODUCTS_MISSING: "delivery_unverified_work_products_missing",
 } as const;
 
 export type DeliveryErrorCode = (typeof DELIVERY_ERROR_CODES)[keyof typeof DELIVERY_ERROR_CODES];
@@ -71,6 +74,11 @@ export interface DeliveryProviderClient {
     headSha: string;
     mergeCommitSha?: string | null;
   }): Promise<boolean>;
+  getPullRequestFiles?(params: {
+    owner: string;
+    repo: string;
+    pullNumber: number;
+  }): Promise<Array<{ filename: string; status: string; additions: number; deletions: number }>>;
 }
 
 export function isOperationTask(issue: {
@@ -226,6 +234,25 @@ export function createGitHubDeliveryClient(options?: {
         baseRef: data.base?.ref ?? "",
         baseSha: data.base?.sha ?? null,
       };
+    },
+    async getPullRequestFiles({ owner, repo, pullNumber }) {
+      const authHeaders: Record<string, string> = {
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "Paperclip-Delivery-Verification",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const url = `${apiBase}/repos/${owner}/${repo}/pulls/${pullNumber}/files`;
+      const res = await getFetch()(url, { headers: authHeaders });
+      if (!res.ok) return [];
+      const files = (await res.json()) as any[];
+      return Array.isArray(files)
+        ? files.map((f: any) => ({
+            filename: String(f.filename ?? ""),
+            status: String(f.status ?? "modified"),
+            additions: Number(f.additions ?? 0),
+            deletions: Number(f.deletions ?? 0),
+          }))
+        : [];
     },
     async getChecks({ owner, repo, ref }) {
       const authHeaders: Record<string, string> = {
@@ -389,6 +416,24 @@ export function createGiteaDeliveryClient(options?: {
         baseSha: data.base?.sha ?? null,
       };
     },
+    async getPullRequestFiles({ owner, repo, pullNumber }) {
+      const authHeaders: Record<string, string> = {
+        Accept: "application/json",
+        ...(token ? { Authorization: `token ${token}` } : {}),
+      };
+      const url = `${apiBase}/repos/${owner}/${repo}/pulls/${pullNumber}/files`;
+      const res = await getFetch()(url, { headers: authHeaders });
+      if (!res.ok) return [];
+      const files = (await res.json()) as any[];
+      return Array.isArray(files)
+        ? files.map((f: any) => ({
+            filename: String(f.filename ?? ""),
+            status: String(f.status ?? "modified"),
+            additions: Number(f.additions ?? 0),
+            deletions: Number(f.deletions ?? 0),
+          }))
+        : [];
+    },
     async getChecks({ owner, repo, ref }) {
       const authHeaders: Record<string, string> = {
         Accept: "application/json",
@@ -511,6 +556,50 @@ export interface VerifyTerminalDeliveryResult {
   errorCode?: DeliveryErrorCode;
   reason?: string;
   exempt?: boolean;
+}
+
+export interface PreflightReviewDeliveryInput {
+  issue: {
+    id: string;
+    title: string;
+    status: string;
+    kind?: string | null;
+    labels?: Array<{ name?: string } | string> | null;
+    originKind?: string | null;
+  };
+  sourceSha: string;
+  evidence?: {
+    pr?: string | number | null;
+    repo?: string | null;
+    repoUrl?: string | null;
+    headSha?: string | null;
+    mergedSha?: string | null;
+    baseBranch?: string | null;
+    checkRun?: string | number | null;
+    note?: string | null;
+  } | null;
+  repoUrl?: string | null;
+  baseRef?: string | null;
+  workProducts?: Array<{
+    kind?: string;
+    title?: string;
+    location?: string;
+    [key: string]: unknown;
+  }> | null;
+  client?: DeliveryProviderClient;
+}
+
+export interface PreflightReviewDeliveryResult {
+  verified: boolean;
+  errorCode?: DeliveryErrorCode;
+  reason?: string;
+  exempt?: boolean;
+  pr?: DeliveryPullRequestDetails;
+  checksSummary?: DeliveryChecksSummary;
+  provider?: DeliveryProvider;
+  repo?: string;
+  pullNumber?: number;
+  preflightEvidence?: Record<string, unknown>;
 }
 
 export class DeliveryVerificationService {
@@ -743,6 +832,283 @@ export class DeliveryVerificationService {
       receipt,
     };
   }
+
+  async preflightReviewDelivery(
+    input: PreflightReviewDeliveryInput,
+  ): Promise<PreflightReviewDeliveryResult> {
+    // 1. Operation task exemption
+    if (isOperationTask(input.issue)) {
+      return {
+        verified: true,
+        exempt: true,
+        reason: "operation_task",
+      };
+    }
+
+    // 2. Disposition check: cannot admit review for an issue that is already terminal
+    if (input.issue.status === "done" || input.issue.status === "cancelled") {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.DISPOSITION_INVALID,
+        reason: "Cannot admit review for an issue that is already terminal.",
+      };
+    }
+
+    // 3. Work products check: code tasks require deliverables/work products
+    if (input.workProducts !== undefined && (!input.workProducts || input.workProducts.length === 0)) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.WORK_PRODUCTS_MISSING,
+        reason: "A code task requires recorded work products or deliverables before review admission.",
+      };
+    }
+
+    // 4. PR Identity check
+    if (!input.evidence || !input.evidence.pr) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.EVIDENCE_MISSING,
+        reason: "A code task requires PR identity before review admission.",
+      };
+    }
+
+    const target = parseRepoAndPr({
+      pr: input.evidence.pr,
+      repo: input.evidence.repo,
+      repoUrl: input.repoUrl || input.evidence.repoUrl,
+    });
+
+    if (!target || target.unsupported || !target.owner || !target.repo) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.UNSUPPORTED_PROVIDER,
+        reason: "Missing, unsupported, or invalid repository URL or provider.",
+      };
+    }
+
+    const pullNumber = target.pullNumber;
+    if (!pullNumber) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+        reason: "Cannot determine pull request number from delivery evidence.",
+      };
+    }
+
+    const client =
+      input.client ??
+      this.clientOverride ??
+      (target.provider === "gitea"
+        ? createGiteaDeliveryClient({
+            apiBase: input.repoUrl
+              ? input.repoUrl.replace(/\/[^/]+\/[^/]+(?:\.git)?$/, "")
+              : undefined,
+          })
+        : createGitHubDeliveryClient({
+            apiBase: input.repoUrl?.includes("api.github.com")
+              ? "https://api.github.com"
+              : undefined,
+          }));
+
+    // 5. Fetch PR details
+    let pr: DeliveryPullRequestDetails;
+    try {
+      pr = await client.getPullRequest({
+        owner: target.owner,
+        repo: target.repo,
+        pullNumber,
+      });
+    } catch (err: any) {
+      return {
+        verified: false,
+        errorCode: err.code || DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+        reason: err.message || "Failed to fetch pull request",
+      };
+    }
+
+    // 6. Verify exact head commit SHA match against input.sourceSha
+    const expectedHeadSha = input.sourceSha.trim().toLowerCase();
+    const actualHeadSha = pr.headSha.trim().toLowerCase();
+    if (
+      !actualHeadSha.startsWith(expectedHeadSha) &&
+      !expectedHeadSha.startsWith(actualHeadSha)
+    ) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
+        reason: `Head SHA mismatch: expected reviewed head "${expectedHeadSha}", but PR head commit is "${actualHeadSha}". Head movement detected.`,
+      };
+    }
+
+    if (input.evidence.headSha) {
+      const evidenceHeadSha = input.evidence.headSha.trim().toLowerCase();
+      if (
+        !actualHeadSha.startsWith(evidenceHeadSha) &&
+        !evidenceHeadSha.startsWith(actualHeadSha)
+      ) {
+        return {
+          verified: false,
+          errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
+          reason: `Head SHA mismatch: delivery evidence head "${evidenceHeadSha}" does not match PR head "${actualHeadSha}".`,
+        };
+      }
+    }
+
+    // 7. Base branch check if specified
+    const expectedBase = input.baseRef?.trim() || input.evidence?.baseBranch?.trim();
+    if (expectedBase && pr.baseRef && pr.baseRef !== expectedBase) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.BASE_MISMATCH,
+        reason: `Base branch mismatch: expected "${expectedBase}", but PR targets "${pr.baseRef}".`,
+      };
+    }
+
+    // 8. Fetch and verify PR checks
+    let checks: DeliveryChecksSummary;
+    try {
+      checks = await client.getChecks({
+        owner: target.owner,
+        repo: target.repo,
+        ref: pr.headSha,
+      });
+    } catch (err: any) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+        reason: `Failed to fetch checks: ${err.message}`,
+      };
+    }
+
+    if (checks.status === "failed" || checks.failed > 0) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.CHECKS_FAILING,
+        reason: `Checks failing on commit "${pr.headSha}" (${checks.failed} failed).`,
+      };
+    }
+
+    if (checks.status === "pending" || checks.pending > 0) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.CHECKS_PENDING,
+        reason: `Checks pending on commit "${pr.headSha}" (${checks.pending} pending).`,
+      };
+    }
+
+    // 9. Structured preflight evidence
+    const preflightEvidence: Record<string, unknown> = {
+      verifiedAt: new Date().toISOString(),
+      provider: client.provider,
+      repo: `${target.owner}/${target.repo}`,
+      pullNumber,
+      headSha: pr.headSha,
+      baseRef: pr.baseRef,
+      checksSummary: {
+        status: checks.status,
+        total: checks.total,
+        passed: checks.passed,
+        failed: checks.failed,
+        pending: checks.pending,
+      },
+      workProductsCount: input.workProducts?.length ?? 0,
+    };
+
+    return {
+      verified: true,
+      pr,
+      checksSummary: checks,
+      provider: client.provider,
+      repo: `${target.owner}/${target.repo}`,
+      pullNumber,
+      preflightEvidence,
+    };
+  }
+
+  async readPullRequest(input: {
+    pr: string | number;
+    repo?: string | null;
+    repoUrl?: string | null;
+    includeDiff?: boolean;
+    client?: DeliveryProviderClient;
+  }): Promise<PRReadResult> {
+    const target = parseRepoAndPr({
+      pr: input.pr,
+      repo: input.repo,
+      repoUrl: input.repoUrl,
+    });
+    if (!target || !target.owner || !target.repo || !target.pullNumber) {
+      throw new DeliveryVerificationError(
+        DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+        "Cannot parse pull request reference",
+      );
+    }
+    const client =
+      input.client ??
+      this.clientOverride ??
+      (target.provider === "gitea"
+        ? createGiteaDeliveryClient({
+            apiBase: input.repoUrl
+              ? input.repoUrl.replace(/\/[^/]+\/[^/]+(?:\.git)?$/, "")
+              : undefined,
+          })
+        : createGitHubDeliveryClient({
+            apiBase: input.repoUrl?.includes("api.github.com")
+              ? "https://api.github.com"
+              : undefined,
+          }));
+
+    const pr = await client.getPullRequest({
+      owner: target.owner,
+      repo: target.repo,
+      pullNumber: target.pullNumber,
+    });
+
+    let checks: DeliveryChecksSummary | undefined;
+    try {
+      checks = await client.getChecks({
+        owner: target.owner,
+        repo: target.repo,
+        ref: pr.headSha,
+      });
+    } catch {
+      // Non-fatal for read
+    }
+
+    let files: Array<{ filename: string; status: string; additions: number; deletions: number }> = [];
+    if (input.includeDiff && client.getPullRequestFiles) {
+      try {
+        files = await client.getPullRequestFiles({
+          owner: target.owner,
+          repo: target.repo,
+          pullNumber: target.pullNumber,
+        });
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    const totalAdditions = files.reduce((acc, f) => acc + f.additions, 0);
+    const totalDeletions = files.reduce((acc, f) => acc + f.deletions, 0);
+    const diffSummary = files.length > 0
+      ? files.map((f) => `${f.status === "added" ? "A" : f.status === "deleted" ? "D" : "M"} ${f.filename} (+${f.additions}, -${f.deletions})`).join("\n")
+      : undefined;
+
+    return {
+      pullNumber: target.pullNumber,
+      provider: client.provider,
+      repo: `${target.owner}/${target.repo}`,
+      title: `PR #${target.pullNumber} in ${target.owner}/${target.repo}`,
+      state: pr.state,
+      headSha: pr.headSha,
+      baseRef: pr.baseRef,
+      changedFiles: files.length > 0 ? files.length : undefined,
+      additions: files.length > 0 ? totalAdditions : undefined,
+      deletions: files.length > 0 ? totalDeletions : undefined,
+      diffSummary,
+      checksSummary: checks,
+    };
+  }
 }
 
 export function createDeliveryVerificationService(options?: {
@@ -758,3 +1124,11 @@ export async function verifyTerminalDelivery(
   const service = createDeliveryVerificationService();
   return service.verifyTerminalDelivery(input);
 }
+
+export async function preflightReviewDelivery(
+  input: PreflightReviewDeliveryInput,
+): Promise<PreflightReviewDeliveryResult> {
+  const service = createDeliveryVerificationService();
+  return service.preflightReviewDelivery(input);
+}
+
