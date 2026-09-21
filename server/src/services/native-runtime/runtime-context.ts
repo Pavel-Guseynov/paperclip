@@ -204,7 +204,6 @@ export async function resolveNativeRuntimeMcpSnapshot(input: { db: Db; agent: Pi
     && connection.status === "active"
     && connection.enabled
     && (Boolean(runIdentity?.activeIdentityContextId) && (connection.config?.sourceTemplateKey === "github" || connection.transportConfig?.sourceTemplateKey === "github")
-      || connection.healthStatus === "degraded"
       || !isToolConnectionAttentionHealth(connection.healthStatus))
     && ["mcp_remote", "local_stdio"].includes(connection.transport)
   ).map((connection) => connection.id));
