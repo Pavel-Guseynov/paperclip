@@ -7,6 +7,7 @@ import {
   sanitizeUrlForDiagnostics,
   validateRuntimeEndpointReachability,
 } from "./reachability.js";
+import { defaultPathForPlatform } from "./server-utils.js";
 import type { AdapterExecutionTarget } from "./execution-target.js";
 import type { SshRemoteExecutionSpec } from "./ssh.js";
 
@@ -299,6 +300,17 @@ describe("reachability", () => {
       expect(formatted).toBe(
         '[paperclip] Runtime reachability failure: executionMode=cli, addressClass=loopback, failurePhase=reachability_probe (endpoint=http://127.0.0.1:3100). Endpoint unreachable from container.',
       );
+    });
+  });
+
+  describe("defaultPathForPlatform", () => {
+    it("includes stable profile link /run/current-system/sw/bin on POSIX", () => {
+      const p = defaultPathForPlatform();
+      if (process.platform === "win32") {
+        expect(p).toContain("System32");
+      } else {
+        expect(p).toContain("/run/current-system/sw/bin");
+      }
     });
   });
 });
