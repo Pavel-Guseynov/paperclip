@@ -3453,6 +3453,13 @@ function logIssueListRequest(input: {
   });
 }
 
+/**
+ * The answer for a transition that cannot name a user participant, so the
+ * question is never asked. Permissive rather than restrictive because it
+ * reproduces the behaviour that preceded the check.
+ */
+const assumeAssignable = () => true;
+
 export function issueRoutes(
   db: Db,
   storage: StorageService,
@@ -3511,6 +3518,28 @@ export function issueRoutes(
   const svc = issueService(db);
   const runRedactions = createRunSecretRedactionRegistry(db);
   const access = accessService(db);
+  /**
+   * The company's answer to "may this user be assigned an issue here?", which
+   * is the fact `assertAssignableUser` enforces on the write path — a refusal
+   * there fails the whole PATCH with `Assignee user not found`. A review round
+   * escalated to such a user can therefore never complete, so the stage
+   * transition asks before it names one: it is pure and holds no membership
+   * data, and this is the caller's half of that contract.
+   *
+   * The memberships are read only while the execution state is pending, which
+   * is the one state in which the transition can hand a stage to a user. Both
+   * askers — the review round cap and the escalated hold — read the active
+   * stage, and a stage is active only while its state is pending. Every other
+   * transition takes the permissive default rather than pay for a read it
+   * cannot consult, which also keeps its behaviour unchanged. If that invariant
+   * is ever broken, the stage is named a user this company cannot assign and
+   * the PATCH fails, which is the defect this predicate exists to prevent.
+   */
+  const canAssignUserFor = async (issue: { companyId: string; executionState: unknown }) => {
+    if (parseIssueExecutionState(issue.executionState)?.status !== "pending") return assumeAssignable;
+    const assignableUserIds = await access.listAssignableUserIds(issue.companyId);
+    return (userId: string) => assignableUserIds.has(userId);
+  };
   const secretProposals = createSecretProposalsService(db);
   const heartbeat = heartbeatService(db, {
     pluginWorkerManager: opts.pluginWorkerManager,
@@ -9416,6 +9445,7 @@ export function issueRoutes(
               },
               allowBoardOverride: req.actor.type === "board",
               deploymentMode: deploymentModeOfActor(req.actor),
+              canAssignUser: await canAssignUserFor(lockedIssue),
               commentBody: resolutionNote ?? null,
             });
             Object.assign(updateFields, transition.patch);
@@ -13170,6 +13200,7 @@ export function issueRoutes(
         },
         allowBoardOverride: req.actor.type === "board",
         deploymentMode: deploymentModeOfActor(req.actor),
+        canAssignUser: await canAssignUserFor(existing),
         commentBody,
         reviewRequest: reviewRequest === undefined ? undefined : reviewRequest,
         monitorExplicitlyUpdated:
@@ -17602,6 +17633,7 @@ export function issueRoutes(
             userId: actor.actorType === "user" ? actor.actorId : null,
           },
           deploymentMode: deploymentModeOfActor(req.actor),
+          canAssignUser: await canAssignUserFor(currentIssue),
           commentBody: req.body.body,
         });
         const decisionId = transition.decision ? randomUUID() : null;
