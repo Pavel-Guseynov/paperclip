@@ -24,6 +24,29 @@ import {
 const mockTelemetryClient = vi.hoisted(() => ({ track: vi.fn() }));
 vi.mock("../telemetry.ts", () => ({ getTelemetryClient: () => mockTelemetryClient }));
 
+const mockAdapterExecute = vi.hoisted(() =>
+  vi.fn(async () => ({
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+    errorMessage: null,
+    summary: "Review handoff retry test run.",
+    provider: "test",
+    model: "test-model",
+  })),
+);
+
+vi.mock("../adapters/index.ts", async () => {
+  const actual = await vi.importActual<typeof import("../adapters/index.ts")>("../adapters/index.ts");
+  return {
+    ...actual,
+    getServerAdapter: vi.fn(() => ({
+      supportsLocalAgentJwt: false,
+      execute: mockAdapterExecute,
+    })),
+  };
+});
+
 vi.mock("../middleware/logger.js", () => ({
   logger: {
     child: vi.fn(function child() {
@@ -67,29 +90,23 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
   }, 20_000);
 
   afterEach(async () => {
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        await db.delete(issueRelations);
-        await db.delete(issueRecoveryActions);
-        await db.delete(heartbeatRunEvents);
-        await db.delete(activityLog);
-        await db.delete(agentTaskSessions);
-        await db.delete(heartbeatRuns);
-        await db.delete(agentWakeupRequests);
-        await db.delete(issues);
-        await db.delete(agentRuntimeState);
-        await db.delete(agents);
-        await db.delete(companySkills);
-        await db.delete(companies);
-        break;
-      } catch (error) {
-        if (attempt >= 5) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    }
+    await heartbeatService(db).drainActiveRunExecutions();
+    await db.delete(issueRelations);
+    await db.delete(issueRecoveryActions);
+    await db.delete(heartbeatRunEvents);
+    await db.delete(activityLog);
+    await db.delete(agentTaskSessions);
+    await db.delete(heartbeatRuns);
+    await db.delete(agentWakeupRequests);
+    await db.delete(issues);
+    await db.delete(agentRuntimeState);
+    await db.delete(agents);
+    await db.delete(companySkills);
+    await db.delete(companies);
   });
 
   afterAll(async () => {
+    await heartbeatService(db).drainActiveRunExecutions();
     await db?.$client?.end?.();
     await tempDb?.cleanup();
   });
@@ -211,6 +228,7 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
         ),
       );
     expect(wakes).toHaveLength(0);
+    await heartbeat.drainActiveRunExecutions();
   });
 
   it("starts or schedules exactly one handoff after a stale dependency blocker clears", async () => {
@@ -266,6 +284,20 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
         wakeRole: "reviewer",
       },
     });
+
+    // Behavioral proof that the asynchronous run reached authoritative completion before teardown
+    await heartbeat.drainActiveRunExecutions();
+    const [completedRun] = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, companyId),
+          eq(heartbeatRuns.agentId, reviewerAgentId),
+        ),
+      );
+    expect(completedRun).toBeDefined();
+    expect(completedRun.status).toBe("succeeded");
   });
 
   it("coalesces concurrent triggers using the durable issue-and-stage key", async () => {
@@ -295,6 +327,20 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
       );
     expect(wakes).toHaveLength(1);
     expect(wakes[0].idempotencyKey).toBe(`review-handoff:${issueId}:${stageId}`);
+
+    // Behavioral proof that the asynchronous run reached authoritative completion before teardown
+    await heartbeat.drainActiveRunExecutions();
+    const [completedRun] = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, companyId),
+          eq(heartbeatRuns.agentId, reviewerAgentId),
+        ),
+      );
+    expect(completedRun).toBeDefined();
+    expect(completedRun.status).toBe("succeeded");
   });
 
   it("persists queued retry across restart and resumes execution", async () => {
@@ -349,6 +395,15 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.id, run.id));
     expect(resumedRun).toBeDefined();
+
+    // Behavioral proof that the asynchronous run reached authoritative completion before teardown
+    await restartedHeartbeat.drainActiveRunExecutions();
+    const [finalRun] = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, run.id));
+    expect(finalRun).toBeDefined();
+    expect(finalRun.status).toBe("succeeded");
   });
 
   it("escalates to board with an actionable blocker upon exhausting review handoff budget", async () => {
