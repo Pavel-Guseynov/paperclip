@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  activityLog,
   agents,
   agentRuntimeState,
+  agentTaskSessions,
   agentWakeupRequests,
   companies,
   companySkills,
@@ -65,16 +67,26 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
   }, 20_000);
 
   afterEach(async () => {
-    await db.delete(issueRelations);
-    await db.delete(issueRecoveryActions);
-    await db.delete(heartbeatRunEvents);
-    await db.delete(heartbeatRuns);
-    await db.delete(agentWakeupRequests);
-    await db.delete(issues);
-    await db.delete(agentRuntimeState);
-    await db.delete(agents);
-    await db.delete(companySkills);
-    await db.delete(companies);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await db.delete(issueRelations);
+        await db.delete(issueRecoveryActions);
+        await db.delete(heartbeatRunEvents);
+        await db.delete(activityLog);
+        await db.delete(agentTaskSessions);
+        await db.delete(heartbeatRuns);
+        await db.delete(agentWakeupRequests);
+        await db.delete(issues);
+        await db.delete(agentRuntimeState);
+        await db.delete(agents);
+        await db.delete(companySkills);
+        await db.delete(companies);
+        break;
+      } catch (error) {
+        if (attempt >= 5) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
   });
 
   afterAll(async () => {
