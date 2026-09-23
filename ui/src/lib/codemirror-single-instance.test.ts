@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // NodeProp IDs within each module instance. The installed graph must contain
 // one physical copy of their shared primitives. Duplicates can crash extension
 // validation or read unrelated syntax metadata as highlighting tags.
-// The pnpm.overrides entries in the root package.json hold the graph to a
+// The overrides entries in pnpm-workspace.yaml hold the graph to a
 // single resolution; this file pins that invariant against the graph the
 // current install actually resolved, so it holds wherever the tests run —
 // CI (which installs from the lockfile it regenerates for the PR) and
@@ -101,21 +101,20 @@ function reachableCopies(target: string): string[] {
 
 describe("codemirror single-instance invariant", () => {
   for (const [pkg, major] of SINGLE_INSTANCE_PACKAGES) {
-    it(`keeps the ${pkg} override in the root manifest and its workspace mirror`, () => {
+    it(`keeps the ${pkg} override in the workspace manifest`, () => {
       // Removing the override is the only way a second copy can come
       // back (an override rewrites every dependent's range), so the
       // override's presence is the other half of the invariant.
       expect(
-        rootManifest.pnpm?.overrides?.[pkg],
-        `${pkg} must stay in pnpm.overrides (root package.json); without ` +
-          "it the graph can resolve two copies and shared editor " +
-          "primitives no longer have the same identity.",
-      ).toMatch(new RegExp(`^\\^${major}\\.`));
+        rootManifest.pnpm,
+        "pnpm 11 reads overrides only from pnpm-workspace.yaml; package.json#pnpm must not exist.",
+      ).toBeUndefined();
       expect(
         workspaceManifest,
-        `pnpm-workspace.yaml mirrors the pnpm.overrides block and must ` +
-          `carry the same ${pkg} entry.`,
-      ).toMatch(new RegExp(`^\\s+"${pkg}":`, "m"));
+        `${pkg} must stay in the pnpm-workspace.yaml overrides; without ` +
+          "it the graph can resolve two copies and shared editor " +
+          "primitives no longer have the same identity.",
+      ).toMatch(new RegExp(`^\\s+"${pkg}":\\s*"\\^${major}\\.`, "m"));
     });
 
     it(`installs exactly one physical copy of ${pkg}`, () => {
@@ -129,7 +128,7 @@ describe("codemirror single-instance invariant", () => {
         `the installed graph carries multiple physical copies of ${pkg}, ` +
           "which break shared primitives inside the editor. Reinstall " +
           "against the current manifests; if the copies persist, fix the " +
-          "pnpm.overrides entry in the root package.json instead of " +
+          "overrides entry in pnpm-workspace.yaml instead of " +
           "allowing a second copy.",
       ).toHaveLength(1);
     });

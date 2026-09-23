@@ -116,9 +116,30 @@ export function selectBundledDependencyPatches(
   return selectedPatches;
 }
 
+export function readWorkspacePatchedDependencies(sourceRoot = repoRoot) {
+  const workspacePath = resolve(sourceRoot, "pnpm-workspace.yaml");
+  const content = readFileSync(workspacePath, "utf8");
+  const lines = content.split("\n");
+  const patched = {};
+  let inSection = false;
+  for (const line of lines) {
+    if (/^[a-zA-Z]/.test(line)) {
+      inSection = /^patchedDependencies:/.test(line);
+      continue;
+    }
+    if (!inSection) continue;
+    const match = line.match(/^\s+(?:["']([^"']+)["']|([^:\s]+))\s*:\s*(.+)$/);
+    if (match) {
+      const key = match[1] || match[2];
+      const val = match[3].trim().replace(/^["']|["']$/g, "");
+      patched[key] = val;
+    }
+  }
+  return patched;
+}
+
 export function applyBundledDependencyPatches(destinationDir, bundledDependencies, sourceRoot = repoRoot) {
-  const rootPackage = JSON.parse(readFileSync(resolve(sourceRoot, "package.json"), "utf8"));
-  const patchedDependencies = rootPackage.pnpm?.patchedDependencies ?? {};
+  const patchedDependencies = readWorkspacePatchedDependencies(sourceRoot);
 
   for (const { packageName, patchPath } of selectBundledDependencyPatches(
     destinationDir,
