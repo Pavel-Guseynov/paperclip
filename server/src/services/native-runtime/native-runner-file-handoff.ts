@@ -256,7 +256,14 @@ async function openedFilePath(fd: number): Promise<string> {
           .toString("utf8")
           .split("\0")
           .filter((field) => field.startsWith("n"))
-          .map((field) => field.slice(1))
+          .map((field) => {
+            const raw = field.slice(1);
+            if (!raw.includes("\\x")) return raw;
+            const binary = raw.replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) =>
+              String.fromCharCode(parseInt(hex, 16)),
+            );
+            return Buffer.from(binary, "binary").toString("utf8");
+          })
       : [];
     if (paths.length !== 1 || !path.isAbsolute(paths[0]!)) {
       throw new Error("paperclip_runner_file_handoff_descriptor_unverifiable");

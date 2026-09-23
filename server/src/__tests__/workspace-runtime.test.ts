@@ -150,7 +150,27 @@ async function runPnpm(cwd: string, args: string[]) {
 async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source-instance") {
   const configDir = path.join(baseCwd, ".paperclip");
   await fs.mkdir(configDir, { recursive: true });
-  await fs.writeFile(path.join(configDir, "config.json"), "{}\n", "utf8");
+  const minimalConfig = {
+    $meta: {
+      version: 1,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      source: "configure",
+    },
+    database: {
+      mode: "embedded-postgres",
+      embeddedPostgresPort: 54329,
+    },
+    logging: {
+      mode: "file",
+    },
+    server: {
+      deploymentMode: "local_trusted",
+      exposure: "private",
+      host: "127.0.0.1",
+      port: 3100,
+    },
+  };
+  await fs.writeFile(path.join(configDir, "config.json"), `${JSON.stringify(minimalConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(
     path.join(configDir, ".env"),
     `PAPERCLIP_INSTANCE_ID=${instanceId}\n`,
@@ -1887,7 +1907,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.21.0",
         },
         null,
         2,
@@ -1988,7 +2008,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.21.0",
         },
         null,
         2,
@@ -2075,7 +2095,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.21.0",
           },
           null,
           2,
@@ -2316,7 +2336,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.21.0",
           },
           null,
           2,
@@ -2385,7 +2405,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.21.0",
         },
         null,
         2,
