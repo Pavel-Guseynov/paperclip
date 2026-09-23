@@ -495,8 +495,7 @@ test("runtime provisioning does not trust a truncated verified manifest", () => 
 });
 
 /**
- * pnpm 9.15.4 calls the deprecated url.parse() once per `pnpm install`
- * (see toNerfDart in the pnpm bundle), which Node 24 reports as DEP0169.
+ * Node 24 reports url.parse() as DEP0169 during pnpm install.
  * Each `pnpm install` call site must silence that one warning code, and must
  * append the flag to any NODE_OPTIONS value the environment already set
  * instead of overwriting it.
@@ -558,7 +557,8 @@ test("patch content changes invalidate an otherwise matching install fingerprint
   const bin = makeTempDir("paperclip-patch-pnpm-");
   fs.writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\ncase "$1" in install) echo install >> pnpm-calls; mkdir -p node_modules cli/node_modules ;; esac\n', { mode: 0o700 });
   const first = runProvision(baseCwd, { pathPrefix: bin, setupWorktree(root) {
-    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ pnpm: { patchedDependencies: { "dependency@1": "patches/dependency.diff" } } }));
+    fs.writeFileSync(path.join(root, "package.json"), "{}\n");
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  'dependency@1': patches/dependency.diff\n");
     fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     fs.mkdirSync(path.join(root, "patches"));
     fs.writeFileSync(path.join(root, "patches/dependency.diff"), "first patch");
