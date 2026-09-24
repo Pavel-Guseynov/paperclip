@@ -1451,9 +1451,10 @@ describe("HTTP logger redaction", () => {
     const chunks: string[] = [];
     const log = productionLogger(chunks);
 
-    // The HTTP-object probe reads `pipe`; pino reads only `setHeader`. A trap
-    // that throws on `pipe` must not let the record reach pino unredacted. The
-    // credential is nested, so no top-level redact path covers it.
+    // The HTTP-object probe reads `pipe`; pino's own HTTP check reads `method`
+    // and `setHeader`, never `pipe`. A trap that throws on `pipe` must not let
+    // the record reach pino unredacted. The credential is nested, so no
+    // top-level redact path covers it.
     const record = new Proxy(
       { stage: "relay", context: { gatewayToken: SESSION_TOKEN } },
       {
@@ -1469,6 +1470,31 @@ describe("HTTP logger redaction", () => {
     expect(chunks.join("")).not.toContain(SESSION_TOKEN);
     const [written] = logRecords(chunks);
     expect(written.stage).toBe("relay");
+    expect(written.context).toEqual({ gatewayToken: "[Redacted]" });
+  });
+
+  it("redacts the rest of the record when a value under req throws in the HTTP-object probe", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    // `req`, `res`, and `err` get an extra HTTP-object probe at the top level.
+    const hostileRequest = new Proxy(
+      { url: "/api/tool-gateway/tools" },
+      {
+        get(target, key, receiver) {
+          if (key === "pipe") throw new Error("probe trap exploded");
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+
+    log.warn(
+      { req: hostileRequest, context: { gatewayToken: SESSION_TOKEN } },
+      "relay diagnostics",
+    );
+
+    expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+    const [written] = logRecords(chunks);
     expect(written.context).toEqual({ gatewayToken: "[Redacted]" });
   });
 

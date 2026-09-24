@@ -443,7 +443,7 @@ function redactFieldsValue(
         depth === 0 &&
         typeof key === "string" &&
         SERIALIZER_OWNED_KEYS.has(key) &&
-        isHttpObject(entry)
+        probeType(() => isHttpObject(entry))
       ) {
         out[key] = entry;
         continue;
