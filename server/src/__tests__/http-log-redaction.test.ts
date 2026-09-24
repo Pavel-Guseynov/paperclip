@@ -1392,12 +1392,14 @@ describe("HTTP logger redaction", () => {
     expect(written.stage).toBe("relay");
   });
 
-  it("marks an unreadable array element without losing the rest of the array", () => {
+  it("marks an array element's unreadable fields without losing the rest of the array", () => {
     const chunks: string[] = [];
     const log = productionLogger(chunks);
 
+    // Every read throws. The credential name is redacted without a read, and
+    // the other field is marked, so the element costs only what is unreadable.
     const hostileElement = new Proxy(
-      { authorization: "unused" },
+      { authorization: "unused", detail: "unused" },
       {
         get() {
           throw new Error("get trap exploded");
@@ -1420,7 +1422,10 @@ describe("HTTP logger redaction", () => {
 
     const [written] = logRecords(chunks);
     expect(Array.isArray(written.attempts)).toBe(true);
-    expect(written.attempts[0]).toBe("[Unreadable]");
+    expect(written.attempts[0]).toEqual({
+      authorization: "[Redacted]",
+      detail: "[Unreadable]",
+    });
     expect(written.attempts[1]).toEqual({
       gatewayToken: "[Redacted]",
       durationMs: 12,
@@ -1440,6 +1445,40 @@ describe("HTTP logger redaction", () => {
       },
     );
     expect(redactCredentialFields(hostile)).toBe(hostile);
+  });
+
+  it("redacts a record whose proxy trap throws only for the HTTP-object probe", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    // The HTTP-object probe reads `pipe`; pino reads only `setHeader`. A trap
+    // that throws on `pipe` must not let the record reach pino unredacted. The
+    // credential is nested, so no top-level redact path covers it.
+    const record = new Proxy(
+      { stage: "relay", context: { gatewayToken: SESSION_TOKEN } },
+      {
+        get(target, key, receiver) {
+          if (key === "pipe") throw new Error("probe trap exploded");
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+
+    log.warn(record, "relay diagnostics");
+
+    expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+    const [written] = logRecords(chunks);
+    expect(written.stage).toBe("relay");
+    expect(written.context).toEqual({ gatewayToken: "[Redacted]" });
+  });
+
+  it("returns a credential-free record, arrays included, by identity", () => {
+    const record = {
+      stage: "relay",
+      attempts: [{ durationMs: 12 }, "retry"],
+      nested: { ok: true },
+    };
+    expect(redactCredentialFields(record)).toBe(record);
   });
 
   it("writes the record instead of throwing when a nested field getter throws", () => {

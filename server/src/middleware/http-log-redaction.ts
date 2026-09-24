@@ -343,8 +343,9 @@ export function redactCredentialFields(value: unknown): unknown {
   try {
     return redactFieldsValue(value, 0, new WeakSet());
   } catch {
-    // Only a hostile proxy trap on the outermost value reaches here; pino's
-    // own stringifier reports the same failure for the record itself.
+    // Every read of the outermost value is guarded, so this is a last resort
+    // for a failure outside those reads (for example a revoked proxy, which
+    // pino's own stringifier cannot write either).
     return value;
   }
 }
@@ -375,15 +376,33 @@ function redactFieldsEntry(
   }
 }
 
+/**
+ * Runs a type probe that reads the value. A proxy trap that throws during the
+ * probe means "not this type": the caller then enumerates the keys, reading
+ * each field under its own guard, instead of abandoning the whole pass.
+ */
+function probeType(check: () => boolean): boolean {
+  try {
+    return check();
+  } catch {
+    return false;
+  }
+}
+
 function redactFieldsValue(
   value: unknown,
   depth: number,
   seen: WeakSet<object>,
 ): unknown {
-  if (!value || typeof value !== "object" || value instanceof Error) {
-    return value;
+  if (!value || typeof value !== "object") return value;
+  if (probeType(() => value instanceof Error)) return value;
+  if (probeType(() => isHttpObject(value))) {
+    try {
+      return summarizeHttpObject(value);
+    } catch {
+      return UNREADABLE_MARKER;
+    }
   }
-  if (isHttpObject(value)) return summarizeHttpObject(value);
   if (seen.has(value)) return CIRCULAR_MARKER;
   // Stop descending rather than dropping: a record deeper than the bound keeps
   // its diagnostic value, exactly as it would without this pass.
@@ -397,7 +416,9 @@ function redactFieldsValue(
       ? Array.from({ length: value.length }, (_unused, index) => index)
       : Object.keys(value);
   } catch {
-    return UNREADABLE_MARKER;
+    // A record whose keys cannot be listed is not written by pino either, so
+    // the outermost value is returned as it is. A nested one is marked.
+    return depth === 0 ? value : UNREADABLE_MARKER;
   }
 
   seen.add(value);
