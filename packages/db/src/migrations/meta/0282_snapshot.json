@@ -1,5 +1,5 @@
 {
-  "id": "9a7a89fb-6868-4119-b531-e83c6dda6592",
+  "id": "23f8fed6-33cf-43ff-b711-8adb151a4bfc",
   "prevId": "8d202a5a-5d6b-44d9-9336-3bb39a8b99bc",
   "version": "7",
   "dialect": "postgresql",
@@ -5701,6 +5701,12 @@
           "notNull": true,
           "default": false
         },
+        "communication_guidance": {
+          "name": "communication_guidance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "state": {
           "name": "state",
           "type": "text",
@@ -6610,6 +6616,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "communication_instructions": {
+          "name": "communication_instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
         },
         "allow_direct_messages": {
           "name": "allow_direct_messages",
@@ -25414,12 +25427,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "evidence": {
-          "name": "evidence",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_by_run_id": {
           "name": "created_by_run_id",
