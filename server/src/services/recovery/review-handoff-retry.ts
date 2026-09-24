@@ -1,12 +1,12 @@
-import { and, desc, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agentWakeupRequests,
   heartbeatRuns,
-  issueRecoveryActions,
   issueRelations,
   issues,
 } from "@paperclipai/db";
+import { isUniqueViolation } from "../../db-errors.js";
 import { parseIssueExecutionState } from "../issue-execution-policy.js";
 import { getExecutionBlocker } from "../execution-blocker.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./pause-hold-guard.js";
@@ -17,6 +17,23 @@ export const DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS = 3;
 export const REVIEW_HANDOFF_RETRY_IDEMPOTENCY_PREFIX = "review-handoff:";
 export const EXECUTION_REVIEW_REQUESTED_REASON = "execution_review_requested";
 export const EXECUTION_APPROVAL_REQUESTED_REASON = "execution_approval_requested";
+/**
+ * Partial unique index on `agent_wakeup_requests(company_id, idempotency_key)`
+ * for this prefix. It is the cross-process authority for "one handoff wake per
+ * issue, stage and attempt": a concurrent trigger that loses the race gets a
+ * unique violation instead of a second wake.
+ */
+export const REVIEW_HANDOFF_RETRY_IDEMPOTENCY_INDEX =
+  "agent_wakeup_requests_review_handoff_retry_idempotency_uq";
+export const REVIEW_HANDOFF_EXHAUSTED_CAUSE = "execution_recovery_budget_exhausted";
+
+/** Recovery-action identity for the exhausted retry budget of one stage. */
+export function buildReviewHandoffRetryFingerprint(input: {
+  issueId: string;
+  stageId: string;
+}): string {
+  return `${REVIEW_HANDOFF_RETRY_IDEMPOTENCY_PREFIX}${input.issueId}:${input.stageId}`;
+}
 
 export type ParsedExecutionState = NonNullable<ReturnType<typeof parseIssueExecutionState>>;
 
@@ -28,9 +45,9 @@ export type PendingReviewStageTarget = {
 };
 
 export type ExecutionStageWakeContext = {
-  wakeRole: "reviewer" | "approver";
-  stageId: string;
-  stageType: "review" | "approval";
+  wakeRole: "reviewer" | "approver" | "executor";
+  stageId: string | null;
+  stageType: ParsedExecutionState["currentStageType"];
   currentParticipant: ParsedExecutionState["currentParticipant"];
   returnAssignee: ParsedExecutionState["returnAssignee"];
   reviewRequest: ParsedExecutionState["reviewRequest"];
@@ -38,28 +55,45 @@ export type ExecutionStageWakeContext = {
   allowedActions: string[];
 };
 
-export function buildReviewHandoffRetryIdempotencyKey(input: {
+/** Every durable retry wake for one issue and stage shares this key prefix. */
+export function buildReviewHandoffRetryIdempotencyKeyPrefix(input: {
   issueId: string;
   stageId: string;
 }): string {
-  return `${REVIEW_HANDOFF_RETRY_IDEMPOTENCY_PREFIX}${input.issueId}:${input.stageId}`;
+  return `${REVIEW_HANDOFF_RETRY_IDEMPOTENCY_PREFIX}${input.issueId}:${input.stageId}:`;
+}
+
+/**
+ * One key per attempt. The attempt is part of the key so the partial unique
+ * index coalesces concurrent triggers that resolved the same attempt, while a
+ * later attempt of the same stage still has a key of its own.
+ */
+export function buildReviewHandoffRetryIdempotencyKey(input: {
+  issueId: string;
+  stageId: string;
+  attempt: number;
+}): string {
+  return `${buildReviewHandoffRetryIdempotencyKeyPrefix(input)}${input.attempt}`;
+}
+
+export function isReviewHandoffRetryIdempotencyConflict(error: unknown): boolean {
+  return isUniqueViolation(error, REVIEW_HANDOFF_RETRY_IDEMPOTENCY_INDEX);
 }
 
 export function buildExecutionStageWakeContext(input: {
   state: ParsedExecutionState;
-  wakeRole: "reviewer" | "approver";
-  allowedActions?: string[];
+  wakeRole: ExecutionStageWakeContext["wakeRole"];
+  allowedActions: string[];
 }): ExecutionStageWakeContext {
-  const stageType = input.state.currentStageType === "approval" ? "approval" : "review";
   return {
     wakeRole: input.wakeRole,
-    stageId: input.state.currentStageId ?? "",
-    stageType,
+    stageId: input.state.currentStageId,
+    stageType: input.state.currentStageType,
     currentParticipant: input.state.currentParticipant,
     returnAssignee: input.state.returnAssignee,
     reviewRequest: input.state.reviewRequest ?? null,
     lastDecisionOutcome: input.state.lastDecisionOutcome,
-    allowedActions: input.allowedActions ?? ["approve", "request_changes"],
+    allowedActions: input.allowedActions,
   };
 }
 
@@ -175,15 +209,17 @@ export async function hasActiveReviewRun(
 export async function hasQueuedReviewRetry(
   db: Db,
   companyId: string,
-  idempotencyKey: string,
+  issueId: string,
+  stageId: string,
 ): Promise<boolean> {
+  const keyPrefix = buildReviewHandoffRetryIdempotencyKeyPrefix({ issueId, stageId });
   const [queuedWake] = await db
     .select({ id: agentWakeupRequests.id })
     .from(agentWakeupRequests)
     .where(
       and(
         eq(agentWakeupRequests.companyId, companyId),
-        eq(agentWakeupRequests.idempotencyKey, idempotencyKey),
+        sql`${agentWakeupRequests.idempotencyKey} LIKE ${`${keyPrefix}%`}`,
         inArray(agentWakeupRequests.status, [
           "queued",
           "deferred_issue_execution",
@@ -194,78 +230,38 @@ export async function hasQueuedReviewRetry(
   return Boolean(queuedWake);
 }
 
+/**
+ * The durable wake rows are the single authoritative attempt counter: every
+ * enqueued handoff writes its own attempt number into the wake payload under a
+ * key that the partial unique index keeps unique. Counting rows or coalesced
+ * triggers instead would let a benign repeated trigger consume the budget and
+ * escalate a healthy issue.
+ */
 export async function getReviewHandoffAttemptCount(
   db: Db,
   companyId: string,
   issueId: string,
   stageId: string,
 ): Promise<number> {
-  const fingerprint = `review-handoff:${issueId}:${stageId}`;
-  const [action] = await db
-    .select({ attemptCount: issueRecoveryActions.attemptCount })
-    .from(issueRecoveryActions)
-    .where(
-      and(
-        eq(issueRecoveryActions.companyId, companyId),
-        eq(issueRecoveryActions.sourceIssueId, issueId),
-        eq(issueRecoveryActions.fingerprint, fingerprint),
-      ),
-    )
-    .limit(1);
-  if (action) return action.attemptCount;
-
-  // Check heartbeat runs for this issue and stage
-  const runs = await db
-    .select({
-      id: heartbeatRuns.id,
-      status: heartbeatRuns.status,
-      contextSnapshot: heartbeatRuns.contextSnapshot,
-    })
-    .from(heartbeatRuns)
-    .where(
-      and(
-        eq(heartbeatRuns.companyId, companyId),
-        sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${issueId}`,
-        sql`${heartbeatRuns.contextSnapshot}->>'currentStageId' = ${stageId}`,
-      ),
-    );
-
-  let maxAttemptInRuns = 0;
-  for (const r of runs) {
-    const snap = r.contextSnapshot as Record<string, unknown> | null;
-    const attempt = Number(snap?.reviewHandoffAttempt ?? 0);
-    if (attempt > maxAttemptInRuns) maxAttemptInRuns = attempt;
-  }
-  if (maxAttemptInRuns > 0) return maxAttemptInRuns;
-
-  const key = buildReviewHandoffRetryIdempotencyKey({ issueId, stageId });
+  const keyPrefix = buildReviewHandoffRetryIdempotencyKeyPrefix({ issueId, stageId });
   const rows = await db
-    .select({
-      id: agentWakeupRequests.id,
-      status: agentWakeupRequests.status,
-      coalescedCount: agentWakeupRequests.coalescedCount,
-      payload: agentWakeupRequests.payload,
-    })
+    .select({ payload: agentWakeupRequests.payload })
     .from(agentWakeupRequests)
     .where(
       and(
         eq(agentWakeupRequests.companyId, companyId),
-        eq(agentWakeupRequests.idempotencyKey, key),
+        sql`${agentWakeupRequests.idempotencyKey} LIKE ${`${keyPrefix}%`}`,
         ne(agentWakeupRequests.status, "skipped"),
       ),
     );
-  if (rows.length === 0) return 0;
 
-  let maxAttemptInWakes = 0;
+  let attempts = 0;
   for (const row of rows) {
-    const p = row.payload as Record<string, unknown> | null;
-    const ctx = (p?._paperclipWakeContext ?? null) as Record<string, unknown> | null;
-    const att = Number(p?.reviewHandoffAttempt ?? ctx?.reviewHandoffAttempt ?? 0);
-    if (att > maxAttemptInWakes) maxAttemptInWakes = att;
+    const payload = row.payload as Record<string, unknown> | null;
+    const attempt = Number(payload?.reviewHandoffAttempt ?? 0);
+    if (Number.isFinite(attempt) && attempt > attempts) attempts = attempt;
   }
-  if (maxAttemptInWakes > 0) return maxAttemptInWakes;
-
-  return rows.reduce((acc, row) => acc + 1 + (row.coalescedCount ?? 0), 0);
+  return attempts;
 }
 
 export type ReviewHandoffRetryDecision =
@@ -351,6 +347,7 @@ export function decideReviewHandoffRetry(input: DecideReviewHandoffRetryParams):
   const idempotencyKey = buildReviewHandoffRetryIdempotencyKey({
     issueId: issue.id,
     stageId: target.stageId,
+    attempt: nextAttempt,
   });
   const reason =
     target.stageType === "approval"
@@ -416,216 +413,144 @@ export async function escalateReviewHandoffExhaustion(
     maxAttempts: number;
   },
 ) {
-  const cause = "execution_recovery_budget_exhausted";
   const nextAction = `Automatic review handoff retries exhausted (${input.attemptsUsed}/${input.maxAttempts}) for this ${input.stageType} stage. Verify reviewer availability and explicitly reassign or trigger the review.`;
-  const fingerprint = `review-handoff:${input.issue.id}:${input.stageId}`;
 
-  // First check if an active action already exists for this issue
-  const existing = await issueRecoveryActionService(db).getActiveForIssue(
-    input.companyId,
-    input.issue.id,
-  );
-  if (existing) {
-    const [escalated] = await db
-      .update(issueRecoveryActions)
-      .set({
-        status: "escalated",
-        ownerType: "board",
-        ownerAgentId: null,
-        ownerUserId: null,
-        returnOwnerAgentId: input.reviewerAgentId ?? input.issue.assigneeAgentId,
-        cause,
-        fingerprint,
-        evidence: {
-          ...(existing.evidence ?? {}),
-          issueId: input.issue.id,
-          stageId: input.stageId,
-          stageType: input.stageType,
-          reviewerAgentId: input.reviewerAgentId,
-          attemptsUsed: input.attemptsUsed,
-          maxAttempts: input.maxAttempts,
-          exhaustedAt: new Date().toISOString(),
-        },
-        nextAction,
-        wakePolicy: null,
-        monitorPolicy: null,
-        attemptCount: input.attemptsUsed,
-        maxAttempts: input.maxAttempts,
-        outcome: "escalated",
-        updatedAt: new Date(),
-      })
-      .where(eq(issueRecoveryActions.id, existing.id))
-      .returning();
-    return escalated;
-  }
-
-  // Insert a fresh escalated action
-  const now = new Date();
-  const [created] = await db
-    .insert(issueRecoveryActions)
-    .values({
-      companyId: input.companyId,
-      sourceIssueId: input.issue.id,
-      recoveryIssueId: null,
-      kind: "active_run_watchdog",
-      status: "escalated",
-      ownerType: "board",
-      ownerAgentId: null,
-      ownerUserId: null,
-      previousOwnerAgentId: null,
-      returnOwnerAgentId: input.reviewerAgentId ?? input.issue.assigneeAgentId,
-      cause,
-      fingerprint,
-      evidence: {
-        issueId: input.issue.id,
-        stageId: input.stageId,
-        stageType: input.stageType,
-        reviewerAgentId: input.reviewerAgentId,
-        attemptsUsed: input.attemptsUsed,
-        maxAttempts: input.maxAttempts,
-        exhaustedAt: now.toISOString(),
-      },
-      nextAction,
-      wakePolicy: null,
-      monitorPolicy: null,
-      attemptCount: input.attemptsUsed,
+  // The recovery-action service owns the active-action invariant: a distinct
+  // failure identity supersedes the prior action instead of overwriting its
+  // cause, evidence, owner and attempt budget in place. The exhausted budget
+  // is a board-owned action with no wake or monitor policy, which
+  // `getExecutionBlocker` reports as the issue's one actionable blocker.
+  return issueRecoveryActionService(db).upsertSourceScoped({
+    companyId: input.companyId,
+    sourceIssueId: input.issue.id,
+    kind: "stranded_assigned_issue",
+    ownerType: "board",
+    returnOwnerAgentId: input.reviewerAgentId ?? input.issue.assigneeAgentId ?? null,
+    cause: REVIEW_HANDOFF_EXHAUSTED_CAUSE,
+    fingerprint: buildReviewHandoffRetryFingerprint({
+      issueId: input.issue.id,
+      stageId: input.stageId,
+    }),
+    evidence: {
+      issueId: input.issue.id,
+      stageId: input.stageId,
+      stageType: input.stageType,
+      reviewerAgentId: input.reviewerAgentId,
+      attemptsUsed: input.attemptsUsed,
       maxAttempts: input.maxAttempts,
-      timeoutAt: null,
-      lastAttemptAt: now,
-      outcome: "escalated",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
-  return created;
-}
-
-const reconciliationQueues = new Map<string, Promise<void>>();
-
-async function runExclusiveReconciliation<T>(
-  key: string,
-  task: () => Promise<T>,
-): Promise<T> {
-  const previous = reconciliationQueues.get(key) ?? Promise.resolve();
-  let release: () => void = () => {};
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
+    },
+    nextAction,
+    attemptCount: input.attemptsUsed,
+    maxAttempts: input.maxAttempts,
+    supersedeOnIdentityChange: true,
   });
-  const next = previous.catch(() => undefined).then(() => current);
-  reconciliationQueues.set(key, next);
-
-  await previous.catch(() => undefined);
-  try {
-    return await task();
-  } finally {
-    release();
-    if (reconciliationQueues.get(key) === next) {
-      reconciliationQueues.delete(key);
-    }
-  }
 }
 
+export type ReviewHandoffWake = { id: string } | null;
+
+export type ReviewHandoffEnqueueWakeup = (
+  agentId: string,
+  request: {
+    source: "assignment" | "automation" | "timer" | "on_demand";
+    triggerDetail?: "system";
+    reason: string;
+    payload?: Record<string, unknown>;
+    idempotencyKey?: string | null;
+    requestedByActorType?: "system";
+    requestedByActorId?: string | null;
+    contextSnapshot?: Record<string, unknown>;
+  },
+) => Promise<ReviewHandoffWake>;
+
+export type ReviewHandoffReconciliationResult = {
+  action: "enqueued" | "exhausted" | "skipped";
+  reason?: string;
+  wake?: ReviewHandoffWake;
+  recoveryActionId?: string;
+};
+
+export const REVIEW_HANDOFF_COALESCED_REASON =
+  "durable review retry already queued for this attempt";
+
+/**
+ * Starts or schedules the one handoff an `in_review` issue is owed once its
+ * blocker is gone. Concurrent callers — a route, a heartbeat sweep, another
+ * process — all resolve the same attempt and therefore the same idempotency
+ * key, so the partial unique index admits exactly one wake and reports every
+ * other caller through a unique violation, which is this function's coalesce
+ * signal.
+ */
 export async function reconcileReviewHandoffAfterBlockerClear(
   db: Db,
   input: {
     issueId: string;
     companyId: string;
-    enqueueWakeup: (
-      agentId: string,
-      request: {
-        source: "assignment" | "automation" | "timer" | "on_demand";
-        triggerDetail?: "system";
-        reason: string;
-        payload?: Record<string, unknown>;
-        idempotencyKey?: string | null;
-        requestedByActorType?: "system";
-        requestedByActorId?: string | null;
-        contextSnapshot?: Record<string, unknown>;
-      },
-    ) => Promise<any>;
+    enqueueWakeup: ReviewHandoffEnqueueWakeup;
     treeControlSvc?: Parameters<typeof isAutomaticRecoverySuppressedByPauseHold>[3];
     source?: string;
   },
-): Promise<{
-  action: "enqueued" | "exhausted" | "skipped";
-  reason?: string;
-  wake?: any;
-  recoveryActionId?: string;
-}> {
-  const queueKey = `${input.companyId}:${input.issueId}`;
-  return runExclusiveReconciliation(queueKey, async () => {
-    const [issue] = await db
-      .select({
-        id: issues.id,
-        companyId: issues.companyId,
-        identifier: issues.identifier,
-        status: issues.status,
-        assigneeAgentId: issues.assigneeAgentId,
-        executionState: issues.executionState,
-      })
-      .from(issues)
-      .where(and(eq(issues.id, input.issueId), eq(issues.companyId, input.companyId)));
+): Promise<ReviewHandoffReconciliationResult> {
+  const [issue] = await db
+    .select({
+      id: issues.id,
+      companyId: issues.companyId,
+      identifier: issues.identifier,
+      status: issues.status,
+      assigneeAgentId: issues.assigneeAgentId,
+      executionState: issues.executionState,
+    })
+    .from(issues)
+    .where(and(eq(issues.id, input.issueId), eq(issues.companyId, input.companyId)));
 
-    if (!issue || issue.status !== "in_review") {
-      return { action: "skipped", reason: "issue not in_review" };
-    }
+  if (!issue || issue.status !== "in_review") {
+    return { action: "skipped", reason: "issue not in_review" };
+  }
 
-    const target = getPendingReviewStageTarget(issue);
-    if (!target) {
-      return { action: "skipped", reason: "no pending review stage target" };
-    }
+  const target = getPendingReviewStageTarget(issue);
+  if (!target) {
+    return { action: "skipped", reason: "no pending review stage target" };
+  }
 
-    const [blockerCheck, hasActive, hasQueued, attemptCount] = await Promise.all([
-      hasValidReviewBlocker(db, issue, input.treeControlSvc),
-      hasActiveReviewRun(db, issue.companyId, issue.id, target.reviewerAgentId),
-      hasQueuedReviewRetry(
-        db,
-        issue.companyId,
-        buildReviewHandoffRetryIdempotencyKey({
-          issueId: issue.id,
-          stageId: target.stageId,
-        }),
-      ),
-      getReviewHandoffAttemptCount(
-        db,
-        issue.companyId,
-        issue.id,
-        target.stageId,
-      ),
-    ]);
+  const [blockerCheck, hasActive, hasQueued, attemptCount] = await Promise.all([
+    hasValidReviewBlocker(db, issue, input.treeControlSvc),
+    hasActiveReviewRun(db, issue.companyId, issue.id, target.reviewerAgentId),
+    hasQueuedReviewRetry(db, issue.companyId, issue.id, target.stageId),
+    getReviewHandoffAttemptCount(db, issue.companyId, issue.id, target.stageId),
+  ]);
 
-    const decision = decideReviewHandoffRetry({
-      target,
+  const decision = decideReviewHandoffRetry({
+    target,
+    issue,
+    hasBlocker: blockerCheck.hasBlocker,
+    blockerReason: blockerCheck.reason,
+    hasActiveRun: hasActive,
+    hasQueuedWake: hasQueued,
+    attemptCount,
+    maxAttempts: DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
+  });
+
+  if (decision.kind === "exhausted") {
+    const action = await escalateReviewHandoffExhaustion(db, {
+      companyId: issue.companyId,
       issue,
-      hasBlocker: blockerCheck.hasBlocker,
-      blockerReason: blockerCheck.reason,
-      hasActiveRun: hasActive,
-      hasQueuedWake: hasQueued,
-      attemptCount,
-      maxAttempts: DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
+      stageId: decision.stageId,
+      stageType: decision.stageType,
+      reviewerAgentId: decision.reviewerAgentId,
+      attemptsUsed: decision.attemptsUsed,
+      maxAttempts: decision.maxAttempts,
     });
+    return {
+      action: "exhausted",
+      reason: decision.reason,
+      recoveryActionId: action.id,
+    };
+  }
 
-    if (decision.kind === "exhausted") {
-      const action = await escalateReviewHandoffExhaustion(db, {
-        companyId: issue.companyId,
-        issue,
-        stageId: decision.stageId,
-        stageType: decision.stageType,
-        reviewerAgentId: decision.reviewerAgentId,
-        attemptsUsed: decision.attemptsUsed,
-        maxAttempts: decision.maxAttempts,
-      });
-      return {
-        action: "exhausted",
-        reason: decision.reason,
-        recoveryActionId: action?.id,
-      };
-    }
+  if (decision.kind === "skip") {
+    return { action: "skipped", reason: decision.reason };
+  }
 
-    if (decision.kind === "skip") {
-      return { action: "skipped", reason: decision.reason };
-    }
-
+  try {
     const wake = await input.enqueueWakeup(decision.targetAgentId, {
       source: "automation",
       triggerDetail: "system",
@@ -636,10 +561,11 @@ export async function reconcileReviewHandoffAfterBlockerClear(
       requestedByActorId: null,
       contextSnapshot: decision.contextSnapshot,
     });
-
-    return {
-      action: "enqueued",
-      wake,
-    };
-  });
+    return { action: "enqueued", wake };
+  } catch (error) {
+    if (isReviewHandoffRetryIdempotencyConflict(error)) {
+      return { action: "skipped", reason: REVIEW_HANDOFF_COALESCED_REASON };
+    }
+    throw error;
+  }
 }

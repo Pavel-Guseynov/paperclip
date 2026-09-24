@@ -4,10 +4,11 @@ import {
   DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
   EXECUTION_APPROVAL_REQUESTED_REASON,
   EXECUTION_REVIEW_REQUESTED_REASON,
-  buildExecutionStageWakeContext,
   buildReviewHandoffRetryIdempotencyKey,
+  buildReviewHandoffRetryIdempotencyKeyPrefix,
   decideReviewHandoffRetry,
   getPendingReviewStageTarget,
+  isReviewHandoffRetryIdempotencyConflict,
   type ParsedExecutionState,
 } from "./review-handoff-retry.js";
 
@@ -37,12 +38,45 @@ describe("review handoff retry", () => {
     currentStageType: "approval",
   };
 
-  it("generates issue-and-stage-keyed idempotency key", () => {
-    const key = buildReviewHandoffRetryIdempotencyKey({
+  it("keys every attempt of one issue and stage under one durable prefix", () => {
+    const prefix = buildReviewHandoffRetryIdempotencyKeyPrefix({
       issueId: "issue-123",
       stageId: "stage-456",
     });
-    expect(key).toBe("review-handoff:issue-123:stage-456");
+    expect(prefix).toBe("review-handoff:issue-123:stage-456:");
+    expect(
+      buildReviewHandoffRetryIdempotencyKey({
+        issueId: "issue-123",
+        stageId: "stage-456",
+        attempt: 1,
+      }),
+    ).toBe("review-handoff:issue-123:stage-456:1");
+    expect(
+      buildReviewHandoffRetryIdempotencyKey({
+        issueId: "issue-123",
+        stageId: "stage-456",
+        attempt: 2,
+      }),
+    ).toBe("review-handoff:issue-123:stage-456:2");
+  });
+
+  it("recognizes only the review handoff idempotency index as the coalesce signal", () => {
+    const conflict = Object.assign(new Error("Failed query: insert into ..."), {
+      cause: Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+        constraint_name: "agent_wakeup_requests_review_handoff_retry_idempotency_uq",
+      }),
+    });
+    expect(isReviewHandoffRetryIdempotencyConflict(conflict)).toBe(true);
+
+    const otherIndex = Object.assign(new Error("Failed query: insert into ..."), {
+      cause: Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+        constraint_name: "agent_wakeup_requests_review_path_recovery_idempotency_uq",
+      }),
+    });
+    expect(isReviewHandoffRetryIdempotencyConflict(otherIndex)).toBe(false);
+    expect(isReviewHandoffRetryIdempotencyConflict(new Error("connection reset"))).toBe(false);
   });
 
   it("extracts pending review stage target only for eligible in_review issues", () => {
@@ -173,7 +207,7 @@ describe("review handoff retry", () => {
     expect(decision).toMatchObject({
       kind: "enqueue",
       targetAgentId: reviewerAgentId,
-      idempotencyKey: `review-handoff:issue-1:${stageReviewId}`,
+      idempotencyKey: `review-handoff:issue-1:${stageReviewId}:1`,
       reason: EXECUTION_REVIEW_REQUESTED_REASON,
       attempt: 1,
       maxAttempts: DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
@@ -218,7 +252,7 @@ describe("review handoff retry", () => {
     expect(decision).toMatchObject({
       kind: "enqueue",
       targetAgentId: reviewerAgentId,
-      idempotencyKey: `review-handoff:issue-2:${stageApprovalId}`,
+      idempotencyKey: `review-handoff:issue-2:${stageApprovalId}:2`,
       reason: EXECUTION_APPROVAL_REQUESTED_REASON,
       attempt: 2,
       payload: {

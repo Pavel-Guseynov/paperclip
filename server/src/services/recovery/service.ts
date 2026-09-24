@@ -5322,10 +5322,20 @@ export function recoveryService(
 
     if (opts?.blockerIssueId) {
       try {
+        // A relation row and its dependent must belong to the same company, and
+        // the sweep is bounded by the same candidate limit as the blocked-issue
+        // backstop below so one blocker with many dependents cannot make this
+        // pass unbounded.
         const inReviewDependents = await db
           .select({ id: issues.id, companyId: issues.companyId })
           .from(issueRelations)
-          .innerJoin(issues, eq(issueRelations.relatedIssueId, issues.id))
+          .innerJoin(
+            issues,
+            and(
+              eq(issueRelations.relatedIssueId, issues.id),
+              eq(issueRelations.companyId, issues.companyId),
+            ),
+          )
           .where(
             and(
               eq(issueRelations.type, "blocks"),
@@ -5334,8 +5344,11 @@ export function recoveryService(
                 ? eq(issueRelations.companyId, opts.companyId)
                 : undefined,
               eq(issues.status, "in_review"),
+              visibleIssueCondition(),
             ),
-          );
+          )
+          .orderBy(asc(issues.id))
+          .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
         for (const dep of inReviewDependents) {
           await reconcileReviewHandoffAfterBlockerClear(db, {
             issueId: dep.id,
