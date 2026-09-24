@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
   companies,
@@ -510,9 +510,9 @@ describe("workspace validation recovery precedence", () => {
           finishedAt: new Date(),
         });
 
-        const reconcileResult = await recoveryService(
-          db,
-        ).reconcileStrandedAssignedIssues();
+        const reconcileResult = await recoveryService(db, {
+          enqueueWakeup: vi.fn(),
+        }).reconcileStrandedAssignedIssues();
         expect(reconcileResult.issueIds).toContain(issueId);
 
         const activeAction = await issueRecoveryActionService(
