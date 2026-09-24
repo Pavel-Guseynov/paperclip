@@ -8,7 +8,6 @@ import { captureException } from "../sentry.js";
 import { COMPANY_IMPORT_API_PATH } from "../routes/company-import-paths.js";
 import { logger } from "./logger.js";
 import { isSecretSensitiveHttpRequest } from "./http-log-policy.js";
-import { sanitizeCredentialText } from "./http-log-redaction.js";
 import {
   collectSensitiveStringValues,
   redactSensitiveValueOccurrences,
@@ -78,16 +77,9 @@ function sanitizeSecretSensitiveResponse(
   req: Request,
   value: unknown,
 ): unknown {
-  // Credential text an upstream provider echoed into prose is stripped on
-  // every route; the value-occurrence scrub, which walks the whole request
-  // body, stays limited to the routes that accept credentials.
-  const sanitized =
-    typeof value === "string" ? sanitizeCredentialText(value) : value;
-  if (!isSecretSensitiveHttpRequest(req.method, req.originalUrl)) {
-    return sanitized;
-  }
+  if (!isSecretSensitiveHttpRequest(req.method, req.originalUrl)) return value;
   return redactSensitiveValueOccurrences(
-    sanitized,
+    value,
     collectSensitiveStringValues(req.body),
   );
 }
