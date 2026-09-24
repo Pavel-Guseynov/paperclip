@@ -6844,10 +6844,12 @@ export function createToolGatewayService(
     gatewayPublicId?: string | null;
     bearerToken: string;
     /**
-     * The protocol action this authentication is charged to. `null`
-     * authenticates the bearer without consuming a protocol rate limiter —
-     * used by JSON-RPC notifications, which carry no protocol action of their
-     * own and must not spend the handshake's session-setup budget.
+     * The protocol action this authentication is charged to. `null` verifies
+     * the bearer and records nothing at all: no rate-limiter charge, no
+     * `lastUsedAt` write, and no run-identity capture. Used by JSON-RPC
+     * notifications, which carry no protocol action of their own, must not
+     * spend the handshake's session-setup budget, and must not let a bearer
+     * holder drive write traffic from a status-only endpoint.
      */
     protocolMethod: McpGatewayProtocolMethod | null;
     callerHeaders?: Record<string, string | string[] | undefined>;
@@ -6984,11 +6986,17 @@ export function createToolGatewayService(
         });
       }
     }
-    const now = new Date();
-    await db
-      .update(toolMcpGatewayTokens)
-      .set({ lastUsedAt: now, updatedAt: now })
-      .where(eq(toolMcpGatewayTokens.id, row.token.id));
+    // A verification-only authentication (`protocolMethod: null`) records
+    // nothing: it performs no protocol action, so it must not let a bearer
+    // holder drive repeated token and run-identity writes from an endpoint
+    // that answers with a bare transport status.
+    if (input.protocolMethod) {
+      const now = new Date();
+      await db
+        .update(toolMcpGatewayTokens)
+        .set({ lastUsedAt: now, updatedAt: now })
+        .where(eq(toolMcpGatewayTokens.id, row.token.id));
+    }
     const session: ToolGatewaySession = {
       id: `gateway:${row.gateway.id}`,
       token: "",
@@ -7013,13 +7021,12 @@ export function createToolGatewayService(
         row.token.expiresAt ??
         new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000),
     };
-    if (input.protocolMethod) {
-      await assertNamedGatewayProtocolLimit(
-        session,
-        input.protocolMethod,
-        clientMetadata,
-      );
-    }
+    if (!input.protocolMethod) return session;
+    await assertNamedGatewayProtocolLimit(
+      session,
+      input.protocolMethod,
+      clientMetadata,
+    );
     return captureSessionIdentity(session);
   }
 
@@ -8720,7 +8727,8 @@ export function createToolGatewayService(
      * Authenticate the bearer behind a JSON-RPC notification (for example
      * `notifications/initialized`) so an unauthenticated caller cannot drive
      * the gateway endpoint. A notification is not a protocol action: it is
-     * charged to no rate limiter, and it returns nothing for the same reason.
+     * charged to no rate limiter, it writes nothing, and it returns nothing,
+     * all for the same reason.
      */
     async verifyNamedGatewayProtocolNotification(input: {
       gatewayId?: string | null;
