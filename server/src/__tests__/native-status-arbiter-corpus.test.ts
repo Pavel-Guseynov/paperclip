@@ -2130,7 +2130,7 @@ describe("P6-31 Section 18.13 executable status-authority corpus", () => {
     ).toEqual([]);
   }, 30_000);
 
-  it("still binds a reviewer when recording the admission fails", async () => {
+  it("still binds a reviewer when recording the admission fails in the database", async () => {
     const template = corpus.fixtures.find((candidate) => candidate.mode === "native")!;
     const seeded = await seedFixture({
       ...template,
@@ -2141,13 +2141,24 @@ describe("P6-31 Section 18.13 executable status-authority corpus", () => {
       companyId, issueId: seeded.issueId, type: "commit", provider: "github",
       externalId: REVIEWED_HEAD_SHA, title: "reviewed head", status: "active",
     });
-    // A defect in the bookkeeping write, inside the launching transaction.
-    const brokenInsert = vi.spyOn(reviewAdmissionService, "createReviewAdmissionService")
-      .mockReturnValue({
-        admitReview: async () => {
-          throw new Error("injected admission failure");
+    const missingCompanyId = randomUUID();
+    // The failure has to reach Postgres: a foreign-key violation aborts the savepoint's
+    // transaction state, which is what a bare try/catch around the call would not survive.
+    const brokenInsert = vi
+      .spyOn(reviewAdmissionService, "createReviewAdmissionService")
+      .mockImplementation(() => ({
+        admitReview: async (_input: unknown, savepoint: any) => {
+          await savepoint.insert(reviewAdmissions).values({
+            companyId: missingCompanyId,
+            issueId: seeded.issueId,
+            sourceSha: REVIEWED_HEAD_SHA,
+            policyDigest: "0".repeat(64),
+            acceptanceContract: {},
+            reviewPolicy: "anyone",
+          });
+          throw new Error("unreachable: the insert above must fail");
         },
-      } as never);
+      }) as never);
 
     const committed = await commitNativeStatusDecision({
       db, companyId, issueId: seeded.issueId, runId: seeded.runId,
@@ -2161,13 +2172,17 @@ describe("P6-31 Section 18.13 executable status-authority corpus", () => {
     });
     brokenInsert.mockRestore();
 
-    // The review launched: the card exists, the issue entered review, the decision applied.
+    // The review launched: the card exists, the issue entered review, the decision applied,
+    // and writes made after the failed savepoint still committed.
     const [interaction] = await db.select().from(issueThreadInteractions)
       .where(eq(issueThreadInteractions.issueId, seeded.issueId));
     expect(interaction).toMatchObject({ kind: "request_confirmation", status: "pending" });
     const [issue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
     expect(issue!.status).toBe("in_review");
     expect(committed.decision.applicationState).toBe("applied");
+    const [persistedDecision] = await db.select().from(statusDecisions)
+      .where(eq(statusDecisions.id, committed.decision.id));
+    expect(persistedDecision).toBeDefined();
     // Only the admission rolled back.
     expect(
       await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, seeded.issueId)),
