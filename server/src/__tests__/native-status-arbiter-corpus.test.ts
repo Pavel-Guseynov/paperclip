@@ -2062,6 +2062,54 @@ describe("P6-31 Section 18.13 executable status-authority corpus", () => {
     return seeded;
   }
 
+  it("refuses to close an evidence-gated issue from an approving review card", async () => {
+    const seeded = await seedPolicyReview({ genuine: true });
+    await db.insert(workspaceOperations).values({
+      companyId, heartbeatRunId: seeded.runId, issueId: seeded.issueId,
+      phase: "workspace_finalize", status: "succeeded", exitCode: 0, cwd: process.cwd(), finishedAt: new Date(),
+    });
+    await db.update(issues).set({
+      executionPolicy: {
+        mode: "normal", commentRequired: true, evidenceRequired: true,
+        stages: [{ id: randomUUID(), type: "approval", approvalsNeeded: 1,
+          participants: [{ type: "user", userId: "board-user" }] }],
+      },
+    }).where(eq(issues.id, seeded.issueId));
+
+    await expect(
+      issueThreadInteractionService(db).acceptInteraction(
+        { id: seeded.issueId, companyId, projectId: null, goalId: null, status: "in_review" },
+        seeded.interaction.id,
+        {},
+        { userId: "board-user" },
+      ),
+    ).rejects.toMatchObject({ status: 422, details: { code: "delivery_evidence_missing" } });
+
+    const [issue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
+    expect(issue!.status).toBe("in_review");
+    const [card] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interaction.id));
+    expect(card!.status).toBe("pending");
+  }, 30_000);
+
+  it("closes an issue without evidenceRequired from an approving review card", async () => {
+    const seeded = await seedPolicyReview({ genuine: true });
+    await db.insert(workspaceOperations).values({
+      companyId, heartbeatRunId: seeded.runId, issueId: seeded.issueId,
+      phase: "workspace_finalize", status: "succeeded", exitCode: 0, cwd: process.cwd(), finishedAt: new Date(),
+    });
+
+    await issueThreadInteractionService(db).acceptInteraction(
+      { id: seeded.issueId, companyId, projectId: null, goalId: null, status: "in_review" },
+      seeded.interaction.id,
+      {},
+      { userId: "board-user" },
+    );
+
+    const [issue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
+    expect(issue!.status).toBe("done");
+  }, 30_000);
+
   it("retires a proven automatic review and applies the current successful completion exactly once", async () => {
     const seeded = await seedAutomaticReview();
     // The persisted result is done, while its old assessment/decision required a review.

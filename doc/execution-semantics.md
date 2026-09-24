@@ -1121,17 +1121,49 @@ Verification then requires all of: the pull request is merged; its base ref equa
 the configured live base branch; its head SHA equals the reviewed head exactly;
 the claimed `mergedSha` equals the head or the merge commit exactly; at least one
 check run or commit status exists and all of them passed; and the live base branch
-contains the merged commit (`ahead_by === 0` on `base...head`). An absence of
-checks is `delivery_unverified_checks_unverifiable`, never a pass.
+contains the merged commit (`ahead_by === 0` on `base...head`). Base refs are
+compared by branch name, so `main`, `refs/heads/main` and `origin/main` name the
+same branch.
+
+Checks are read a page at a time at the provider's maximum page size, up to the
+count the provider itself reports. An absence of checks, and a read that ends
+short of that count, are both `delivery_unverified_checks_unverifiable` — never a
+pass, because the failing run may be on a page that was never fetched.
 
 Every failure is a 409 carrying a stable `code`, and the terminal write does not
 happen. The server writes `verified` and `receipt` onto the stored decision; a
 caller may not supply either, and the request schema rejects both.
 
-A system-initiated transition (recovery-action resolution, execution-workspace
-reconcile) carries no approver and therefore no claim. Under `evidenceRequired` it
-is refused with `delivery_evidence_missing` rather than exempted, so the recovery
-path cannot become the way around the gate.
+The flag is read from the policy as it was **persisted**. One request cannot both
+clear `evidenceRequired` and close the final stage; lowering it is a separate
+request.
+
+### Which paths the gate covers
+
+| Path | Under `evidenceRequired` |
+| --- | --- |
+| `PATCH /api/issues/:id` closing the final stage | verified, or refused with a stable code |
+| An approving comment closing the final stage | same gate; a comment with no evidence is refused **before the comment is inserted**, so no orphan comment is left |
+| Recovery-action resolution | refused — it carries no approver, so it cannot close an evidence-gated issue at all. Resolve the recovery action to `todo` or `blocked` and complete the issue through the issue update |
+| Execution-workspace quarantine restore | never requests a terminal status, so the gate is not reached |
+| An approving native completion review card | refused — the card carries no delivery claim |
+| Provider-quota recovery monitor scheduling | never requests a terminal status |
+
+A system-initiated transition carries no approver and therefore no claim. It is
+refused with `delivery_evidence_missing` rather than exempted, so no system path
+becomes the way around the gate. `evidenceSource` has no default: a new call site
+must state whether it is `"request"` or `"system"`.
+
+### Scope limit
+
+`evidenceRequired` governs the paths above. It does **not** govern the native
+runtime's own status authority: when the native status arbiter decides an issue is
+complete, `status-decision-committer.ts` writes `done` through `issueService.update`
+directly, without an execution-policy transition. Gating that write would make a
+refusal permanent inside a decision the finalization reconciler retries, so it is
+deliberately left out of this change. An issue whose completion must be verified
+should not also be completable by the native runtime's own authority; wiring that
+decision into the arbiter is separate work.
 
 ## 15. What This Does Not Mean
 

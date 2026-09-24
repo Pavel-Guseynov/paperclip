@@ -59,8 +59,11 @@ type TransitionInput = {
    * Who drives this transition. `"system"` marks a transition Paperclip itself issues
    * (recovery resolution, workspace reconcile): it carries no approver, so it can never
    * satisfy an evidence requirement and is refused rather than silently exempted.
+   *
+   * Required, with no default: a new terminal call site must state which it is rather
+   * than inherit an exemption by omission.
    */
-  evidenceSource?: "request" | "system";
+  evidenceSource: "request" | "system";
   reviewRequest?: IssueExecutionState["reviewRequest"] | null;
   monitorExplicitlyUpdated?: boolean;
 };
@@ -506,6 +509,41 @@ function nextPendingStageAfter(
 }
 
 /**
+ * Whether the terminal approval on this transition must carry a delivery claim.
+ *
+ * The flag is read from the policy as it was **persisted**, not only from the policy the
+ * request supplies. Reading the request's policy alone would let one `PATCH` that closes
+ * the final stage also clear `evidenceRequired` on its way through, and the gate would
+ * evaluate against the cleared value. Lowering the flag is still allowed — just not in
+ * the same request that closes the issue.
+ */
+export function terminalEvidenceRequired(input: {
+  policy?: IssueExecutionPolicy | null;
+  previousPolicy?: IssueExecutionPolicy | null;
+}): boolean {
+  return Boolean(input.previousPolicy?.evidenceRequired) || Boolean(input.policy?.evidenceRequired);
+}
+
+/**
+ * Refuse a terminal write that reaches the issue without an approver's delivery claim.
+ *
+ * `applyIssueExecutionPolicyTransition` is the gate for every transition that runs
+ * through it. A few writes set `done` directly; this is the same rule for those, stated
+ * where they are.
+ */
+export function assertTerminalWriteCarriesEvidence(
+  executionPolicy: unknown,
+  context: { path: string },
+): void {
+  if (!normalizeIssueExecutionPolicy(executionPolicy ?? null)?.evidenceRequired) return;
+  throw unprocessable(
+    "This issue's policy sets evidenceRequired, so it cannot be completed through "
+      + `${context.path}. Complete it through the issue update with \`evidence\`.`,
+    { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
+  );
+}
+
+/**
  * Enforce the shape of the delivery claim a terminal approval must carry.
  *
  * This is validation only: it decides whether the claim is complete enough to be checked
@@ -906,7 +944,7 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
           // not happened. Six such closures were observed on a single instance in one day,
           // each with a green review and an open pull request.
           let evidence: NormalizedTerminalEvidence | null;
-          if (input.policy?.evidenceRequired) {
+          if (terminalEvidenceRequired(input)) {
             // A system-initiated transition has no approver and therefore no delivery
             // claim. Exempting it would make every evidence gate bypassable through the
             // recovery path, so it is refused with the path that can satisfy the gate.

@@ -298,6 +298,7 @@ import {
   parseIssueExecutionState,
   redactIssueMonitorExternalRef,
   setIssueExecutionPolicyMonitorScheduledBy,
+  terminalEvidenceRequired,
 } from "../services/issue-execution-policy.js";
 import type { IssueTerminalEvidenceRecord } from "@paperclipai/shared";
 import {
@@ -13182,6 +13183,7 @@ export function issueRoutes(
         allowBoardOverride: req.actor.type === "board",
         commentBody,
         evidence: req.body.evidence === undefined ? undefined : req.body.evidence,
+        evidenceSource: "request",
         reviewRequest: reviewRequest === undefined ? undefined : reviewRequest,
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
@@ -13195,7 +13197,14 @@ export function issueRoutes(
         const verdict = await verifyTerminalDecisionEvidence({
           db,
           issue: existing,
-          policy: nextExecutionPolicy,
+          // The same rule the transition applied: the flag as persisted, so a request
+          // cannot clear `evidenceRequired` and close the final stage in one call.
+          policy: {
+            evidenceRequired: terminalEvidenceRequired({
+              policy: nextExecutionPolicy,
+              previousPolicy: previousExecutionPolicy,
+            }),
+          },
           evidence: transition.decision.evidence,
         });
         decisionEvidenceRecord = verdict.record;
@@ -17643,6 +17652,7 @@ export function issueRoutes(
           commentBody: req.body.body,
           evidence:
             req.body.evidence === undefined ? undefined : req.body.evidence,
+          evidenceSource: "request",
         });
         // Same server-side binding as the direct status update: an approving comment can
         // close the final stage, so it must clear the same gate and may not name its own
@@ -17653,7 +17663,12 @@ export function issueRoutes(
           const verdict = await verifyTerminalDecisionEvidence({
             db,
             issue: currentIssue,
-            policy: currentExecutionPolicy,
+            policy: {
+              evidenceRequired: terminalEvidenceRequired({
+                policy: currentExecutionPolicy,
+                previousPolicy: currentExecutionPolicy,
+              }),
+            },
             evidence: transition.decision.evidence,
           });
           commentDecisionEvidence = verdict.record;

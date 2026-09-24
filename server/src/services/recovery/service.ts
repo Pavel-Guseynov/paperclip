@@ -4079,6 +4079,9 @@ export function recoveryService(
       requestedAssigneePatch: {},
       actor: { agentId: null, userId: null },
       monitorExplicitlyUpdated: true,
+      // Recovery schedules a monitor and re-requests the issue's current status; it
+      // never closes an issue and carries no approver.
+      evidenceSource: "system",
     });
     const updated = await issuesSvc.update(input.issue.id, {
       ...transition.patch,
