@@ -1831,7 +1831,7 @@ export function createToolGatewayService(
         gatewayId: namedGatewayProtocol.gatewayId ?? null,
         gatewayPublicId: namedGatewayProtocol.gatewayPublicId ?? null,
         bearerToken: token,
-        protocolMethod: namedGatewayProtocol.protocolMethod ?? "tools/call",
+        protocolMethod: namedGatewayProtocol.protocolMethod,
         callerHeaders: namedGatewayProtocol.callerHeaders,
       });
     }

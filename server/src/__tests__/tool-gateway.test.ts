@@ -5623,6 +5623,45 @@ rl.on("line", (line) => {
       expect(expired.body).toMatchObject({ reasonCode: "session_expired" });
     });
 
+    it("reads only a session-token bearer out of Authorization", async () => {
+      const company = await createCompany(db);
+      const { agent, issue, project, run } = await createSessionFixture(company.id);
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      // No actor middleware here: this pins the route's own credential
+      // selection, independent of which credentials reach it.
+      const app = createGatewayRouteApp(db, gateway);
+
+      const session = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+
+      // A bearer belonging to another authority (a board key, an agent JWT)
+      // is not a session token and must not be read as one.
+      const otherAuthorityBearer = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", "Bearer board-api-key-value");
+      expect(otherAuthorityBearer.status).toBe(401);
+      expect(otherAuthorityBearer.body).toEqual({
+        error: "Tool gateway session token is required",
+      });
+
+      const sessionBearer = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${session.token}`);
+      expect(sessionBearer.status).toBe(200);
+
+      // The documented precedence: the header wins when both are present.
+      const bothTransports = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("x-paperclip-tool-gateway-token", session.token)
+        .set("Authorization", "Bearer board-api-key-value");
+      expect(bothTransports.status).toBe(200);
+    });
+
     it("rejects revoked, cross-session, unknown, and malformed session bearers", async () => {
       const company = await createCompany(db);
       const { agent, issue, project, run } = await createSessionFixture(company.id);
