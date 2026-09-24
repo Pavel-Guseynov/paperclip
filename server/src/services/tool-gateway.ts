@@ -6843,7 +6843,13 @@ export function createToolGatewayService(
     gatewayId?: string | null;
     gatewayPublicId?: string | null;
     bearerToken: string;
-    protocolMethod: McpGatewayProtocolMethod;
+    /**
+     * The protocol action this authentication is charged to. `null`
+     * authenticates the bearer without consuming a protocol rate limiter —
+     * used by JSON-RPC notifications, which carry no protocol action of their
+     * own and must not spend the handshake's session-setup budget.
+     */
+    protocolMethod: McpGatewayProtocolMethod | null;
     callerHeaders?: Record<string, string | string[] | undefined>;
   }): Promise<ToolGatewaySession> {
     const clientMetadata = safeClientMetadata(input.callerHeaders);
@@ -7007,11 +7013,13 @@ export function createToolGatewayService(
         row.token.expiresAt ??
         new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000),
     };
-    await assertNamedGatewayProtocolLimit(
-      session,
-      input.protocolMethod,
-      clientMetadata,
-    );
+    if (input.protocolMethod) {
+      await assertNamedGatewayProtocolLimit(
+        session,
+        input.protocolMethod,
+        clientMetadata,
+      );
+    }
     return captureSessionIdentity(session);
   }
 
@@ -8704,6 +8712,27 @@ export function createToolGatewayService(
         gatewayPublicId: input.gatewayPublicId ?? null,
         bearerToken: input.bearerToken,
         protocolMethod: "initialize",
+        callerHeaders: input.callerHeaders,
+      });
+    },
+
+    /**
+     * Authenticate the bearer behind a JSON-RPC notification (for example
+     * `notifications/initialized`) so an unauthenticated caller cannot drive
+     * the gateway endpoint. A notification is not a protocol action: it is
+     * charged to no rate limiter, and it returns nothing for the same reason.
+     */
+    async verifyNamedGatewayProtocolNotification(input: {
+      gatewayId?: string | null;
+      gatewayPublicId?: string | null;
+      bearerToken: string;
+      callerHeaders?: Record<string, string | string[] | undefined>;
+    }): Promise<void> {
+      await namedGatewaySessionFromBearer({
+        gatewayId: input.gatewayId ?? null,
+        gatewayPublicId: input.gatewayPublicId ?? null,
+        bearerToken: input.bearerToken,
+        protocolMethod: null,
         callerHeaders: input.callerHeaders,
       });
     },

@@ -245,7 +245,10 @@ describe("agent auth middleware", () => {
       .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
 
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ reachedGatewayProtocol: true });
+    // The public gateway path keeps the deployment's default actor: in a
+    // local_trusted instance that is the implicit board actor, and the managed
+    // /api route below is the only one that resets it.
+    expect(res.body).toMatchObject({ reachedGatewayProtocol: true, actorType: "board" });
   });
 
   it("leaves managed runtime MCP gateway bearers for the gateway protocol to validate", async () => {
@@ -254,6 +257,21 @@ describe("agent auth middleware", () => {
 
     const res = await request(createApp(db, "local_trusted"))
       .post(`/api/tool-gateway/gateways/${gatewayId}/mcp`)
+      .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`)
+      .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ reachedManagedGatewayProtocol: true, actorType: "none" });
+  });
+
+  it("matches a managed gateway id by generic UUID shape, not by version nibble", async () => {
+    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
+    // `tool_mcp_gateways.id` is a plain uuid column: the route match must not
+    // pin the version/variant nibbles, or an id the database accepts is denied.
+    const nonV4GatewayId = "00000000-0000-0000-0000-000000000000";
+
+    const res = await request(createApp(db, "local_trusted"))
+      .post(`/api/tool-gateway/gateways/${nonV4GatewayId}/mcp`)
       .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`)
       .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
 
