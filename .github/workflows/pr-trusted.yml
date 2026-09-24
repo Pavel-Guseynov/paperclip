@@ -309,6 +309,9 @@ jobs:
       - name: Validate pnpm version policy
         run: pnpm check:pnpm-version
 
+      - name: Test pnpm version policy check
+        run: node --test ./scripts/check-pnpm-version-policy.test.mjs
+
       - name: Reject git push in adapter/runtime code
         run: node ./scripts/check-no-git-push.mjs
 
