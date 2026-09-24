@@ -10,11 +10,8 @@ import {
   companies,
   createDb,
   heartbeatRuns,
-  issueRecoveryActions,
   issues,
-  projectExecutionWorkspacePolicies,
   projects,
-  projectWorkspaces,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -22,12 +19,10 @@ import {
 } from "./helpers/embedded-postgres.js";
 import {
   ensurePersistedExecutionWorkspaceAvailable,
-  inspectGitWorktreeBranchIncoherence,
   WorkspaceRuntimeValidationFailure,
 } from "../services/workspace-runtime.js";
 import {
-  getWorkspaceValidationFailure,
-  isWorkspaceValidationFailure,
+  findWorkspaceValidationFailure,
   WorkspaceValidationFailure,
 } from "../services/heartbeat.js";
 import { issueRecoveryActionService } from "../services/issue-recovery-actions.js";
@@ -61,9 +56,79 @@ async function createTempRepo(defaultBranch = "main") {
   return repoRoot;
 }
 
+/**
+ * `isRuntimeOwnedGitBranch` reads `createdByRuntime` together with the current
+ * ownership metadata version. `createdByRuntime: false` is an operator-owned
+ * branch: the runtime may never move its ref or check out another branch.
+ */
+function ownershipMetadata(createdByRuntime: boolean) {
+  return {
+    createdByRuntime,
+    gitBranchOwnershipVersion: 1,
+  };
+}
+
+function restoreInput(options: {
+  repoRoot: string;
+  worktreePath: string;
+  branchName: string;
+  createdByRuntime: boolean;
+  issueIdentifier: string;
+}) {
+  return {
+    base: {
+      baseCwd: options.repoRoot,
+      source: "project_primary" as const,
+      projectId: "proj-1",
+      workspaceId: "ws-1",
+      repoUrl: null,
+      repoRef: "main",
+    },
+    workspace: {
+      id: `exec-ws-${options.issueIdentifier}`,
+      mode: "isolated_workspace" as const,
+      strategyType: "git_worktree",
+      cwd: options.worktreePath,
+      providerRef: options.worktreePath,
+      projectId: "proj-1",
+      projectWorkspaceId: "ws-1",
+      repoUrl: null,
+      baseRef: "main",
+      branchName: options.branchName,
+      metadata: ownershipMetadata(options.createdByRuntime),
+    },
+    issue: {
+      id: `issue-${options.issueIdentifier}`,
+      identifier: options.issueIdentifier,
+      title: `Workspace validation test ${options.issueIdentifier}`,
+    },
+    agent: {
+      id: "agent-1",
+      name: "Test Agent",
+      companyId: "comp-1",
+    },
+  };
+}
+
+async function captureWorkspaceValidation(
+  run: () => Promise<unknown>,
+): Promise<Record<string, unknown>> {
+  let caught: unknown = null;
+  try {
+    await run();
+  } catch (err) {
+    caught = err;
+  }
+  expect(caught).toBeInstanceOf(WorkspaceRuntimeValidationFailure);
+  const payload = (caught as WorkspaceRuntimeValidationFailure).resultJson
+    .workspaceValidation;
+  expect(payload).toBeTypeOf("object");
+  return payload as Record<string, unknown>;
+}
+
 describe("workspace validation recovery precedence", () => {
   describe("git worktree branch coherence and detached HEAD", () => {
-    it("succeeds when git worktree is coherent on the expected branch", async () => {
+    it("reuses a runtime-owned worktree that is coherent on the expected branch", async () => {
       const repoRoot = await createTempRepo("main");
       const worktreePath = await fs.mkdtemp(
         path.join(os.tmpdir(), "paperclip-wt-coherent-"),
@@ -77,124 +142,21 @@ describe("workspace validation recovery precedence", () => {
         "main",
       ]);
 
-      const realized = await ensurePersistedExecutionWorkspaceAvailable({
-        base: {
-          baseCwd: repoRoot,
-          source: "project_primary",
-          projectId: "proj-1",
-          workspaceId: "ws-1",
-          repoUrl: null,
-          repoRef: "main",
-        },
-        workspace: {
-          id: "exec-ws-1",
-          mode: "isolated_workspace",
-          strategyType: "git_worktree",
-          cwd: worktreePath,
-          providerRef: worktreePath,
-          projectId: "proj-1",
-          projectWorkspaceId: "ws-1",
-          repoUrl: null,
-          baseRef: "main",
+      const realized = await ensurePersistedExecutionWorkspaceAvailable(
+        restoreInput({
+          repoRoot,
+          worktreePath,
           branchName: "PAP-101-test",
-          metadata: {
-            v: 1,
-            branchCreatedByRuntime: true,
-            gitBranchOwnershipVersion: 1,
-          },
-        },
-        issue: {
-          id: "issue-1",
-          identifier: "PAP-101",
-          title: "Coherent worktree test",
-        },
-        agent: {
-          id: "agent-1",
-          name: "Test Agent",
-          companyId: "comp-1",
-        },
-      });
-
-      expect(realized.cwd).toBe(worktreePath);
-      expect(realized.branchName).toBe("PAP-101-test");
-    });
-
-    it("rejects dirty worktree and captures uncommitted changes", async () => {
-      const repoRoot = await createTempRepo("main");
-      const worktreePath = await fs.mkdtemp(
-        path.join(os.tmpdir(), "paperclip-wt-dirty-"),
-      );
-      await runGit(repoRoot, [
-        "worktree",
-        "add",
-        "-b",
-        "PAP-102-dirty",
-        worktreePath,
-        "main",
-      ]);
-
-      // Switch to different branch so branch_mismatch triggers inspection
-      await runGit(worktreePath, ["checkout", "-b", "other-branch"]);
-      // Add dirty uncommitted changes
-      await fs.writeFile(
-        path.join(worktreePath, "dirty.txt"),
-        "uncommitted changes\n",
-        "utf8",
+          createdByRuntime: true,
+          issueIdentifier: "PAP-101",
+        }),
       );
 
-      let caughtError: unknown = null;
-      try {
-        await ensurePersistedExecutionWorkspaceAvailable({
-          base: {
-            baseCwd: repoRoot,
-            source: "project_primary",
-            projectId: "proj-1",
-            workspaceId: "ws-1",
-            repoUrl: null,
-            repoRef: "main",
-          },
-          workspace: {
-            id: "exec-ws-dirty",
-            mode: "isolated_workspace",
-            strategyType: "git_worktree",
-            cwd: worktreePath,
-            providerRef: worktreePath,
-            projectId: "proj-1",
-            projectWorkspaceId: "ws-1",
-            repoUrl: null,
-            baseRef: "main",
-            branchName: "PAP-102-dirty",
-            metadata: {
-              v: 1,
-              branchCreatedByRuntime: true,
-              gitBranchOwnershipVersion: 1,
-            },
-          },
-          issue: {
-            id: "issue-dirty",
-            identifier: "PAP-102",
-            title: "Dirty worktree test",
-          },
-          agent: {
-            id: "agent-1",
-            name: "Test Agent",
-            companyId: "comp-1",
-          },
-        });
-      } catch (err) {
-        caughtError = err;
-      }
-
-      expect(caughtError).toBeInstanceOf(WorkspaceRuntimeValidationFailure);
-      const validation = (caughtError as WorkspaceRuntimeValidationFailure)
-        .resultJson.workspaceValidation;
-      expect(validation.reason).toBe("git_worktree_branch_incoherence");
-      expect(validation.cleanliness).toBe("dirty");
-      expect(validation.dirtyPathSample).toContain("dirty.txt");
-      expect(validation.safeRepair.eligible).toBe(false);
+      expect(realized?.cwd).toBe(worktreePath);
+      expect(realized?.branchName).toBe("PAP-101-test");
     });
 
-    it("diagnoses detached HEAD with unique commits and preserves actualHeadSha and reissueBaseRef without data loss", async () => {
+    it("diagnoses a runtime-owned detached HEAD as branch incoherence and reissues from its exact commit", async () => {
       const repoRoot = await createTempRepo("main");
       const worktreePath = await fs.mkdtemp(
         path.join(os.tmpdir(), "paperclip-wt-detached-"),
@@ -208,16 +170,9 @@ describe("workspace validation recovery precedence", () => {
         "main",
       ]);
 
-      // Detach HEAD in the worktree
       await runGit(worktreePath, ["checkout", "--detach"]);
-
-      // Create unique commits on the detached HEAD
       const uniqueFile = path.join(worktreePath, "unique-work.txt");
-      await fs.writeFile(
-        uniqueFile,
-        "precious work on detached head\n",
-        "utf8",
-      );
+      await fs.writeFile(uniqueFile, "precious work on detached head\n", "utf8");
       await runGit(worktreePath, ["add", "unique-work.txt"]);
       await runGit(worktreePath, [
         "commit",
@@ -225,167 +180,190 @@ describe("workspace validation recovery precedence", () => {
         "Commit with unique work on detached HEAD",
       ]);
 
-      // Advance the recorded branch in repoRoot so it diverges from detached HEAD
+      // Advance the recorded branch so it diverges from the detached HEAD.
       await runGit(repoRoot, ["checkout", "PAP-103-detached"]);
-      await fs.writeFile(
-        path.join(repoRoot, "other.txt"),
-        "branch work\n",
-        "utf8",
-      );
+      await fs.writeFile(path.join(repoRoot, "other.txt"), "branch work\n", "utf8");
       await runGit(repoRoot, ["add", "other.txt"]);
       await runGit(repoRoot, ["commit", "-m", "Diverging branch commit"]);
 
-      const detachedCommitSha = await readGit(worktreePath, [
-        "rev-parse",
-        "HEAD",
-      ]);
+      const detachedCommitSha = await readGit(worktreePath, ["rev-parse", "HEAD"]);
       expect(detachedCommitSha).toMatch(/^[0-9a-f]{40}$/);
 
-      let caughtError: unknown = null;
-      try {
-        await ensurePersistedExecutionWorkspaceAvailable({
-          base: {
-            baseCwd: repoRoot,
-            source: "project_primary",
-            projectId: "proj-1",
-            workspaceId: "ws-1",
-            repoUrl: null,
-            repoRef: "main",
-          },
-          workspace: {
-            id: "exec-ws-detached",
-            mode: "isolated_workspace",
-            strategyType: "git_worktree",
-            cwd: worktreePath,
-            providerRef: worktreePath,
-            projectId: "proj-1",
-            projectWorkspaceId: "ws-1",
-            repoUrl: null,
-            baseRef: "main",
+      const validation = await captureWorkspaceValidation(() =>
+        ensurePersistedExecutionWorkspaceAvailable(
+          restoreInput({
+            repoRoot,
+            worktreePath,
             branchName: "PAP-103-detached",
-            metadata: {
-              v: 1,
-              branchCreatedByRuntime: true,
-              gitBranchOwnershipVersion: 1,
-            },
-          },
-          issue: {
-            id: "issue-detached",
-            identifier: "PAP-103",
-            title: "Detached HEAD test",
-          },
-          agent: {
-            id: "agent-1",
-            name: "Test Agent",
-            companyId: "comp-1",
-          },
-        });
-      } catch (err) {
-        caughtError = err;
-      }
-
-      expect(caughtError).toBeInstanceOf(WorkspaceRuntimeValidationFailure);
-      const validation = (caughtError as WorkspaceRuntimeValidationFailure)
-        .resultJson.workspaceValidation;
-      expect(validation.reason).toBe("git_worktree_branch_incoherence");
-      expect(validation.actualHeadSha).toBe(detachedCommitSha);
-      expect(validation.reissueBaseRef).toBe(detachedCommitSha);
-      expect(validation.provenance.actualHeadSha).toBe(detachedCommitSha);
-      expect(validation.expectedBranch).toBe("PAP-103-detached");
-      expect(validation.provenance.expectedBranchRef).toBe(
-        "refs/heads/PAP-103-detached",
+            createdByRuntime: true,
+            issueIdentifier: "PAP-103",
+          }),
+        ),
       );
-      expect(validation.safeRepair.eligible).toBe(false);
 
-      // Verify the worktree was NOT deleted
-      const worktreeExists = await fs
-        .stat(worktreePath)
-        .then(() => true)
-        .catch(() => false);
-      expect(worktreeExists).toBe(true);
-      const fileContent = await fs.readFile(uniqueFile, "utf8");
-      expect(fileContent).toBe("precious work on detached head\n");
+      expect(validation.reason).toBe("git_worktree_branch_incoherence");
+      expect(validation.expectedBranch).toBe("PAP-103-detached");
+      expect(validation.actualBranch).toBeNull();
+      const provenance = validation.provenance as Record<string, unknown>;
+      expect(provenance.actualHeadSha).toBe(detachedCommitSha);
+      expect(provenance.expectedBranchRef).toBe("refs/heads/PAP-103-detached");
+      expect(provenance.ancestryVerdict).toBe("diverged");
+      expect((validation.safeRepair as { eligible: boolean }).eligible).toBe(false);
 
-      // Verify reissue from exact actualHeadSha recovers the unique commits onto a new branch
+      // The original workspace is retained, unique commits included.
+      expect(await readGit(worktreePath, ["rev-parse", "HEAD"])).toBe(
+        detachedCommitSha,
+      );
+      expect(await fs.readFile(uniqueFile, "utf8")).toBe(
+        "precious work on detached head\n",
+      );
+
+      // The recorded diagnosis is enough to reissue from the exact commit.
+      const reissueBaseRef =
+        (validation.actualBranch as string | null) ??
+        (provenance.actualHeadSha as string);
       await runGit(worktreePath, [
         "checkout",
         "-b",
         "PAP-103-recovered",
-        validation.reissueBaseRef!,
+        reissueBaseRef,
       ]);
-      const recoveredHeadSha = await readGit(worktreePath, [
-        "rev-parse",
-        "HEAD",
-      ]);
-      expect(recoveredHeadSha).toBe(detachedCommitSha);
-      const recoveredLog = await readGit(worktreePath, [
-        "log",
-        "-1",
-        "--pretty=%B",
-      ]);
-      expect(recoveredLog).toContain(
+      expect(await readGit(worktreePath, ["rev-parse", "HEAD"])).toBe(
+        detachedCommitSha,
+      );
+      expect(await readGit(worktreePath, ["log", "-1", "--pretty=%B"])).toContain(
         "Commit with unique work on detached HEAD",
       );
     });
+
+    it.each([
+      { label: "detached commit", detach: true, dirty: false },
+      { label: "dirty forward branch", detach: false, dirty: true },
+    ])(
+      "records the live HEAD commit when an operator-owned worktree moved to a $label",
+      async ({ detach, dirty }) => {
+        const repoRoot = await createTempRepo("main");
+        const branchName = detach
+          ? "feature/operator-detached"
+          : "feature/operator-forward";
+        const worktreePath = await fs.mkdtemp(
+          path.join(os.tmpdir(), "paperclip-wt-operator-"),
+        );
+        await runGit(repoRoot, [
+          "worktree",
+          "add",
+          "-b",
+          branchName,
+          worktreePath,
+          "main",
+        ]);
+        const recordedBranchTip = await readGit(repoRoot, [
+          "rev-parse",
+          `refs/heads/${branchName}`,
+        ]);
+
+        if (detach) {
+          await runGit(worktreePath, ["checkout", "--detach"]);
+        } else {
+          await runGit(worktreePath, ["checkout", "-b", `${branchName}-other`]);
+        }
+        await fs.writeFile(
+          path.join(worktreePath, "operator-work.txt"),
+          "operator work\n",
+          "utf8",
+        );
+        await runGit(worktreePath, ["add", "operator-work.txt"]);
+        await runGit(worktreePath, ["commit", "-m", "Operator work"]);
+        if (dirty) {
+          await fs.writeFile(
+            path.join(worktreePath, "dirty.txt"),
+            "uncommitted changes\n",
+            "utf8",
+          );
+        }
+        const liveHeadSha = await readGit(worktreePath, ["rev-parse", "HEAD"]);
+
+        const validation = await captureWorkspaceValidation(() =>
+          ensurePersistedExecutionWorkspaceAvailable(
+            restoreInput({
+              repoRoot,
+              worktreePath,
+              branchName,
+              createdByRuntime: false,
+              issueIdentifier: detach ? "PAP-104" : "PAP-105",
+            }),
+          ),
+        );
+
+        // The operator-owned contract is unchanged: the mismatch is rejected as
+        // "not reusable", never re-diagnosed as a repairable incoherence.
+        expect(validation.reason).toBe("git_worktree_not_reusable");
+        expect(validation.reasonCode).toBe("branch_mismatch");
+        expect(validation.safeRepair).toBeUndefined();
+        // The live commit is recorded, so the operator can reissue from it.
+        expect(validation.expectedBranch).toBe(branchName);
+        expect(validation.actualBranch).toBe(
+          detach ? null : `${branchName}-other`,
+        );
+        expect(validation.actualHeadSha).toBe(liveHeadSha);
+
+        // No git state was mutated by the rejection.
+        expect(await readGit(repoRoot, ["rev-parse", `refs/heads/${branchName}`])).toBe(
+          recordedBranchTip,
+        );
+        expect(await readGit(worktreePath, ["rev-parse", "HEAD"])).toBe(liveHeadSha);
+        expect(await readGit(worktreePath, ["branch", "--show-current"])).toBe(
+          detach ? "" : `${branchName}-other`,
+        );
+      },
+    );
   });
 
-  describe("generic wrapper error unwrapping", () => {
-    it("unwraps WorkspaceValidationFailure from a generic Error cause", () => {
-      const innerFailure = new WorkspaceValidationFailure(
-        "Workspace validation failed",
-        {
-          workspaceValidation: {
-            reason: "git_worktree_branch_incoherence",
-            sourceIssueId: "issue-1",
-            executionWorkspaceId: "ws-1",
-            expectedBranch: "main",
-            actualBranch: null,
+  describe("wrapped workspace validation failures", () => {
+    function buildInnerFailure() {
+      return new WorkspaceValidationFailure("Workspace validation failed", {
+        workspaceValidation: {
+          reason: "git_worktree_branch_incoherence",
+          sourceIssueId: "issue-1",
+          executionWorkspaceId: "ws-1",
+          expectedBranch: "main",
+          actualBranch: null,
+          provenance: {
+            expectedHeadSha: "def5678",
             actualHeadSha: "abc1234",
-            reissueBaseRef: "abc1234",
-            checkedOutHeadSha: "abc1234",
-            provenance: {
-              checkedOutHeadSha: "abc1234",
-              expectedHeadSha: "def5678",
-              actualHeadSha: "abc1234",
-              expectedBranch: "main",
-              actualBranch: null,
-              ancestryVerdict: "diverged",
-              verifiedAgainstOrigin: false,
-            },
-            incoherence: null,
-            safeRepair: {
-              eligible: false,
-              attempted: false,
-              succeeded: false,
-              reason: "branch_mismatch",
-            },
+            ancestryVerdict: "diverged",
           },
+          safeRepair: { eligible: false },
         },
-      );
+      });
+    }
 
-      const wrappedError = new Error(
-        "setup_failed: failed to initialize adapter",
-        { cause: innerFailure },
-      );
+    it("finds the typed failure through a generic wrapper's cause chain", () => {
+      const innerFailure = buildInnerFailure();
+      const wrappedError = new Error("setup_failed: failed to initialize adapter", {
+        cause: new Error("restore failed", { cause: innerFailure }),
+      });
 
-      expect(isWorkspaceValidationFailure(wrappedError)).toBe(true);
-      const extracted = getWorkspaceValidationFailure(wrappedError);
-      expect(extracted).not.toBeNull();
-      expect(extracted?.resultJson.workspaceValidation?.reason).toBe(
-        "git_worktree_branch_incoherence",
-      );
-      expect(extracted?.resultJson.workspaceValidation?.actualHeadSha).toBe(
-        "abc1234",
-      );
-      expect(extracted?.resultJson.workspaceValidation?.reissueBaseRef).toBe(
-        "abc1234",
-      );
+      const extracted = findWorkspaceValidationFailure(wrappedError);
+      expect(extracted).toBe(innerFailure);
+      expect(
+        (extracted?.resultJson.workspaceValidation as Record<string, unknown>)
+          .reason,
+      ).toBe("git_worktree_branch_incoherence");
     });
 
-    it("returns null for generic errors without a workspace validation cause", () => {
-      const genericError = new Error("process_lost: child process terminated");
-      expect(isWorkspaceValidationFailure(genericError)).toBe(false);
-      expect(getWorkspaceValidationFailure(genericError)).toBeNull();
+    it("returns null for a generic error without a workspace validation cause", () => {
+      expect(
+        findWorkspaceValidationFailure(
+          new Error("process_lost: child process terminated"),
+        ),
+      ).toBeNull();
+    });
+
+    it("terminates on a self-referencing cause chain", () => {
+      const looping = new Error("outer") as Error & { cause?: unknown };
+      looping.cause = looping;
+      expect(findWorkspaceValidationFailure(looping)).toBeNull();
     });
   });
 
@@ -447,7 +425,7 @@ describe("workspace validation recovery precedence", () => {
         await cleanupDb?.();
       });
 
-      it("review and approval participant recovery escalates to workspace_validation_failed and preserves typed evidence", async () => {
+      it("escalates a failed review participant to workspace_validation_failed and preserves its typed evidence", async () => {
         const issueId = randomUUID();
         const stageId = randomUUID();
         await db.insert(issues).values({
@@ -496,10 +474,9 @@ describe("workspace validation recovery precedence", () => {
           },
         });
 
-        const runId = randomUUID();
-        const mockActualSha = "1234567890abcdef1234567890abcdef12345678";
+        const actualHeadSha = "1234567890abcdef1234567890abcdef12345678";
         await db.insert(heartbeatRuns).values({
-          id: runId,
+          id: randomUUID(),
           companyId,
           agentId: reviewerAgentId,
           status: "failed",
@@ -511,71 +488,57 @@ describe("workspace validation recovery precedence", () => {
             executionReviewParticipant: true,
           },
           resultJson: {
+            // Startup persists the typed diagnosis together with the bootstrap
+            // marker, exactly as the setup failure path writes it.
+            executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
             workspaceValidation: {
               reason: "git_worktree_branch_incoherence",
               sourceIssueId: issueId,
               executionWorkspaceId: "exec-ws-review",
               expectedBranch: "PAP-201-review",
               actualBranch: null,
-              actualHeadSha: mockActualSha,
-              reissueBaseRef: mockActualSha,
-              checkedOutHeadSha: mockActualSha,
               provenance: {
-                checkedOutHeadSha: mockActualSha,
-                expectedHeadSha: "0000000000000000000000000000000000000000",
-                actualHeadSha: mockActualSha,
-                expectedBranch: "PAP-201-review",
-                actualBranch: null,
+                expectedHeadSha:
+                  "0000000000000000000000000000000000000000",
+                actualHeadSha,
                 ancestryVerdict: "diverged",
-                verifiedAgainstOrigin: false,
               },
-              incoherence: null,
-              safeRepair: {
-                eligible: false,
-                attempted: false,
-                succeeded: false,
-                reason: "branch_mismatch",
-              },
+              safeRepair: { eligible: false },
             },
           },
           startedAt: new Date(),
           finishedAt: new Date(),
         });
 
-        const recoverySvc = recoveryService(db);
-        const reconcileResult =
-          await recoverySvc.reconcileStrandedAssignedIssues();
+        const reconcileResult = await recoveryService(
+          db,
+        ).reconcileStrandedAssignedIssues();
         expect(reconcileResult.issueIds).toContain(issueId);
 
-        // Check recovery action created
-        const recoveryActionSvc = issueRecoveryActionService(db);
-        const activeAction = await recoveryActionSvc.getActiveForIssue(
-          companyId,
-          issueId,
-        );
+        const activeAction = await issueRecoveryActionService(
+          db,
+        ).getActiveForIssue(companyId, issueId);
 
-        expect(activeAction).not.toBeNull();
         expect(activeAction?.cause).toBe("workspace_validation_failed");
         expect(activeAction?.kind).toBe("workspace_validation");
-        const actionEvidence = activeAction?.evidence as {
-          workspaceValidation?: {
-            actualHeadSha: string;
-            reissueBaseRef: string;
-            reason: string;
-          };
-        };
-        expect(actionEvidence.workspaceValidation?.reason).toBe(
+        expect(activeAction?.nextAction).toContain(
+          "git worktree branch incoherence",
+        );
+        const workspaceValidation = (
+          activeAction?.evidence as {
+            workspaceValidation?: Record<string, unknown>;
+          }
+        ).workspaceValidation;
+        expect(workspaceValidation?.reason).toBe(
           "git_worktree_branch_incoherence",
         );
-        expect(actionEvidence.workspaceValidation?.actualHeadSha).toBe(
-          mockActualSha,
-        );
-        expect(actionEvidence.workspaceValidation?.reissueBaseRef).toBe(
-          mockActualSha,
-        );
+        expect(
+          (workspaceValidation?.provenance as Record<string, unknown>)
+            .actualHeadSha,
+        ).toBe(actualHeadSha);
       });
 
-      it("precludes generic sweeps from overwriting an active workspace_validation action", async () => {
+      it("leaves an active workspace_validation action untouched when a generic sweep writes", async () => {
         const issueId = randomUUID();
         await db.insert(issues).values({
           id: issueId,
@@ -588,10 +551,9 @@ describe("workspace validation recovery precedence", () => {
           assigneeAgentId: agentId,
         });
 
-        const mockActualSha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        const actualHeadSha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
         const recoveryActionSvc = issueRecoveryActionService(db);
 
-        // Create active workspace_validation action
         const initial = await recoveryActionSvc.upsertSourceScoped({
           companyId,
           sourceIssueId: issueId,
@@ -602,17 +564,12 @@ describe("workspace validation recovery precedence", () => {
           evidence: {
             workspaceValidation: {
               reason: "git_worktree_branch_incoherence",
-              actualHeadSha: mockActualSha,
-              reissueBaseRef: mockActualSha,
+              actualHeadSha,
             },
           },
           nextAction: "Inspect detached workspace before reissuing run.",
         });
 
-        expect(initial.cause).toBe("workspace_validation_failed");
-        expect(initial.kind).toBe("workspace_validation");
-
-        // Attempt to upsert a generic stranded_assigned_issue action
         const genericAttempt = await recoveryActionSvc.upsertSourceScoped({
           companyId,
           sourceIssueId: issueId,
@@ -620,23 +577,74 @@ describe("workspace validation recovery precedence", () => {
           cause: "stranded_assigned_issue",
           fingerprint: `stranded:${issueId}`,
           ownerType: "board",
-          evidence: {
-            latestRunStatus: "failed",
-          },
+          supersedeOnIdentityChange: true,
+          evidence: { latestRunStatus: "failed" },
           nextAction: "Generic stranded recovery.",
         });
 
-        // Must NOT overwrite or downgrade the workspace_validation action
         expect(genericAttempt.id).toBe(initial.id);
         expect(genericAttempt.cause).toBe("workspace_validation_failed");
         expect(genericAttempt.kind).toBe("workspace_validation");
+        expect(genericAttempt.nextAction).toBe(initial.nextAction);
+        expect(genericAttempt.attemptCount).toBe(initial.attemptCount);
         const evidence = genericAttempt.evidence as {
           workspaceValidation?: { actualHeadSha: string };
+          latestRunStatus?: string;
         };
-        expect(evidence.workspaceValidation?.actualHeadSha).toBe(mockActualSha);
+        expect(evidence.workspaceValidation?.actualHeadSha).toBe(actualHeadSha);
+        expect(evidence.latestRunStatus).toBeUndefined();
       });
 
-      it("deduplicates repeated validation without dropping evidence payload", async () => {
+      it("still supersedes an active workspace_validation action for a later failure that names its own cause", async () => {
+        const issueId = randomUUID();
+        await db.insert(issues).values({
+          id: issueId,
+          companyId,
+          projectId,
+          identifier: "PAP-204",
+          title: "Distinct later failure",
+          status: "in_progress",
+          priority: "medium",
+          assigneeAgentId: agentId,
+        });
+
+        const recoveryActionSvc = issueRecoveryActionService(db);
+        const initial = await recoveryActionSvc.upsertSourceScoped({
+          companyId,
+          sourceIssueId: issueId,
+          kind: "workspace_validation",
+          cause: "workspace_validation_failed",
+          fingerprint: `workspace_validation:${issueId}`,
+          ownerType: "board",
+          evidence: {
+            workspaceValidation: { reason: "git_worktree_branch_incoherence" },
+          },
+          nextAction: "Inspect the workspace before reissuing the run.",
+        });
+
+        const laterFailure = await recoveryActionSvc.upsertSourceScoped({
+          companyId,
+          sourceIssueId: issueId,
+          kind: "configuration_incomplete",
+          cause: "configuration_incomplete",
+          fingerprint: `configuration_incomplete:${issueId}`,
+          ownerType: "board",
+          supersedeOnIdentityChange: true,
+          evidence: { configurationIncomplete: { reason: "missing_secret" } },
+          nextAction: "Bind the missing secret, then retry.",
+        });
+
+        expect(laterFailure.id).not.toBe(initial.id);
+        expect(laterFailure.cause).toBe("configuration_incomplete");
+        expect(laterFailure.kind).toBe("configuration_incomplete");
+        const active = await recoveryActionSvc.getActiveForIssue(
+          companyId,
+          issueId,
+        );
+        expect(active?.id).toBe(laterFailure.id);
+      });
+
+      it("keeps the typed workspace validation payload when a later write replaces the evidence", async () => {
         const issueId = randomUUID();
         await db.insert(issues).values({
           id: issueId,
@@ -649,7 +657,7 @@ describe("workspace validation recovery precedence", () => {
           assigneeAgentId: agentId,
         });
 
-        const mockActualSha = "9999999999999999999999999999999999999999";
+        const actualHeadSha = "9999999999999999999999999999999999999999";
         const recoveryActionSvc = issueRecoveryActionService(db);
 
         const first = await recoveryActionSvc.upsertSourceScoped({
@@ -662,19 +670,16 @@ describe("workspace validation recovery precedence", () => {
           evidence: {
             workspaceValidation: {
               reason: "git_worktree_branch_incoherence",
-              actualHeadSha: mockActualSha,
-              reissueBaseRef: mockActualSha,
-              provenance: {
-                ancestryVerdict: "diverged",
-              },
+              actualHeadSha,
+              provenance: { ancestryVerdict: "diverged" },
             },
+            routingPolicy: "board_escalation",
           },
           nextAction: "Action 1",
         });
 
         expect(first.attemptCount).toBe(1);
 
-        // Repeated validation with the same fingerprint
         const second = await recoveryActionSvc.upsertSourceScoped({
           companyId,
           sourceIssueId: issueId,
@@ -683,6 +688,7 @@ describe("workspace validation recovery precedence", () => {
           fingerprint: `wv-fp:${issueId}`,
           ownerType: "board",
           evidence: {
+            workspaceValidation: { cleanliness: "dirty" },
             additionalNote: "repeated run failed identically",
           },
           nextAction: "Action 2",
@@ -690,21 +696,20 @@ describe("workspace validation recovery precedence", () => {
 
         expect(second.id).toBe(first.id);
         expect(second.attemptCount).toBe(2);
-        // Payload must NOT be dropped
         const evidence = second.evidence as {
-          workspaceValidation?: {
-            actualHeadSha: string;
-            reissueBaseRef: string;
-            reason: string;
-          };
+          workspaceValidation?: Record<string, unknown>;
           additionalNote?: string;
+          routingPolicy?: string;
         };
+        // The typed diagnosis survives and deep-merges...
         expect(evidence.workspaceValidation?.reason).toBe(
           "git_worktree_branch_incoherence",
         );
-        expect(evidence.workspaceValidation?.actualHeadSha).toBe(mockActualSha);
-        expect(evidence.workspaceValidation?.reissueBaseRef).toBe(mockActualSha);
+        expect(evidence.workspaceValidation?.actualHeadSha).toBe(actualHeadSha);
+        expect(evidence.workspaceValidation?.cleanliness).toBe("dirty");
         expect(evidence.additionalNote).toBe("repeated run failed identically");
+        // ...while every other key keeps the established replace semantics.
+        expect(evidence.routingPolicy).toBeUndefined();
       });
     },
   );

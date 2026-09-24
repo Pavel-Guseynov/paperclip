@@ -71,3 +71,31 @@ it("retries a busy AI subscription only when no provider work started", () => {
    expect(legacyExecutionNeedsReconciliation({ ...waiting, resultJson: {} })).toBe(true);
    expect(legacyExecutionNeedsReconciliation({ ...waiting, resultJson: { executionRecovery: { kind: "ai_connection_wait", providerWorkStarted: true } } })).toBe(true);
  });
+
+it("holds a pre-dispatch workspace validation failure but reconciles one raised after the provider ran", () => {
+  const workspaceValidation = {
+    reason: "git_worktree_branch_incoherence",
+    expectedBranch: "PAP-1-work",
+    actualBranch: null,
+  };
+  // Setup wrote the bootstrap marker: the provider never started, so there are
+  // no provider actions to reconcile — the workspace itself needs repair.
+  const beforeDispatch = {
+    runtimeMode: "legacy", status: "failed", errorCode: "workspace_validation_failed",
+    scheduledRetryAttempt: 2,
+    resultJson: {
+      workspaceValidation,
+      executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+    },
+  };
+  expect(legacyExecutionNeedsReconciliation(beforeDispatch)).toBe(false);
+  // The adapter finalize path raises the same failure after the provider ran.
+  // That run carries no bootstrap marker, so its actions stay un-reconciled.
+  expect(legacyExecutionNeedsReconciliation({
+    ...beforeDispatch, resultJson: { workspaceValidation },
+  })).toBe(true);
+  expect(legacyExecutionNeedsReconciliation({
+    ...beforeDispatch,
+    resultJson: { workspaceValidation, executionRecovery: { kind: "bootstrap", providerWorkStarted: true } },
+  })).toBe(true);
+});

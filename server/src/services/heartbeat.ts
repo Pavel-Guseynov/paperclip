@@ -1180,10 +1180,10 @@ function isRetryableInteractionContinuationInfrastructureFailure(
     "error" | "errorCode" | "resultJson"
   >,
 ) {
-  if (run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE) {
-    return true;
-  }
-  if (run.errorCode === "process_lost") {
+  if (
+    run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
+    run.errorCode === "process_lost"
+  ) {
     return true;
   }
 
@@ -2799,7 +2799,12 @@ function isWorkspaceValidationFailureDirect(
   );
 }
 
-function findWorkspaceValidationFailure(
+/**
+ * A setup or finalize wrapper can rethrow a workspace-validation failure as the
+ * `cause` of a generic error. Walk the cause chain so the typed diagnosis is
+ * found wherever it was wrapped, and return it so callers keep its payload.
+ */
+export function findWorkspaceValidationFailure(
   error: unknown,
 ): WorkspaceValidationFailureLike | null {
   let current = error;
@@ -2812,18 +2817,6 @@ function findWorkspaceValidationFailure(
     current = "cause" in current ? (current as { cause?: unknown }).cause : null;
   }
   return null;
-}
-
-export function isWorkspaceValidationFailure(
-  error: unknown,
-): error is WorkspaceValidationFailureLike {
-  return findWorkspaceValidationFailure(error) !== null;
-}
-
-export function getWorkspaceValidationFailure(
-  error: unknown,
-): WorkspaceValidationFailureLike | null {
-  return findWorkspaceValidationFailure(error);
 }
 
 function isWorkspaceValidationFailedRun(
@@ -6025,9 +6018,11 @@ export async function provisionExecutionWorkspaceForFreshnessDecision<
   try {
     restored = (await input.restoreExistingWorkspace?.()) ?? null;
   } catch (error) {
-    const wsFailure = findWorkspaceValidationFailure(error);
-    if (wsFailure) {
-      throw wsFailure;
+    // Rethrow the caught error, not the unwrapped cause: the outer message and
+    // stack name the call that failed. Downstream handlers unwrap the cause
+    // chain themselves to read the typed workspace-validation payload.
+    if (findWorkspaceValidationFailure(error)) {
+      throw error;
     }
     reuseFailure = formatInheritedExecutionWorkspaceReuseFailure({
       reason: "inherited_workspace_reuse_failed",
@@ -23832,7 +23827,7 @@ export function heartbeatService(
                   }
                 } catch (repairErr) {
                   const workspaceValidationFailure =
-                    getWorkspaceValidationFailure(repairErr);
+                    findWorkspaceValidationFailure(repairErr);
                   finalizeBranchMetadata = {
                     executionWorkspaceId: branchInspection.workspaceRecord.id,
                     ...initialManagedGitWorktreeBranch,
@@ -25372,7 +25367,7 @@ export function heartbeatService(
           err instanceof Error ? err.message : "Unknown adapter failure",
           await getCurrentUserRedactionOptions(),
         );
-        const workspaceValidationFailure = getWorkspaceValidationFailure(err);
+        const workspaceValidationFailure = findWorkspaceValidationFailure(err);
         const configurationIncompleteFailure = isConfigurationIncompleteFailure(
           err,
         )
@@ -25624,7 +25619,7 @@ export function heartbeatService(
         // not an opaque setup crash. Surface it with its own errorCode so the
         // recovery path routes it to a human owner instead of looping retries.
         const workspaceValidationSetupFailure =
-          getWorkspaceValidationFailure(outerErr);
+          findWorkspaceValidationFailure(outerErr);
         const configurationIncompleteSetupFailure =
           isConfigurationIncompleteFailure(outerErr) ? outerErr : null;
         const unresolvedBaseRefSetupFailure = isUnresolvedWorkspaceBaseRefError(

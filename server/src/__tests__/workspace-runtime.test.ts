@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -150,30 +150,10 @@ async function runPnpm(cwd: string, args: string[]) {
 async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source-instance") {
   const configDir = path.join(baseCwd, ".paperclip");
   await fs.mkdir(configDir, { recursive: true });
-  const config = {
-    $meta: {
-      version: 1,
-      updatedAt: new Date().toISOString(),
-      source: "configure",
-    },
-    database: {
-      mode: "embedded-postgres",
-      embeddedPostgresDataDir: path.join(configDir, "runtime/db"),
-      embeddedPostgresPort: 54329,
-    },
-    logging: {
-      mode: "file",
-      logDir: path.join(configDir, "runtime/logs"),
-    },
-    server: {
-      host: "127.0.0.1",
-      port: 3100,
-    },
-  };
-  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify(config, null, 2) + "\n", "utf8");
+  await fs.writeFile(path.join(configDir, "config.json"), "{}\n", "utf8");
   await fs.writeFile(
     path.join(configDir, ".env"),
-    `PAPERCLIP_HOME=${path.join(configDir, "runtime")}\nPAPERCLIP_INSTANCE_ID=${instanceId}\nPAPERCLIP_CONFIG=${path.join(configDir, "config.json")}\n`,
+    `PAPERCLIP_INSTANCE_ID=${instanceId}\n`,
     "utf8",
   );
 }
@@ -4020,8 +4000,7 @@ describe("realizeExecutionWorkspace", () => {
       },
     });
 
-    const rawWorktreesDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cleanup-instances-"));
-    const worktreesDir = realpathSync(rawWorktreesDir);
+    const worktreesDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cleanup-instances-"));
     const instanceId = deriveWorktreeInstanceId(workspace.cwd);
     const instanceRoot = path.join(worktreesDir, "instances", instanceId);
     await fs.mkdir(path.join(instanceRoot, "db"), { recursive: true });
@@ -9661,7 +9640,7 @@ describe("realizeExecutionWorkspace with an exact existing branch", () => {
 
     const workspace = await realizeExistingBranch(repoRoot, "feature/legacy-checkout");
 
-    expect(workspace.cwd).toBe(realpathSync(legacyPath));
+    expect(workspace.cwd).toBe(path.resolve(legacyPath));
     expect(workspace.branchName).toBe("feature/legacy-checkout");
     expect(workspace.created).toBe(false);
     expect(await readGit(workspace.cwd, ["rev-parse", "HEAD"])).toBe(branchTip);
@@ -9772,7 +9751,8 @@ describe("realizeExecutionWorkspace with an exact existing branch", () => {
         code: "workspace_validation_failed",
         resultJson: {
           workspaceValidation: expect.objectContaining({
-            reason: "git_worktree_branch_incoherence",
+            reason: "git_worktree_not_reusable",
+            reasonCode: "branch_mismatch",
           }),
         },
       });

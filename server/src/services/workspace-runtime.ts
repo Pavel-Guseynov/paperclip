@@ -1475,8 +1475,6 @@ async function inspectGitWorktreeBranchIncoherence(input: {
     repoRoot: path.resolve(input.repoRoot),
     expectedBranch: input.expectedBranchName,
     actualBranch: input.actualBranchName,
-    actualHeadSha,
-    reissueBaseRef: input.actualBranchName ?? actualHeadSha,
     cleanliness,
     inProgressOperation,
     statusEntryCount: statusLines?.length ?? null,
@@ -3750,22 +3748,14 @@ export async function ensurePersistedExecutionWorkspaceAvailable(input: {
       expectedBranchName: realized.branchName,
     });
     if (!validation.valid) {
-      if (validation.reasonCode === "branch_mismatch" && realized.branchName) {
-        const actualBranch = await runGit(
-          ["symbolic-ref", "--quiet", "--short", "HEAD"],
-          reuseWorktreePath,
-        ).catch(() => null);
-        const evidence = await inspectGitWorktreeBranchIncoherence({
-          db: input.db ?? null,
-          repoRoot,
-          worktreePath: reuseWorktreePath,
-          expectedBranchName: realized.branchName,
-          actualBranchName: actualBranch,
-          sourceIssue: input.issue,
-          executionWorkspaceId: input.workspace.id ?? null,
-        });
-        throw branchIncoherenceValidationFailure(evidence);
-      }
+      // A branch mismatch here is rejected without mutating Git state, so this
+      // failure is the only record of where the live work sits. Read the live
+      // HEAD commit — a read-only observation — and carry it with the
+      // rejection, so a re-issue can be based on the exact commit instead of
+      // abandoning the commits the checked-out HEAD holds.
+      const liveHeadSha = validation.reasonCode === "branch_mismatch"
+        ? await runGit(["rev-parse", "HEAD"], reuseWorktreePath).catch(() => null)
+        : null;
       throw new WorkspaceRuntimeValidationFailure(
         `Persisted git worktree "${reuseWorktreePath}" is not reusable (${validation.reason}).`,
         {
@@ -3774,6 +3764,13 @@ export async function ensurePersistedExecutionWorkspaceAvailable(input: {
             reasonCode: validation.reasonCode,
             worktreePath: reuseWorktreePath,
             executionWorkspaceId: input.workspace.id ?? null,
+            ...(validation.reasonCode === "branch_mismatch"
+              ? {
+                expectedBranch: realized.branchName ?? null,
+                actualBranch: validation.actualBranchName ?? null,
+                actualHeadSha: liveHeadSha,
+              }
+              : {}),
           },
         },
       );

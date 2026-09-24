@@ -382,6 +382,11 @@ function resolveStrandedRecoveryCause(
   latestRun: LatestIssueRun,
   explicitCause?: StrandedRecoveryCause,
 ): StrandedRecoveryCause {
+  // A sweep that found the issue stranded passes a generic cause: it names no
+  // cause of its own. When the failed run carries a typed workspace-validation
+  // diagnosis, that diagnosis is the cause, and it decides the recovery kind,
+  // the operator guidance and the escalation comment. Any other explicit cause
+  // names a real, observed failure and keeps precedence.
   if (
     explicitCause &&
     explicitCause !== "stranded_assigned_issue" &&
@@ -394,12 +399,6 @@ function resolveStrandedRecoveryCause(
     readWorkspaceValidationPayload(latestRun) !== null
   ) {
     return "workspace_validation_failed";
-  }
-  if (
-    latestRun?.errorCode === "configuration_incomplete" ||
-    readConfigurationIncompletePayload(latestRun) !== null
-  ) {
-    return "configuration_incomplete";
   }
   if (explicitCause) return explicitCause;
   if (isProviderQuotaRecovery(latestRun)) return "provider_quota";
