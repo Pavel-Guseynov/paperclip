@@ -111,6 +111,9 @@ function createApp(db: any, deploymentMode: "authenticated" | "local_trusted" = 
   app.post("/api/tool-gateway/gateways/:gatewayId/mcp", (req, res) => {
     res.json({ reachedManagedGatewayProtocol: true, actorType: req.actor.type });
   });
+  app.get("/api/tool-gateway/gateways/:gatewayId/mcp", (req, res) => {
+    res.json({ reachedManagedGatewayDescriptor: true, actorType: req.actor.type });
+  });
   app.get("/api/tool-gateway/tools", (req, res) => {
     res.json({ reachedSessionTools: true, actorType: req.actor.type });
   });
@@ -283,6 +286,20 @@ describe("agent auth middleware", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ reachedManagedGatewayProtocol: true, actorType: "none" });
+  });
+
+  it("does not bypass actor authentication for a GET on the managed MCP path", async () => {
+    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
+
+    // POST is the only method the MCP protocol uses on this path. The GET is an
+    // unauthenticated descriptor, so the bypass must not make it reachable with
+    // a bearer that nothing ever verifies.
+    const res = await request(createApp(db, "authenticated"))
+      .get(`/api/tool-gateway/gateways/${randomUUID()}/mcp`)
+      .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toContain("Agent token did not verify");
   });
 
   it("does not bypass actor authentication for lookalike managed MCP paths", async () => {
