@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
@@ -47,6 +47,42 @@ function createTestToolGatewayService(db: ReturnType<typeof createDb>, options: 
   });
 }
 
+function requestBody(init: RequestInit | undefined): Record<string, unknown> {
+  return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+}
+
+/** A remote answer addressed to the JSON-RPC id the gateway actually sent. */
+function jsonRpcResponse(init: RequestInit | undefined, payload: Record<string, unknown>) {
+  return new Response(
+    JSON.stringify({ jsonrpc: "2.0", id: requestBody(init).id, ...payload }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+/**
+ * A remote that never answers. It rejects exactly when the gateway's own
+ * invocation deadline aborts the call, so the ordering is driven by the
+ * production timeout rather than by a race between two test timers.
+ */
+function abandonedRequest(
+  init: RequestInit | undefined,
+  onAbort?: () => Promise<void>,
+): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => {
+      void (async () => {
+        try {
+          await onAbort?.();
+        } finally {
+          const abortError = new Error("The operation was aborted");
+          abortError.name = "AbortError";
+          reject(abortError);
+        }
+      })();
+    });
+  });
+}
+
 async function createRunFixture(db: ReturnType<typeof createDb>) {
   const company = await db.insert(companies).values({
     name: `Gateway ${randomUUID()}`,
@@ -74,13 +110,24 @@ async function createRunFixture(db: ReturnType<typeof createDb>) {
     status: "running",
     contextSnapshot: { issueId: issue.id },
   }).returning().then((rows) => rows[0]!);
+  await db.insert(toolPolicies).values({
+    companyId: company.id,
+    name: "Allow all tools",
+    policyType: "allow",
+    selectors: {},
+  });
   return { company, agent, issue, run };
 }
 
 async function createRemoteMcpFixture(
   db: ReturnType<typeof createDb>,
   companyId: string,
-  options?: { toolName?: string; isReadOnly?: boolean; riskLevel?: "read" | "write" },
+  options?: {
+    toolName?: string;
+    isReadOnly?: boolean;
+    riskLevel?: "read" | "write";
+    config?: Record<string, unknown>;
+  },
 ) {
   const toolName = options?.toolName ?? "query_data";
   const isReadOnly = options?.isReadOnly ?? true;
@@ -104,7 +151,7 @@ async function createRemoteMcpFixture(
     enabled: true,
     healthStatus: "ok",
     credentialPolicy: "shared",
-    config: { url: "https://8.8.8.8/mcp" },
+    config: { url: "https://8.8.8.8/mcp", ...options?.config },
   }).returning().then((rows) => rows[0]!);
 
   await db.insert(connectionGrants).values({
@@ -171,246 +218,204 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     await tempDb?.cleanup();
   });
 
-  it("preserves catalog eligibility and marks connection degraded on tool invocation timeout", async () => {
+  async function connectionRow(connectionId: string) {
+    const [row] = await db.select().from(toolConnections).where(eq(toolConnections.id, connectionId));
+    return row!;
+  }
+
+  async function lastFailedCallEvent(companyId: string) {
+    const [row] = await db
+      .select()
+      .from(toolCallEvents)
+      .where(and(eq(toolCallEvents.companyId, companyId), eq(toolCallEvents.eventType, "call_failed")))
+      .orderBy(desc(toolCallEvents.createdAt));
+    return row ?? null;
+  }
+
+  it("keeps an abandoned call's connection in the catalog and records the ambiguous outcome", async () => {
     const { company, agent, run } = await createRunFixture(db);
     const { connection } = await createRemoteMcpFixture(db, company.id);
 
-    await db.insert(toolPolicies).values({
-      companyId: company.id,
-      name: "Allow all tools",
-      policyType: "allow",
-      selectors: {},
-    });
-
-    // Remote HTTP mock simulates a slow server that triggers AbortSignal on timeout
     const gateway = createTestToolGatewayService(db, {
-      remoteHttpRequest: async (_url, init) => {
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => {
-            resolve(
-              new Response(
-                JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: "test",
-                  result: { content: [{ type: "text", text: "too slow" }] },
-                }),
-                { status: 200, headers: { "content-type": "application/json" } },
-              ),
-            );
-          }, 5000);
-          init?.signal?.addEventListener("abort", () => {
-            clearTimeout(timer);
-            const abortErr = new Error("The operation was aborted");
-            abortErr.name = "AbortError";
-            reject(abortErr);
-          });
-        });
-      },
+      remoteHttpRequest: async (_url, init) => abandonedRequest(init),
     });
 
     const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const initialTools = await gateway.listToolsForSession(session.token);
-    const targetTool = initialTools.find((t) => t.providerType === "mcp_remote_http");
+    const targetTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
     expect(targetTool).toBeDefined();
 
-    // Execute with a short 50ms timeout
-    let caughtError: unknown;
-    try {
-      await gateway.executeTool({
-        sessionToken: session.token,
-        tool: targetTool!.name,
-        parameters: { q: "test" },
-        timeoutMs: 50,
-      });
-    } catch (err) {
-      caughtError = err;
-    }
+    const error = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: targetTool.name,
+      parameters: { q: "test" },
+      timeoutMs: 20,
+    }).catch((caught: unknown) => caught);
 
-    expect(caughtError).toBeInstanceOf(ToolGatewayHttpError);
-    const gatewayErr = caughtError as ToolGatewayHttpError;
-    expect(gatewayErr.status).toBe(504);
-    expect(gatewayErr.reasonCode).toBe("tool_timeout");
-    expect(gatewayErr.details.failureKind).toBe("invocation_timeout");
+    expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    const gatewayError = error as ToolGatewayHttpError;
+    expect(gatewayError.status).toBe(504);
+    expect(gatewayError.reasonCode).toBe("tool_timeout");
+    expect(gatewayError.details.failureKind).toBe("invocation_timeout");
+    expect(gatewayError.details.execution).toMatchObject({ failureKind: "invocation_timeout" });
 
-    // Check that connection is marked "degraded", NOT "error"
-    const [storedConn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(storedConn?.healthStatus).toBe("degraded");
-    expect(storedConn?.healthMessage).toContain("Remote MCP tool call timed out; transport remains viable.");
+    // An abandoned call says nothing about the transport: degraded, not dead.
+    const stored = await connectionRow(connection.id);
+    expect(stored.healthStatus).toBe("degraded");
+    expect(stored.healthMessage).toBe("Remote MCP tool call timed out; transport remains viable.");
 
-    // Check that the tool remains catalog-eligible in the SAME session
-    const toolsAfterTimeoutSameSession = await gateway.listToolsForSession(session.token);
-    expect(toolsAfterTimeoutSameSession.some((t) => t.name === targetTool!.name)).toBe(true);
+    // The catalog stays eligible for the session that timed out and for a new one.
+    const sameSession = await gateway.listToolsForSession(session.token);
+    expect(sameSession.some((tool) => tool.name === targetTool.name)).toBe(true);
+    const fresh = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const freshSession = await gateway.listToolsForSession(fresh.token);
+    expect(freshSession.some((tool) => tool.name === targetTool.name)).toBe(true);
 
-    // Check that the tool remains catalog-eligible in a NEW session
-    const newSession = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const toolsNewSession = await gateway.listToolsForSession(newSession.token);
-    expect(toolsNewSession.some((t) => t.name === targetTool!.name)).toBe(true);
-
-    // Check invocation status in DB
     const invocations = await db.select().from(toolInvocations).where(eq(toolInvocations.companyId, company.id));
     expect(invocations.length).toBe(1);
     expect(invocations[0]?.status).toBe("timed_out");
     expect(invocations[0]?.errorCode).toBe("tool_timeout");
+
+    // The classification is retained where an operator reads it back.
+    const event = await lastFailedCallEvent(company.id);
+    expect(event?.outcome).toBe("timeout");
+    expect(event?.metadata).toMatchObject({ execution: { failureKind: "invocation_timeout" } });
   });
 
-  it("restores normal ok health status on subsequent successful exchange", async () => {
+  it("restores ok health when a later exchange succeeds", async () => {
     const { company, agent, run } = await createRunFixture(db);
     const { connection } = await createRemoteMcpFixture(db, company.id);
 
-    await db.insert(toolPolicies).values({
-      companyId: company.id,
-      name: "Allow all tools",
-      policyType: "allow",
-      selectors: {},
-    });
-
-    let shouldDelay = true;
+    let answer = false;
     const gateway = createTestToolGatewayService(db, {
-      remoteHttpRequest: async (_url, init) => {
-        if (shouldDelay) {
-          return new Promise((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => {
-              const abortErr = new Error("The operation was aborted");
-              abortErr.name = "AbortError";
-              reject(abortErr);
-            });
-          });
-        }
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: "test",
-            result: { content: [{ type: "text", text: "success data" }] },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      },
+      remoteHttpRequest: async (_url, init) =>
+        answer
+          ? jsonRpcResponse(init, { result: { content: [{ type: "text", text: "success data" }] } })
+          : abandonedRequest(init),
     });
 
     const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const tools = await gateway.listToolsForSession(session.token);
-    const targetTool = tools.find((t) => t.providerType === "mcp_remote_http")!;
-    expect(targetTool).toBeDefined();
+    const targetTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
 
-    // 1. First call times out -> degrades health
     await expect(
-      gateway.executeTool({
-        sessionToken: session.token,
-        tool: targetTool.name,
-        parameters: {},
-        timeoutMs: 30,
-      }),
+      gateway.executeTool({ sessionToken: session.token, tool: targetTool.name, parameters: {}, timeoutMs: 20 }),
     ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+    expect((await connectionRow(connection.id)).healthStatus).toBe("degraded");
 
-    const [degradedConn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(degradedConn?.healthStatus).toBe("degraded");
-
-    // 2. Subsequent call succeeds -> restores "ok" health
-    shouldDelay = false;
+    answer = true;
     const result = await gateway.executeTool({
       sessionToken: session.token,
       tool: targetTool.name,
       parameters: {},
       timeoutMs: 500,
     });
-
     expect(result.status).toBe("completed");
 
-    const [restoredConn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(restoredConn?.healthStatus).toBe("ok");
-    expect(restoredConn?.healthMessage).toContain("Remote MCP server responded to tools/call.");
-    expect(restoredConn?.lastError).toBeNull();
+    const restored = await connectionRow(connection.id);
+    expect(restored.healthStatus).toBe("ok");
+    expect(restored.healthMessage).toBe("Remote MCP server responded to tools/call.");
+    expect(restored.lastError).toBeNull();
   });
 
-  it("preserves ambiguous write tool outcomes without automatic retry or replay", async () => {
+  it("refuses to replay an abandoned write under its original idempotency key", async () => {
     const { company, agent, run } = await createRunFixture(db);
-    const { connection } = await createRemoteMcpFixture(db, company.id, {
+    await createRemoteMcpFixture(db, company.id, {
       toolName: "charge_payment",
       isReadOnly: false,
       riskLevel: "write",
-    });
-
-    await db.insert(toolPolicies).values({
-      companyId: company.id,
-      name: "Allow payment write",
-      policyType: "allow",
-      selectors: {},
     });
 
     let dispatchCount = 0;
     const gateway = createTestToolGatewayService(db, {
       remoteHttpRequest: async (_url, init) => {
         dispatchCount++;
-        return new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            const abortErr = new Error("The operation was aborted");
-            abortErr.name = "AbortError";
-            reject(abortErr);
-          });
-        });
+        return abandonedRequest(init);
       },
     });
 
     const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const tools = await gateway.listToolsForSession(session.token);
-    const writeTool = tools.find((t) => t.providerType === "mcp_remote_http")!;
-    expect(writeTool).toBeDefined();
-
+    const writeTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
     const idempotencyKey = `idempotent-write-${randomUUID()}`;
 
-    // 1. Call times out
     await expect(
       gateway.executeTool({
         sessionToken: session.token,
         tool: writeTool.name,
         parameters: { amount: 5000 },
-        timeoutMs: 40,
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+    expect(dispatchCount).toBe(1);
+
+    const [invocation] = await db
+      .select()
+      .from(toolInvocations)
+      .where(and(eq(toolInvocations.companyId, company.id), eq(toolInvocations.idempotencyKey, idempotencyKey)));
+    expect(invocation?.status).toBe("timed_out");
+
+    const replayError = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: writeTool.name,
+      parameters: { amount: 5000 },
+      timeoutMs: 500,
+      idempotencyKey,
+    }).catch((caught: unknown) => caught as { status?: number; message?: string; details?: Record<string, unknown> });
+
+    expect(replayError?.status).toBe(409);
+    expect(replayError?.message).toContain("ambiguous outcome");
+    expect(replayError?.message).toContain("new idempotency key");
+    expect(replayError?.details).toMatchObject({ code: "ambiguous_invocation_timeout", invocationId: invocation!.id });
+
+    // The provider is never asked to do the work a second time.
+    expect(dispatchCount).toBe(1);
+  });
+
+  it("still replays an abandoned read under its original idempotency key", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, { toolName: "query_data", isReadOnly: true, riskLevel: "read" });
+
+    let dispatchCount = 0;
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => {
+        dispatchCount++;
+        return abandonedRequest(init);
+      },
+    });
+
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const readTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
+    const idempotencyKey = `idempotent-read-${randomUUID()}`;
+
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: readTool.name,
+        parameters: { q: "test" },
+        timeoutMs: 20,
         idempotencyKey,
       }),
     ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
 
-    // The remote server must only have been invoked once (no automatic background retries)
-    expect(dispatchCount).toBe(1);
-
-    // Verify the invocation recorded in DB is timed_out
-    const [inv] = await db
-      .select()
-      .from(toolInvocations)
-      .where(and(eq(toolInvocations.companyId, company.id), eq(toolInvocations.idempotencyKey, idempotencyKey)));
-    expect(inv?.status).toBe("timed_out");
-
-    // 2. Calling again with the same idempotency key must reject as ambiguous invocation timeout (NOT replay)
-    let secondCallError: unknown;
-    try {
-      await gateway.executeTool({
-        sessionToken: session.token,
-        tool: writeTool.name,
-        parameters: { amount: 5000 },
-        timeoutMs: 500,
-        idempotencyKey,
-      });
-    } catch (err) {
-      secondCallError = err;
-    }
-
-    expect(secondCallError).toBeDefined();
-    expect((secondCallError as any).status).toBe(409);
-    expect((secondCallError as any).message).toContain("ambiguous outcome");
-
-    // Still exactly 1 dispatch to the remote server — it was never called a second time
+    // A read cannot have changed anything upstream, so the ambiguous-outcome
+    // refusal must not apply to it: the key keeps its ordinary replay.
+    const replay = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: readTool.name,
+      parameters: { q: "test" },
+      timeoutMs: 500,
+      idempotencyKey,
+    });
+    expect(replay.status).toBe("replayed");
     expect(dispatchCount).toBe(1);
   });
 
-  it("fails closed on genuine transport failure (network drop)", async () => {
+  it("fails closed and withdraws the catalog when the transport never answers", async () => {
     const { company, agent, run } = await createRunFixture(db);
     const { connection } = await createRemoteMcpFixture(db, company.id);
-
-    await db.insert(toolPolicies).values({
-      companyId: company.id,
-      name: "Allow all",
-      policyType: "allow",
-      selectors: {},
-    });
 
     const gateway = createTestToolGatewayService(db, {
       remoteHttpRequest: async () => {
@@ -419,178 +424,268 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     });
 
     const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const tools = await gateway.listToolsForSession(session.token);
-    const targetTool = tools.find((t) => t.providerType === "mcp_remote_http")!;
-    expect(targetTool).toBeDefined();
+    const targetTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
 
-    let caughtErr: unknown;
-    try {
-      await gateway.executeTool({
+    const error = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: targetTool.name,
+      parameters: {},
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    const gatewayError = error as ToolGatewayHttpError;
+    expect(gatewayError.status).toBe(502);
+    expect(gatewayError.reasonCode).toBe("mcp_remote_fetch_failed");
+    expect(gatewayError.details.failureKind).toBe("transport_failure");
+
+    expect((await connectionRow(connection.id)).healthStatus).toBe("error");
+
+    // Fail closed: the tool leaves the catalog and can no longer be called.
+    const remaining = await gateway.listToolsForSession(session.token);
+    expect(remaining.some((tool) => tool.name === targetTool.name)).toBe(false);
+    await expect(
+      gateway.executeTool({ sessionToken: session.token, tool: targetTool.name, parameters: {} }),
+    ).rejects.toMatchObject({ status: 404, reasonCode: "tool_not_found" });
+  });
+
+  it("fails closed and withdraws the catalog on every protocol failure", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    const { connection } = await createRemoteMcpFixture(db, company.id);
+
+    const cases = [
+      {
+        name: "HTTP error status",
+        reasonCode: "mcp_remote_status",
+        respond: () => new Response("Internal Server Error", { status: 500 }),
+      },
+      {
+        name: "body that is not JSON",
+        reasonCode: "mcp_remote_invalid_json",
+        respond: () =>
+          new Response("This is not JSON", { status: 200, headers: { "content-type": "application/json" } }),
+      },
+      {
+        name: "JSON-RPC error",
+        reasonCode: "remote_mcp_error",
+        respond: (init: RequestInit | undefined) =>
+          jsonRpcResponse(init, { error: { code: -32603, message: "Internal JSON-RPC failure" } }),
+      },
+      {
+        name: "answer to a different request",
+        reasonCode: "remote_mcp_malformed_response",
+        respond: () =>
+          new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: "some-other-call", result: { content: [] } }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      },
+      {
+        name: "oversized body",
+        reasonCode: "mcp_remote_response_too_large",
+        respond: (init: RequestInit | undefined) =>
+          jsonRpcResponse(init, { result: { content: [{ type: "text", text: "x".repeat(1_100_000) }] } }),
+      },
+    ];
+
+    for (const testCase of cases) {
+      await db
+        .update(toolConnections)
+        .set({ healthStatus: "ok", healthMessage: null, lastHealthAt: null, lastError: null })
+        .where(eq(toolConnections.id, connection.id));
+
+      const gateway = createTestToolGatewayService(db, {
+        remoteHttpRequest: async (_url, init) => testCase.respond(init),
+      });
+      const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      const targetTool = (await gateway.listToolsForSession(session.token))
+        .find((tool) => tool.providerType === "mcp_remote_http")!;
+      expect(targetTool, testCase.name).toBeDefined();
+
+      const error = await gateway.executeTool({
         sessionToken: session.token,
         tool: targetTool.name,
         parameters: {},
-      });
-    } catch (err) {
-      caughtErr = err;
+      }).catch((caught: unknown) => caught as ToolGatewayHttpError);
+
+      expect(error.status, testCase.name).toBe(502);
+      expect(error.reasonCode, testCase.name).toBe(testCase.reasonCode);
+      expect(error.details.failureKind, testCase.name).toBe("protocol_failure");
+      expect(error.details.execution, testCase.name).toMatchObject({ failureKind: "protocol_failure" });
+
+      // A server that broke the protocol is unhealthy and leaves the catalog.
+      expect((await connectionRow(connection.id)).healthStatus, testCase.name).toBe("error");
+      const remaining = await gateway.listToolsForSession(session.token);
+      expect(remaining.some((tool) => tool.name === targetTool.name), testCase.name).toBe(false);
     }
-
-    expect(caughtErr).toBeInstanceOf(ToolGatewayHttpError);
-    const err = caughtErr as ToolGatewayHttpError;
-    expect(err.status).toBe(502);
-    expect(err.reasonCode).toBe("mcp_remote_fetch_failed");
-    expect(err.details.failureKind).toBe("transport_failure");
-
-    // Connection MUST be marked "error", not "degraded"
-    const [storedConn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(storedConn?.healthStatus).toBe("error");
-
-    // Catalog MUST be excluded from listToolsForSession
-    const toolsAfter = await gateway.listToolsForSession(session.token);
-    expect(toolsAfter.some((t) => t.name === targetTool.name)).toBe(false);
   });
 
-  it("fails closed on protocol failure (HTTP 500, invalid JSON, JSON-RPC error)", async () => {
+  it("treats an expired remote session as recoverable rather than as a protocol failure", async () => {
     const { company, agent, run } = await createRunFixture(db);
-    const { connection } = await createRemoteMcpFixture(db, company.id);
-
-    await db.insert(toolPolicies).values({
-      companyId: company.id,
-      name: "Allow all",
-      policyType: "allow",
-      selectors: {},
-    });
-
-    let mode: "http_500" | "invalid_json" | "rpc_error" = "http_500";
-    const gateway = createTestToolGatewayService(db, {
-      remoteHttpRequest: async () => {
-        if (mode === "http_500") {
-          return new Response("Internal Server Error", { status: 500 });
-        }
-        if (mode === "invalid_json") {
-          return new Response("This is not JSON", {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: "test",
-            error: { code: -32603, message: "Internal JSON-RPC failure" },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      },
-    });
-
-    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const tools = await gateway.listToolsForSession(session.token);
-    const targetTool = tools.find((t) => t.providerType === "mcp_remote_http")!;
-    expect(targetTool).toBeDefined();
-
-    // HTTP 500
-    let err500: any;
-    try {
-      await gateway.executeTool({ sessionToken: session.token, tool: targetTool.name, parameters: {} });
-    } catch (e) {
-      err500 = e;
-    }
-    expect(err500?.status).toBe(502);
-    expect(err500?.reasonCode).toBe("mcp_remote_status");
-    expect(err500?.details?.failureKind).toBe("protocol_failure");
-
-    let [conn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(conn?.healthStatus).toBe("error");
-
-    // Invalid JSON
-    mode = "invalid_json";
-    await db.update(toolConnections).set({ healthStatus: "ok" }).where(eq(toolConnections.id, connection.id));
-    let errJson: any;
-    try {
-      await gateway.executeTool({ sessionToken: session.token, tool: targetTool.name, parameters: {} });
-    } catch (e) {
-      errJson = e;
-    }
-    expect(errJson?.status).toBe(502);
-    expect(errJson?.reasonCode).toBe("mcp_remote_invalid_json");
-    expect(errJson?.details?.failureKind).toBe("protocol_failure");
-
-    [conn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(conn?.healthStatus).toBe("error");
-
-    // JSON-RPC Error
-    mode = "rpc_error";
-    await db.update(toolConnections).set({ healthStatus: "ok" }).where(eq(toolConnections.id, connection.id));
-    let errRpc: any;
-    try {
-      await gateway.executeTool({ sessionToken: session.token, tool: targetTool.name, parameters: {} });
-    } catch (e) {
-      errRpc = e;
-    }
-    expect(errRpc?.status).toBe(502);
-    expect(errRpc?.reasonCode).toBe("remote_mcp_error");
-    expect(errRpc?.details?.failureKind).toBe("protocol_failure");
-
-    [conn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(conn?.healthStatus).toBe("error");
-  });
-
-  it("guards against stale timeout downgrading a newer successful health update", async () => {
-    const { company, agent, run } = await createRunFixture(db);
-    const { connection } = await createRemoteMcpFixture(db, company.id);
-
-    await db.insert(toolPolicies).values({
-      companyId: company.id,
-      name: "Allow all",
-      policyType: "allow",
-      selectors: {},
+    const { connection } = await createRemoteMcpFixture(db, company.id, {
+      config: { mcpSessionRequired: true },
     });
 
     const gateway = createTestToolGatewayService(db, {
       remoteHttpRequest: async (_url, init) => {
-        return new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            const abortErr = new Error("The operation was aborted");
-            abortErr.name = "AbortError";
-            reject(abortErr);
-          });
-        });
+        const body = requestBody(init);
+        if (body.method === "initialize") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "test", version: "1" } },
+            }),
+            { status: 200, headers: { "content-type": "application/json", "mcp-session-id": "session-1" } },
+          );
+        }
+        if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+        return new Response("session expired", { status: 404 });
       },
     });
 
     const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const tools = await gateway.listToolsForSession(session.token);
-    const targetTool = tools.find((t) => t.providerType === "mcp_remote_http")!;
-    expect(targetTool).toBeDefined();
+    const targetTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
 
-    // Start a tool execution that will abort
-    const executionPromise = gateway.executeTool({
+    const error = await gateway.executeTool({
       sessionToken: session.token,
       tool: targetTool.name,
       parameters: {},
-      timeoutMs: 60,
+    }).catch((caught: unknown) => caught as ToolGatewayHttpError);
+
+    expect(error.reasonCode).toBe("mcp_remote_status");
+    expect(error.details.sessionExpired).toBe(true);
+    // Retrying explicitly starts a new session, so nothing about the server is
+    // known to be broken: no classification and no health downgrade.
+    expect(error.details.failureKind).toBeUndefined();
+    expect(error.details.execution).not.toMatchObject({ failureKind: expect.anything() });
+    expect((await connectionRow(connection.id)).healthStatus).toBe("ok");
+    const remaining = await gateway.listToolsForSession(session.token);
+    expect(remaining.some((tool) => tool.name === targetTool.name)).toBe(true);
+  });
+
+  it("does not blame the transport for a failure raised after the response arrived", async () => {
+    const { company, agent, issue, run } = await createRunFixture(db);
+    const { connection } = await createRemoteMcpFixture(db, company.id);
+
+    // Two property names that differ only past the 120-character question-id
+    // limit. The gateway builds one interaction with two identical question
+    // ids, which its own payload contract rejects — after the remote already
+    // answered in full.
+    const collidingKey = "a".repeat(120);
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) =>
+        jsonRpcResponse(init, {
+          result: {
+            elicitation: {
+              message: "More detail needed",
+              requestedSchema: {
+                properties: { [`${collidingKey}1`]: { type: "string" }, [`${collidingKey}2`]: { type: "string" } },
+              },
+            },
+          },
+        }),
     });
 
-    // While in flight (simulate concurrent catalog refresh / health check at T1 > T0)
-    await new Promise((r) => setTimeout(r, 20));
-    const concurrentHealthUpdateAt = new Date();
-    await db
-      .update(toolConnections)
-      .set({
+    const session = await gateway.createSession({
+      companyId: company.id,
+      agentId: agent.id,
+      runId: run.id,
+      issueId: issue.id,
+    });
+    const targetTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
+
+    const error = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: targetTool.name,
+      parameters: {},
+    }).catch((caught: unknown) => caught as ToolGatewayHttpError);
+
+    expect(error.status).toBe(502);
+    expect(error.reasonCode).toBe("mcp_remote_fetch_failed");
+    // The transport demonstrably delivered a complete response, so this escape
+    // is not evidence about it.
+    expect(error.details.failureKind).toBeUndefined();
+    expect(error.details.execution).toMatchObject({ response: { httpStatus: 200 } });
+    expect(error.details.execution).not.toMatchObject({ failureKind: expect.anything() });
+    expect((await connectionRow(connection.id)).healthStatus).toBe("error");
+  });
+
+  describe("a stale timeout never overwrites a newer settled health state", () => {
+    async function timeoutRacingConcurrentWrite(settled: {
+      healthStatus: "ok" | "healthy" | "error";
+      healthMessage: string;
+    }) {
+      const { company, agent, run } = await createRunFixture(db);
+      const { connection } = await createRemoteMcpFixture(db, company.id);
+
+      const gateway = createTestToolGatewayService(db, {
+        // The concurrent write lands while this call is in flight and before
+        // its timeout is recorded: the mock only rejects once that write has
+        // committed, so the ordering is fixed rather than raced.
+        remoteHttpRequest: async (_url, init) =>
+          abandonedRequest(init, async () => {
+            const observedAt = new Date();
+            await db
+              .update(toolConnections)
+              .set({
+                ...settled,
+                healthCheckedAt: observedAt,
+                lastHealthAt: observedAt,
+                updatedAt: observedAt,
+              })
+              .where(eq(toolConnections.id, connection.id));
+          }),
+      });
+
+      const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      const targetTool = (await gateway.listToolsForSession(session.token))
+        .find((tool) => tool.providerType === "mcp_remote_http")!;
+
+      await expect(
+        gateway.executeTool({
+          sessionToken: session.token,
+          tool: targetTool.name,
+          parameters: {},
+          timeoutMs: 20,
+        }),
+      ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+
+      return { connection, gateway, session, targetTool };
+    }
+
+    it("keeps a newer successful health check", async () => {
+      const { connection } = await timeoutRacingConcurrentWrite({
         healthStatus: "ok",
         healthMessage: "Tool catalog refreshed concurrently.",
-        healthCheckedAt: concurrentHealthUpdateAt,
-        lastHealthAt: concurrentHealthUpdateAt,
-        updatedAt: concurrentHealthUpdateAt,
-      })
-      .where(eq(toolConnections.id, connection.id));
+      });
+      const stored = await connectionRow(connection.id);
+      expect(stored.healthStatus).toBe("ok");
+      expect(stored.healthMessage).toBe("Tool catalog refreshed concurrently.");
+    });
 
-    // Wait for the tool invocation to time out
-    await expect(executionPromise).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+    it("keeps a newer healthy health check", async () => {
+      const { connection } = await timeoutRacingConcurrentWrite({
+        healthStatus: "healthy",
+        healthMessage: "Connection probe succeeded.",
+      });
+      const stored = await connectionRow(connection.id);
+      expect(stored.healthStatus).toBe("healthy");
+      expect(stored.healthMessage).toBe("Connection probe succeeded.");
+    });
 
-    // The connection MUST still be "ok", NOT downgraded to "degraded"
-    const [finalConn] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
-    expect(finalConn?.healthStatus).toBe("ok");
-    expect(finalConn?.healthMessage).toBe("Tool catalog refreshed concurrently.");
+    it("does not return a newly failed connection to the catalog", async () => {
+      const { connection, gateway, session, targetTool } = await timeoutRacingConcurrentWrite({
+        healthStatus: "error",
+        healthMessage: "Connection probe failed.",
+      });
+      const stored = await connectionRow(connection.id);
+      expect(stored.healthStatus).toBe("error");
+      expect(stored.healthMessage).toBe("Connection probe failed.");
+      const remaining = await gateway.listToolsForSession(session.token);
+      expect(remaining.some((tool) => tool.name === targetTool.name)).toBe(false);
+    });
   });
 });

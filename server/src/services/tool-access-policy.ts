@@ -1418,9 +1418,16 @@ export function toolAccessPolicyService(db: Db) {
         eq(toolInvocations.idempotencyKey, idempotencyKey),
       ));
       if (existing) {
-        if (existing.status === "timed_out") {
+        // A timed-out call was abandoned without an outcome: it may already
+        // have taken effect upstream. Replaying one that could have changed
+        // state would risk doing the work twice, so the caller has to decide
+        // under a new idempotency key. A read cannot have changed anything, so
+        // it keeps the ordinary replay.
+        const mayHaveChangedState =
+          input.request.sideEffecting === true || ctx.riskLevel !== "read";
+        if (existing.status === "timed_out" && mayHaveChangedState) {
           throw conflict(
-            "A previous write invocation timed out with an ambiguous outcome; cannot be automatically replayed",
+            "A previous write invocation timed out with an ambiguous outcome; it cannot be automatically replayed. Confirm the outcome upstream and retry with a new idempotency key.",
             {
               code: "ambiguous_invocation_timeout",
               invocationId: existing.id,
