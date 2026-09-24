@@ -1377,10 +1377,44 @@ export function buildIssueMonitorClearedPatch(input: {
   };
 }
 
+/**
+ * An evidence-gated issue may reach `done` only through its final stage decision.
+ *
+ * Several transitions legitimately end with no decision at all — the policy was removed,
+ * the recorded stage no longer exists in the policy, a board override cleared the
+ * execution state. Each of those returns a patch that leaves the requested `done` in
+ * place, and the caller's gate is keyed on there being a decision, so none of them was
+ * checked. Replacing the policy's stage ids in the same request that asks for `done` was
+ * therefore enough to close an evidence-gated issue with no claim, no provider call and
+ * no receipt.
+ *
+ * The rule is stated once, here, where both the requested status and the presence of a
+ * decision are known: if the transition would leave the issue `done` and produced no
+ * stage decision, an evidence requirement refuses it. A decision at `done` has already
+ * been through `assertTerminalEvidence`.
+ */
+function assertEvidenceGatedCompletionCarriesDecision(
+  input: TransitionInput,
+  result: TransitionResult,
+): void {
+  const effectiveStatus =
+    typeof result.patch.status === "string" ? result.patch.status : input.requestedStatus;
+  if (effectiveStatus !== "done") return;
+  if (result.decision) return;
+  if (!terminalEvidenceRequired(input)) return;
+  throw unprocessable(
+    "This issue's policy sets evidenceRequired, so it can reach `done` only by approving "
+      + "its final review or approval stage with verified `evidence`. This update would "
+      + "close it without one — keep the stages in place and approve the final stage.",
+    { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
+  );
+}
+
 export function applyIssueExecutionPolicyTransition(input: TransitionInput): TransitionResult {
   const stageResult = applyIssueExecutionStageTransition(input);
   const monitorPatch = applyMonitorTransition(input, stageResult.patch);
   Object.assign(stageResult.patch, monitorPatch);
+  assertEvidenceGatedCompletionCarriesDecision(input, stageResult);
   return stageResult;
 }
 

@@ -1138,6 +1138,15 @@ The flag is read from the policy as it was **persisted**. One request cannot bot
 clear `evidenceRequired` and close the final stage; lowering it is a separate
 request.
 
+An evidence-gated issue reaches `done` **only** by approving its final review or
+approval stage. Several transitions legitimately end with no stage decision — the
+policy was removed, the recorded stage is no longer in the policy, a board
+override cleared the execution state — and each of those leaves a requested
+`done` in place. Under `evidenceRequired` every one of them is refused with
+`delivery_evidence_missing`, so replacing or emptying the policy's stages in the
+same request that asks for `done` cannot close the issue. Editing the stages is a
+separate request from closing the issue.
+
 ### Which paths the gate covers
 
 | Path | Under `evidenceRequired` |
