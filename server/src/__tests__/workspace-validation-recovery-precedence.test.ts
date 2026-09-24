@@ -551,6 +551,7 @@ describe("workspace validation recovery precedence", () => {
         const notice = notices.find((body) =>
           body.includes("execution workspace failed"),
         );
+        expect(notice, "no notice named the failed execution workspace").toBeDefined();
         expect(notice).toContain("git_worktree_branch_incoherence");
         expect(notice).not.toContain("not invokable");
       });
@@ -591,6 +592,7 @@ describe("workspace validation recovery precedence", () => {
         );
         // Neither blocker is lost: the typed diagnosis and the unavailable
         // participant are both reported.
+        expect(notice, "no notice named the failed execution workspace").toBeDefined();
         expect(notice).toContain("git_worktree_branch_incoherence");
         expect(notice).toContain("not invokable");
       });
@@ -609,7 +611,7 @@ describe("workspace validation recovery precedence", () => {
           // deterministically instead of requeueing the agent.
           assigneeAgentId: terminatedAgentId,
         });
-        await insertRun({
+        const diagnosedRunId = await insertRun({
           agentId: terminatedAgentId,
           issueId,
           errorCode: "workspace_validation_failed",
@@ -655,14 +657,27 @@ describe("workspace validation recovery precedence", () => {
         expect(afterSecondSweep?.cause).toBe("workspace_validation_failed");
         expect(afterSecondSweep?.kind).toBe("workspace_validation");
         expect(afterSecondSweep?.nextAction).toBe(afterFirstSweep?.nextAction);
+        // The sweep made no recovery attempt of its own, so it neither burns an
+        // attempt nor re-points the evidence at its unrelated run.
+        expect(afterSecondSweep?.attemptCount).toBe(afterFirstSweep?.attemptCount);
+        const secondSweepEvidence = afterSecondSweep?.evidence as {
+          workspaceValidation?: Record<string, unknown>;
+          latestRunId?: string;
+          latestRunErrorCode?: string;
+          recoveryCause?: string;
+        };
+        expect(secondSweepEvidence.latestRunId).toBe(diagnosedRunId);
+        expect(secondSweepEvidence.latestRunErrorCode).toBe(
+          "workspace_validation_failed",
+        );
+        expect(secondSweepEvidence.recoveryCause).toBe(
+          "workspace_validation_failed",
+        );
         expect(
-          (
-            (
-              afterSecondSweep?.evidence as {
-                workspaceValidation?: Record<string, unknown>;
-              }
-            ).workspaceValidation?.provenance as Record<string, unknown>
-          ).actualHeadSha,
+          (secondSweepEvidence.workspaceValidation?.provenance as Record<
+            string,
+            unknown
+          >).actualHeadSha,
         ).toBe(ACTUAL_HEAD_SHA);
 
         const actionRows = await db
@@ -702,6 +717,8 @@ describe("workspace validation recovery precedence", () => {
           nextAction: "Inspect detached workspace before reissuing run.",
         });
 
+        // The stranded sweep's own call shape: it preserves the recorded owner
+        // and names only the generic cause it observed.
         const genericAttempt = await recoveryActionSvc.upsertSourceScoped({
           companyId,
           sourceIssueId: issueId,
@@ -709,7 +726,7 @@ describe("workspace validation recovery precedence", () => {
           cause: "stranded_assigned_issue",
           fingerprint: `stranded:${issueId}`,
           ownerType: "board",
-          supersedeOnIdentityChange: true,
+          preserveExistingOwner: true,
           evidence: { latestRunStatus: "failed" },
           nextAction: "Generic stranded recovery.",
         });
@@ -718,6 +735,8 @@ describe("workspace validation recovery precedence", () => {
         expect(genericAttempt.cause).toBe("workspace_validation_failed");
         expect(genericAttempt.kind).toBe("workspace_validation");
         expect(genericAttempt.nextAction).toBe(initial.nextAction);
+        // The sweep attempted no recovery, so it neither consumes an attempt
+        // nor adds its own observations to the diagnosed action.
         expect(genericAttempt.attemptCount).toBe(initial.attemptCount);
         const evidence = genericAttempt.evidence as {
           workspaceValidation?: { actualHeadSha: string };
