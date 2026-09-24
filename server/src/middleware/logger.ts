@@ -66,19 +66,15 @@ export const basePinoOptions = {
   },
   hooks: {
     logMethod(this: unknown, inputArgs: unknown[], method: any) {
-      try {
-        for (let index = 0; index < inputArgs.length; index += 1) {
-          const arg = inputArgs[index];
-          const safe =
-            typeof arg === "string"
-              ? sanitizeCredentialText(arg)
-              : redactCredentialFields(arg);
-          if (safe !== arg) inputArgs[index] = safe;
-        }
-      } catch {
-        // Reading a record can run application getters, which may throw.
-        // Losing the diagnostic is worse than logging the arguments this pass
-        // could not rewrite, and a logger must never fail its caller.
+      // Neither rewrite throws: `redactCredentialFields` marks the fields it
+      // cannot read and keeps redacting the rest of the record.
+      for (let index = 0; index < inputArgs.length; index += 1) {
+        const arg = inputArgs[index];
+        const safe =
+          typeof arg === "string"
+            ? sanitizeCredentialText(arg)
+            : redactCredentialFields(arg);
+        if (safe !== arg) inputArgs[index] = safe;
       }
       return method.apply(this, inputArgs);
     },

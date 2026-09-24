@@ -14,6 +14,7 @@ import {
   CREDENTIAL_HEADER_NAMES,
   HTTP_LOG_REDACT_PATHS,
   isCredentialBearingHeader,
+  redactCredentialFields,
   sanitizeCredentialText,
   sanitizeErrorObject,
 } from "../middleware/http-log-redaction.js";
@@ -1386,6 +1387,91 @@ describe("HTTP logger redaction", () => {
     expect(redacted.xApiKey).toBe("[REDACTED]");
     expect(redacted.gateway_token).toBe("[REDACTED]");
     expect(redacted.connectorId).toBe("acme-crm");
+  });
+
+  it("still redacts a credential in a sibling subtree when one field getter throws", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    // pino replaces only the sub-object whose own serialization throws, and no
+    // redact path reaches this nesting, so abandoning the whole pass for one
+    // bad getter would put the sibling's credential on the stream verbatim.
+    const record = {
+      stage: "relay",
+      probe: {
+        get lastResult(): string {
+          throw new Error("getter exploded");
+        },
+      },
+      connection: {
+        authorization: `Bearer ${BEARER_SENTINEL}`,
+        gatewayToken: SESSION_TOKEN,
+        connectorId: "acme-crm",
+      },
+    };
+
+    log.warn(record, "relay diagnostics");
+
+    const output = chunks.join("");
+    expect(output).not.toContain(BEARER_SENTINEL);
+    expect(output).not.toContain(SESSION_TOKEN);
+
+    const [written] = logRecords(chunks);
+    expect(written.probe.lastResult).toBe("[Unreadable]");
+    expect(written.connection.authorization).toBe("[Redacted]");
+    expect(written.connection.gatewayToken).toBe("[Redacted]");
+    expect(written.connection.connectorId).toBe("acme-crm");
+    expect(written.stage).toBe("relay");
+  });
+
+  it("marks an unreadable array element without losing the rest of the array", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    const hostileElement = new Proxy(
+      { authorization: "unused" },
+      {
+        get() {
+          throw new Error("get trap exploded");
+        },
+      },
+    );
+
+    log.warn(
+      {
+        attempts: [
+          hostileElement,
+          { gatewayToken: SESSION_TOKEN, durationMs: 12 },
+        ],
+      },
+      "gateway attempts",
+    );
+
+    const output = chunks.join("");
+    expect(output).not.toContain(SESSION_TOKEN);
+
+    const [written] = logRecords(chunks);
+    expect(Array.isArray(written.attempts)).toBe(true);
+    expect(written.attempts[0]).toBe("[Unreadable]");
+    expect(written.attempts[1]).toEqual({
+      gatewayToken: "[Redacted]",
+      durationMs: 12,
+    });
+  });
+
+  it("returns a record it cannot read at all unchanged, without throwing", () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("get trap exploded");
+        },
+        ownKeys() {
+          throw new Error("ownKeys trap exploded");
+        },
+      },
+    );
+    expect(redactCredentialFields(hostile)).toBe(hostile);
   });
 
   it("writes the record instead of throwing when a nested field getter throws", () => {

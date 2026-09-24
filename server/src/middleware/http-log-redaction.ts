@@ -12,6 +12,7 @@ export const VALUE_REDACTION_MARKER = "[REDACTED]";
 /** Stand-ins for values a bounded walk refuses to serialize. */
 export const CIRCULAR_MARKER = "[Circular]";
 export const HTTP_OBJECT_MARKER = "[HttpObject]";
+export const UNREADABLE_MARKER = "[Unreadable]";
 
 /**
  * The depth bound every redactor shares. Log records are shallow; anything
@@ -331,12 +332,47 @@ const SERIALIZER_OWNED_KEYS: ReadonlySet<string> = new Set(["req", "res", "err"]
 /**
  * Censors credential-named fields anywhere inside a log record, at any nesting
  * depth. The input is returned unchanged when it holds no credential name, so
- * an ordinary log record is scanned but never cloned, and only exact names
- * from `isKnownCredentialName` match, so diagnostic fields keep their values.
- * `Error` instances are left to the `err` serializer.
+ * an ordinary log record is scanned but never cloned. A key matches only a
+ * name from `isKnownCredentialName` — that is, a credential header or field
+ * name in any separator spelling, never the over-matching header pattern — so
+ * diagnostic fields keep their values. `Error` instances are left to the `err`
+ * serializer. This never throws: a record a logger cannot read must not take
+ * down the log call that reports the failure.
  */
 export function redactCredentialFields(value: unknown): unknown {
-  return redactFieldsValue(value, 0, new WeakSet());
+  try {
+    return redactFieldsValue(value, 0, new WeakSet());
+  } catch {
+    // Only a hostile proxy trap on the outermost value reaches here; pino's
+    // own stringifier reports the same failure for the record itself.
+    return value;
+  }
+}
+
+/** Reads one own property, yielding a marker when its getter throws. */
+function readFieldValue(source: object, key: string | number): unknown {
+  try {
+    return (source as Record<string | number, unknown>)[key];
+  } catch {
+    return UNREADABLE_MARKER;
+  }
+}
+
+/**
+ * Recurses into one entry. A throwing getter or proxy trap costs that entry
+ * only: the rest of the record still gets redacted, so a credential in a
+ * sibling subtree never reaches the stream because a neighbour misbehaved.
+ */
+function redactFieldsEntry(
+  entry: unknown,
+  depth: number,
+  seen: WeakSet<object>,
+): unknown {
+  try {
+    return redactFieldsValue(entry, depth, seen);
+  } catch {
+    return UNREADABLE_MARKER;
+  }
 }
 
 function redactFieldsValue(
@@ -352,32 +388,46 @@ function redactFieldsValue(
   // Stop descending rather than dropping: a record deeper than the bound keeps
   // its diagnostic value, exactly as it would without this pass.
   if (depth >= REDACTION_MAX_DEPTH) return value;
+
+  let keys: readonly (string | number)[];
+  try {
+    // Enumerate without reading: neither an index range nor `Object.keys`
+    // runs a getter, so one hostile field cannot abort the whole pass.
+    keys = Array.isArray(value)
+      ? Array.from({ length: value.length }, (_unused, index) => index)
+      : Object.keys(value);
+  } catch {
+    return UNREADABLE_MARKER;
+  }
+
   seen.add(value);
   try {
-    if (Array.isArray(value)) {
-      let changed = false;
-      const out = value.map((entry) => {
-        const next = redactFieldsValue(entry, depth + 1, seen);
-        if (next !== entry) changed = true;
-        return next;
-      });
-      return changed ? out : value;
-    }
     let changed = false;
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(
-      value as Record<string, unknown>,
-    )) {
-      if (isKnownCredentialName(key)) {
+    const out: Record<string | number, unknown> = Array.isArray(value)
+      ? ([] as unknown as Record<string | number, unknown>)
+      : {};
+    for (const key of keys) {
+      if (typeof key === "string" && isKnownCredentialName(key)) {
         out[key] = HEADER_REDACTION_MARKER;
         changed = true;
         continue;
       }
-      if (depth === 0 && SERIALIZER_OWNED_KEYS.has(key) && isHttpObject(entry)) {
+      const entry = readFieldValue(value, key);
+      if (entry === UNREADABLE_MARKER) {
+        out[key] = UNREADABLE_MARKER;
+        changed = true;
+        continue;
+      }
+      if (
+        depth === 0 &&
+        typeof key === "string" &&
+        SERIALIZER_OWNED_KEYS.has(key) &&
+        isHttpObject(entry)
+      ) {
         out[key] = entry;
         continue;
       }
-      const next = redactFieldsValue(entry, depth + 1, seen);
+      const next = redactFieldsEntry(entry, depth + 1, seen);
       if (next !== entry) changed = true;
       out[key] = next;
     }
