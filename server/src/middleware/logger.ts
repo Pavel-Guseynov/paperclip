@@ -4,6 +4,7 @@ import { pinoHttp } from "pino-http";
 import {
   HTTP_LOG_REDACT_PATHS,
   HEADER_REDACTION_MARKER,
+  redactCredentialFields,
   redactSensitiveHeaders,
   sanitizeCredentialText,
   sanitizeErrorObject,
@@ -36,10 +37,20 @@ export function serializeLoggedError(err: unknown): unknown {
 /**
  * The redaction configuration shared by every logger this module exports.
  *
- * `redact` removes credential-bearing headers and fields by name, including in
- * child-logger bindings, which pino serializes through the same stringifiers.
- * The `logMethod` hook only rewrites message strings: merge objects and
- * bindings are already covered, so no log record is cloned or depth-limited.
+ * A credential-bearing name is removed wherever it can appear in a record:
+ * - at the top level of any record or child binding, by `redact` (pino applies
+ *   the same stringifiers to `child()` bindings);
+ * - inside `req.headers` / `res.headers`, by `redact` and the HTTP serializers,
+ *   which also catch credential-shaped names that are not on the known list;
+ * - inside a `headers` field, by `serializers.headers`;
+ * - at any depth of a merge object, by `redactCredentialFields` in the hook,
+ *   which returns the record unchanged unless it actually holds a credential;
+ * - anywhere inside `reqBody` / `reqParams` / `errorContext` on a failed HTTP
+ *   record, by `redactSensitive` in `customProps`;
+ * - in `err`, by the serializer, including the cause chain.
+ *
+ * The hook additionally strips credential text (auth schemes, minted gateway
+ * tokens, credential query parameters) from message strings.
  */
 export const basePinoOptions = {
   redact: {
@@ -57,10 +68,11 @@ export const basePinoOptions = {
     logMethod(this: unknown, inputArgs: unknown[], method: any) {
       for (let index = 0; index < inputArgs.length; index += 1) {
         const arg = inputArgs[index];
-        if (typeof arg === "string") {
-          const safe = sanitizeCredentialText(arg);
-          if (safe !== arg) inputArgs[index] = safe;
-        }
+        const safe =
+          typeof arg === "string"
+            ? sanitizeCredentialText(arg)
+            : redactCredentialFields(arg);
+        if (safe !== arg) inputArgs[index] = safe;
       }
       return method.apply(this, inputArgs);
     },

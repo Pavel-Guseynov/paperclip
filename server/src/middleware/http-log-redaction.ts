@@ -9,6 +9,16 @@ import { IncomingMessage, ServerResponse } from "node:http";
 export const HEADER_REDACTION_MARKER = "[Redacted]";
 export const VALUE_REDACTION_MARKER = "[REDACTED]";
 
+/** Stand-ins for values a bounded walk refuses to serialize. */
+export const CIRCULAR_MARKER = "[Circular]";
+export const HTTP_OBJECT_MARKER = "[HttpObject]";
+
+/**
+ * The depth bound every redactor shares. Log records are shallow; anything
+ * deeper is a cyclic or hostile structure that must not pin the logger.
+ */
+export const REDACTION_MAX_DEPTH = 6;
+
 /**
  * The single source of truth for header names whose value is authentication
  * material. `HTTP_LOG_REDACT_PATHS` is derived from this list and
@@ -101,17 +111,45 @@ export function isHttpObject(val: unknown): boolean {
   return false;
 }
 
-const KNOWN_SENSITIVE_HEADER_NAMES: ReadonlySet<string> = new Set(
-  CREDENTIAL_HEADER_NAMES,
-);
+/**
+ * A Node HTTP object never reaches a log sink as itself: it is cyclic, it owns
+ * the raw socket, and its `headers` carry live credentials. Every redactor
+ * replaces it with this content-free projection.
+ */
+export function summarizeHttpObject(value: unknown): Record<string, unknown> {
+  const v = (value ?? {}) as Record<string, unknown>;
+  const summary: Record<string, unknown> = { type: HTTP_OBJECT_MARKER };
+  if (typeof v.method === "string") summary.method = v.method;
+  if (typeof v.statusCode === "number") summary.statusCode = v.statusCode;
+  return summary;
+}
+
+const KNOWN_CREDENTIAL_NAMES: ReadonlySet<string> = new Set<string>([
+  ...CREDENTIAL_HEADER_NAMES,
+  ...CREDENTIAL_LOG_FIELD_NAMES.map((name) => name.toLowerCase()),
+]);
+
+/**
+ * The exact credential header and field names. This is the single authority
+ * every name-based redactor falls through to, so no consumer keeps its own
+ * partial copy of the list.
+ */
+export function isKnownCredentialName(name: string): boolean {
+  return KNOWN_CREDENTIAL_NAMES.has(name.trim().toLowerCase());
+}
 
 const CREDENTIAL_HEADER_PATTERN =
   /(^|[-_])(authorization|cookie|secret|session[-_]?token|auth[-_]?token|token|capability|signature|credential)([-_]|$)|(^|[-_])api[-_]?key([-_]|$)/i;
 
-/** Returns true if the header name represents an authentication or credential value. */
+/**
+ * Returns true if the header name represents an authentication or credential
+ * value. The pattern arm deliberately over-matches, which is safe for a header
+ * name and unsafe for an arbitrary record key: key-based redactors use
+ * `isKnownCredentialName` instead.
+ */
 export function isCredentialBearingHeader(name: string): boolean {
   const normalized = name.trim().toLowerCase();
-  if (KNOWN_SENSITIVE_HEADER_NAMES.has(normalized)) return true;
+  if (isKnownCredentialName(normalized)) return true;
   return CREDENTIAL_HEADER_PATTERN.test(normalized);
 }
 
@@ -142,15 +180,38 @@ const URL_CREDENTIAL_QUERY_PATTERN =
   /([?&](?:token|sessionToken|gatewayToken|gateway_token|toolGatewayToken|tool_gateway_token|x-paperclip-tool-gateway-token|access_token|refresh_token|secret|api_key)=)[^&#\s]+/gi;
 
 /**
- * Returns true when an `Authorization`-style value is credential material
- * rather than documentation prose. A placeholder (`<token>`, `[REDACTED]`) and
- * a short all-lowercase word ("token", "authorization", "header") are prose;
- * anything with mixed case, digits, separators, or real token length is not.
+ * The words Paperclip's own diagnostics put after an auth scheme name. Every
+ * credential this code handles is opaque: minted gateway tokens
+ * (`pcgt_<uuid>.<secret>`), OAuth/JWT bearers, Basic base64 and provider API
+ * keys. None of them is a single English word, so the prose exemption is this
+ * closed list plus placeholder shapes, never a length or character-class
+ * heuristic that a real lowercase token could satisfy.
  */
+const NON_CREDENTIAL_AUTH_VALUES: ReadonlySet<string> = new Set([
+  "absent",
+  "auth",
+  "authentication",
+  "authorization",
+  "credential",
+  "credentials",
+  "expired",
+  "header",
+  "headers",
+  "invalid",
+  "missing",
+  "present",
+  "required",
+  "scheme",
+  "secret",
+  "token",
+  "tokens",
+  "value",
+]);
+
+/** Returns true when an auth-scheme value is credential material, not prose. */
 function isCredentialLikeAuthValue(value: string): boolean {
   if (/^<[^>]*>$/.test(value) || /^\[[^\]]*\]$/.test(value)) return false;
-  if (/^[a-z]+$/.test(value) && value.length < 20) return false;
-  return true;
+  return !NON_CREDENTIAL_AUTH_VALUES.has(value.toLowerCase());
 }
 
 /** Strips auth-scheme secrets, Paperclip gateway tokens, and query credentials from arbitrary prose or error messages. */
@@ -170,11 +231,42 @@ export function sanitizeCredentialText(text: string): string {
  * Sanitizes an error's message, stack, and attached custom properties.
  * Callers that log a live `Error` pass it through `pino.stdSerializers.err`
  * first so the cause chain is folded into the message and stack.
+ *
+ * Provider SDK errors attach arbitrary objects, including back-references to
+ * the live request/response, so the walk is bounded by `REDACTION_MAX_DEPTH`
+ * and a visited set: pino calls serializers without a try/catch, and a
+ * RangeError here would escape every `logger.error` on the failure path.
  */
 export function sanitizeErrorObject(err: unknown): unknown {
-  if (!err || typeof err !== "object") {
-    return typeof err === "string" ? sanitizeCredentialText(err) : err;
+  return sanitizeErrorValue(err, 0, new WeakSet());
+}
+
+function sanitizeErrorValue(
+  value: unknown,
+  depth: number,
+  seen: WeakSet<object>,
+): unknown {
+  if (typeof value === "string") return sanitizeCredentialText(value);
+  if (!value || typeof value !== "object") return value;
+  if (isHttpObject(value)) return summarizeHttpObject(value);
+  if (seen.has(value)) return CIRCULAR_MARKER;
+  if (depth > REDACTION_MAX_DEPTH) return undefined;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry) => sanitizeErrorValue(entry, depth + 1, seen));
+    }
+    return sanitizeErrorRecord(value, depth, seen);
+  } finally {
+    seen.delete(value);
   }
+}
+
+function sanitizeErrorRecord(
+  err: object,
+  depth: number,
+  seen: WeakSet<object>,
+): Record<string, unknown> {
   const error = err as Record<string, unknown>;
   const out: Record<string, unknown> = {};
 
@@ -188,15 +280,15 @@ export function sanitizeErrorObject(err: unknown): unknown {
       out.stack = sanitizeCredentialText(err.stack);
     }
   } else {
-    if ("type" in error && typeof error.type === "string") {
+    if (typeof error.type === "string") {
       out.type = error.type;
-    } else if ("name" in error && typeof error.name === "string") {
+    } else if (typeof error.name === "string") {
       out.type = error.name;
     }
-    if ("message" in error && typeof error.message === "string") {
+    if (typeof error.message === "string") {
       out.message = sanitizeCredentialText(error.message);
     }
-    if ("stack" in error && typeof error.stack === "string") {
+    if (typeof error.stack === "string") {
       out.stack = sanitizeCredentialText(error.stack);
     }
   }
@@ -210,15 +302,70 @@ export function sanitizeErrorObject(err: unknown): unknown {
     ) {
       continue;
     }
-    if (isCredentialBearingHeader(key)) {
-      out[key] = VALUE_REDACTION_MARKER;
-    } else if (typeof value === "string") {
-      out[key] = sanitizeCredentialText(value);
-    } else if (value && typeof value === "object") {
-      out[key] = sanitizeErrorObject(value);
-    } else {
-      out[key] = value;
-    }
+    out[key] = isCredentialBearingHeader(key)
+      ? VALUE_REDACTION_MARKER
+      : sanitizeErrorValue(value, depth + 1, seen);
   }
   return out;
+}
+
+/**
+ * Censors credential-named fields anywhere inside a log record, at any nesting
+ * depth. The input is returned unchanged when it holds no credential name, so
+ * an ordinary log record is scanned but never cloned, and only exact names
+ * from `isKnownCredentialName` match, so diagnostic fields keep their values.
+ * `Error` instances are left to the `err` serializer.
+ */
+export function redactCredentialFields(value: unknown): unknown {
+  return redactFieldsValue(value, 0, new WeakSet());
+}
+
+function redactFieldsValue(
+  value: unknown,
+  depth: number,
+  seen: WeakSet<object>,
+): unknown {
+  if (!value || typeof value !== "object" || value instanceof Error) {
+    return value;
+  }
+  if (isHttpObject(value)) return summarizeHttpObject(value);
+  if (seen.has(value)) return CIRCULAR_MARKER;
+  // Stop descending rather than dropping: a record deeper than the bound keeps
+  // its diagnostic value, exactly as it would without this pass.
+  if (depth >= REDACTION_MAX_DEPTH) return value;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      let changed = false;
+      const out = value.map((entry) => {
+        const next = redactFieldsValue(entry, depth + 1, seen);
+        if (next !== entry) changed = true;
+        return next;
+      });
+      return changed ? out : value;
+    }
+    let changed = false;
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (isKnownCredentialName(key)) {
+        out[key] = HEADER_REDACTION_MARKER;
+        changed = true;
+        continue;
+      }
+      if (depth === 0 && isHttpObject(entry)) {
+        // pino's own `req`/`res`/`err` serializers own the live objects at the
+        // top of a record and replace them with safe projections themselves.
+        out[key] = entry;
+        continue;
+      }
+      const next = redactFieldsValue(entry, depth + 1, seen);
+      if (next !== entry) changed = true;
+      out[key] = next;
+    }
+    return changed ? out : value;
+  } finally {
+    seen.delete(value);
+  }
 }

@@ -15,6 +15,7 @@ import {
   HTTP_LOG_REDACT_PATHS,
   isCredentialBearingHeader,
   sanitizeCredentialText,
+  sanitizeErrorObject,
 } from "../middleware/http-log-redaction.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { testAdapterEnvironmentSchema } from "@paperclipai/shared";
@@ -851,9 +852,11 @@ describe("HTTP logger redaction", () => {
       .set("X-Paperclip-Run-Id", RUN_ID);
 
     expect(response.status).toBe(401);
-    expect(response.body).toEqual({
-      error: "Invalid tool gateway session token: [REDACTED]",
-      details: { reasonCode: "invalid_token", phase: "authenticate" },
+    // The response body keeps upstream's contract: this change owns the log
+    // path, and the client that receives this body supplied the token.
+    expect(response.body.details).toEqual({
+      reasonCode: "invalid_token",
+      phase: "authenticate",
     });
 
     const output = chunks.join("");
@@ -1088,6 +1091,11 @@ describe("HTTP logger redaction", () => {
       expected: "Request failed: Authorization: Bearer [REDACTED].",
     },
     {
+      label: "all-lowercase opaque bearer token",
+      input: "rejected Bearer abcdefghijklmnop for connector acme",
+      expected: "rejected Bearer [REDACTED] for connector acme",
+    },
+    {
       label: "credential in a URL query",
       input: `retrying https://gw.invalid/mcp?token=${GATEWAY_TOKEN}&tool=add`,
       expected: "retrying https://gw.invalid/mcp?token=[REDACTED]&tool=add",
@@ -1121,20 +1129,148 @@ describe("HTTP logger redaction", () => {
     expect(sanitizeCredentialText(input)).toBe(input);
   });
 
-  it("returns Node HTTP objects unchanged instead of walking their sockets", () => {
+  it("replaces Node HTTP objects with a content-free projection", () => {
     // Provider SDK errors attach the live ClientRequest/IncomingMessage, and
     // the error handler copies such an error into the logged error context.
     const incoming = new IncomingMessage(null as never);
+    incoming.method = "POST";
     incoming.headers = { authorization: `Bearer ${BEARER_SENTINEL}` };
 
-    expect(redactSensitive(incoming)).toBe(incoming);
+    expect(redactSensitive(incoming)).toEqual({
+      type: "[HttpObject]",
+      method: "POST",
+    });
 
     const redacted = redactSensitive({
       message: "provider call failed",
       request: incoming,
     }) as { message: string; request: unknown };
-    expect(redacted.request).toBe(incoming);
+    expect(redacted.request).toEqual({ type: "[HttpObject]", method: "POST" });
     expect(redacted.message).toBe("provider call failed");
+    expect(JSON.stringify(redacted)).not.toContain(BEARER_SENTINEL);
+
+    const serializedError = sanitizeErrorObject(
+      Object.assign(new Error("provider call failed"), { request: incoming }),
+    ) as { request: unknown };
+    expect(serializedError.request).toEqual({
+      type: "[HttpObject]",
+      method: "POST",
+    });
+  });
+
+  it("bounds a cyclic error property instead of overflowing the stack", () => {
+    const cyclic: Record<string, unknown> = { stage: "connect" };
+    cyclic.self = cyclic;
+    const error = Object.assign(
+      new Error(`connect failed for ${GATEWAY_TOKEN}`),
+      { context: cyclic },
+    );
+
+    const serialized = sanitizeErrorObject(error) as {
+      message: string;
+      context: { stage: string; self: unknown };
+    };
+    expect(serialized.message).toBe("connect failed for [REDACTED]");
+    expect(serialized.context.stage).toBe("connect");
+    expect(serialized.context.self).toBe("[Circular]");
+
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+    log.error({ err: error }, "cyclic provider failure");
+    const [record] = logRecords(chunks);
+    expect(record.err.message).toBe("connect failed for [REDACTED]");
+    expect(record.err.context.self).toBe("[Circular]");
+    expect(record.msg).toBe("cyclic provider failure");
+  });
+
+  it("stops descending a deeply nested error property instead of recursing forever", () => {
+    let deep: Record<string, unknown> = { leaf: "bottom" };
+    for (let level = 0; level < 12; level += 1) deep = { next: deep };
+    const serialized = sanitizeErrorObject(
+      Object.assign(new Error("boom"), { details: deep }),
+    ) as Record<string, any>;
+
+    let cursor: any = serialized.details;
+    let levels = 0;
+    while (cursor && typeof cursor === "object" && "next" in cursor) {
+      cursor = cursor.next;
+      levels += 1;
+    }
+    // The walk stops at the shared depth bound rather than following all 12.
+    expect(cursor).toBeUndefined();
+    expect(levels).toBeGreaterThan(0);
+    expect(levels).toBeLessThan(12);
+  });
+
+  it("keeps array-valued error properties as arrays", () => {
+    const aggregate = new AggregateError(
+      [
+        new Error(`first leg failed for ${GATEWAY_TOKEN}`),
+        new Error("second leg failed"),
+      ],
+      "all gateway legs failed",
+    );
+
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+    log.error({ err: aggregate }, "aggregate provider failure");
+
+    const output = chunks.join("");
+    expect(output).not.toContain(GATEWAY_TOKEN);
+
+    const [record] = logRecords(chunks);
+    expect(Array.isArray(record.err.aggregateErrors)).toBe(true);
+    expect(record.err.aggregateErrors).toHaveLength(2);
+    expect(record.err.aggregateErrors[0].message).toBe(
+      "first leg failed for [REDACTED]",
+    );
+    expect(record.err.aggregateErrors[1].message).toBe("second leg failed");
+
+    const serialized = sanitizeErrorObject(
+      Object.assign(new Error("validation failed"), {
+        issues: [{ path: ["credentials"], code: "invalid" }],
+      }),
+    ) as { issues: unknown };
+    expect(Array.isArray(serialized.issues)).toBe(true);
+    expect(serialized.issues).toEqual([
+      { path: ["credentials"], code: "invalid" },
+    ]);
+  });
+
+  it("redacts credential names nested anywhere inside a log record", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    const record = {
+      outcome: "rejected",
+      context: {
+        connection: {
+          authorization: `Bearer ${BEARER_SENTINEL}`,
+          "x-paperclip-tool-gateway-token": GATEWAY_TOKEN,
+          connectorId: "acme-crm",
+        },
+        attempts: [{ gatewayToken: SESSION_TOKEN, durationMs: 12 }],
+      },
+    };
+    log.warn(record, "gateway attempt rejected");
+
+    const output = chunks.join("");
+    expect(output).not.toContain(BEARER_SENTINEL);
+    expect(output).not.toContain(GATEWAY_TOKEN);
+    expect(output).not.toContain(SESSION_TOKEN);
+
+    const [written] = logRecords(chunks);
+    expect(written.context.connection.authorization).toBe("[Redacted]");
+    expect(written.context.connection["x-paperclip-tool-gateway-token"]).toBe(
+      "[Redacted]",
+    );
+    expect(written.context.connection.connectorId).toBe("acme-crm");
+    expect(written.context.attempts[0].gatewayToken).toBe("[Redacted]");
+    expect(written.context.attempts[0].durationMs).toBe(12);
+    // The caller's own object is never mutated.
+    expect(record.context.connection.authorization).toBe(
+      `Bearer ${BEARER_SENTINEL}`,
+    );
   });
 
   it("redacts credential-named fields without renaming ordinary diagnostic keys", () => {
