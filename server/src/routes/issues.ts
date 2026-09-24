@@ -298,12 +298,12 @@ import {
   parseIssueExecutionState,
   redactIssueMonitorExternalRef,
   setIssueExecutionPolicyMonitorScheduledBy,
-  verifyStageTerminalEvidence,
 } from "../services/issue-execution-policy.js";
+import type { IssueTerminalEvidenceRecord } from "@paperclipai/shared";
 import {
-  verifyTerminalDelivery,
-  isOperationTask,
-  DELIVERY_ERROR_CODES,
+  assertDeliveryTargetUnchanged,
+  verifyTerminalDecisionEvidence,
+  type DeliveryTarget,
 } from "../services/delivery-verification.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
@@ -9422,6 +9422,11 @@ export function issueRoutes(
               },
               allowBoardOverride: req.actor.type === "board",
               commentBody: resolutionNote ?? null,
+              // Resolving a recovery action is Paperclip's own transition: there is no
+              // approver here to make a delivery claim. Under `evidenceRequired` this is
+              // refused rather than exempted, so the recovery path cannot become the way
+              // around the gate.
+              evidenceSource: "system",
             });
             Object.assign(updateFields, transition.patch);
             if (transition.decision) {
@@ -9449,7 +9454,7 @@ export function issueRoutes(
                 actorUserId: actor.actorType === "user" ? actor.actorId : null,
                 outcome: transition.decision.outcome,
                 body: transition.decision.body,
-                evidence: transition.decision.evidence ?? null,
+                evidence: null,
                 createdByRunId: actor.runId ?? null,
               });
             }
@@ -13181,36 +13186,20 @@ export function issueRoutes(
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
       });
-      if (transition.decision?.evidence) {
-        const verifiedResult = await verifyStageTerminalEvidence(
-          { evidenceRequired: Boolean(nextExecutionPolicy?.evidenceRequired) },
-          transition.decision.evidence as any,
-          {
-            issue: existing,
-            policy: nextExecutionPolicy,
-            repoUrl:
-              typeof (transition.decision.evidence as any).repoUrl === "string"
-                ? (transition.decision.evidence as any).repoUrl
-                : typeof (transition.decision.evidence as any).repo === "string"
-                ? (transition.decision.evidence as any).repo
-                : null,
-            baseRef:
-              typeof (transition.decision.evidence as any).baseBranch === "string"
-                ? (transition.decision.evidence as any).baseBranch
-                : null,
-            reviewedHeadSha:
-              typeof (transition.decision.evidence as any).headSha === "string"
-                ? (transition.decision.evidence as any).headSha
-                : null,
-          },
-        );
-        if (verifiedResult?.verifiedReceipt) {
-          transition.decision.evidence = {
-            ...transition.decision.evidence,
-            verified: true,
-            receipt: verifiedResult.verifiedReceipt,
-          };
-        }
+      // Verification reads the target from server-held state — this issue's workspace
+      // remote and its own work products — never from the request body. The claim in the
+      // body says only which pull request and which SHA the approver believes landed.
+      let decisionEvidenceRecord: IssueTerminalEvidenceRecord | null = null;
+      let verifiedDeliveryTarget: DeliveryTarget | null = null;
+      if (transition.decision) {
+        const verdict = await verifyTerminalDecisionEvidence({
+          db,
+          issue: existing,
+          policy: nextExecutionPolicy,
+          evidence: transition.decision.evidence,
+        });
+        decisionEvidenceRecord = verdict.record;
+        verifiedDeliveryTarget = verdict.target;
       }
       const decisionId = transition.decision ? randomUUID() : null;
       if (decisionId) {
@@ -13700,6 +13689,18 @@ export function issueRoutes(
               !(await assertLockedReviewPolicyAllowsMutation(tx))
             )
               return null;
+            if (verifiedDeliveryTarget) {
+              // Verification ran on a pre-lock snapshot. Re-resolve the binding under the
+              // row lock so a concurrent change to the recorded pull request, the reviewed
+              // head, or the configured remote cannot be closed on a stale receipt.
+              const lockedForDelivery = await svc.getByIdForUpdate(id, tx);
+              if (!lockedForDelivery) return null;
+              await assertDeliveryTargetUnchanged(
+                tx as unknown as Db,
+                lockedForDelivery,
+                verifiedDeliveryTarget,
+              );
+            }
             const updated = await updateIssue(tx);
             if (!updated) return null;
             if (commentAttachmentIds?.length) {
@@ -13736,7 +13737,7 @@ export function issueRoutes(
                 actorUserId: actor.actorType === "user" ? actor.actorId : null,
                 outcome: decision.outcome,
                 body: decision.body,
-                evidence: decision.evidence ?? null,
+                evidence: decisionEvidenceRecord,
                 createdByRunId: actor.runId ?? null,
               });
             }
@@ -17643,36 +17644,20 @@ export function issueRoutes(
           evidence:
             req.body.evidence === undefined ? undefined : req.body.evidence,
         });
-        if (transition.decision?.evidence) {
-          const verifiedResult = await verifyStageTerminalEvidence(
-            { evidenceRequired: Boolean(currentExecutionPolicy?.evidenceRequired) },
-            transition.decision.evidence as any,
-            {
-              issue: currentIssue,
-              policy: currentExecutionPolicy,
-              repoUrl:
-                typeof (transition.decision.evidence as any).repoUrl === "string"
-                  ? (transition.decision.evidence as any).repoUrl
-                  : typeof (transition.decision.evidence as any).repo === "string"
-                  ? (transition.decision.evidence as any).repo
-                  : null,
-              baseRef:
-                typeof (transition.decision.evidence as any).baseBranch === "string"
-                  ? (transition.decision.evidence as any).baseBranch
-                  : null,
-              reviewedHeadSha:
-                typeof (transition.decision.evidence as any).headSha === "string"
-                  ? (transition.decision.evidence as any).headSha
-                  : null,
-            },
-          );
-          if (verifiedResult?.verifiedReceipt) {
-            transition.decision.evidence = {
-              ...transition.decision.evidence,
-              verified: true,
-              receipt: verifiedResult.verifiedReceipt,
-            };
-          }
+        // Same server-side binding as the direct status update: an approving comment can
+        // close the final stage, so it must clear the same gate and may not name its own
+        // repository either.
+        let commentDecisionEvidence: IssueTerminalEvidenceRecord | null = null;
+        let commentDeliveryTarget: DeliveryTarget | null = null;
+        if (transition.decision) {
+          const verdict = await verifyTerminalDecisionEvidence({
+            db,
+            issue: currentIssue,
+            policy: currentExecutionPolicy,
+            evidence: transition.decision.evidence,
+          });
+          commentDecisionEvidence = verdict.record;
+          commentDeliveryTarget = verdict.target;
         }
         const decisionId = transition.decision ? randomUUID() : null;
         if (decisionId) {
@@ -17718,6 +17703,15 @@ export function issueRoutes(
         const postCommitIssueActions: IssuePostCommitAction[] = [];
         try {
           txResult = await db.transaction(async (tx) => {
+            if (commentDeliveryTarget) {
+              const lockedForDelivery = await svc.getByIdForUpdate(id, tx);
+              if (!lockedForDelivery) throw new AutoApprovalIssueMissingError();
+              await assertDeliveryTargetUnchanged(
+                tx as unknown as Db,
+                lockedForDelivery,
+                commentDeliveryTarget,
+              );
+            }
             const insertedComment = await svc.addComment(
               id,
               req.body.body,
@@ -17764,7 +17758,7 @@ export function issueRoutes(
                 actorUserId: actor.actorType === "user" ? actor.actorId : null,
                 outcome: transition.decision.outcome,
                 body: transition.decision.body,
-                evidence: transition.decision.evidence ?? null,
+                evidence: commentDecisionEvidence,
                 createdByRunId: actor.runId ?? null,
               });
             }

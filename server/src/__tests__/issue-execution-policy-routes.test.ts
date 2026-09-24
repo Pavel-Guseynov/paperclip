@@ -31,7 +31,14 @@ const mockAccessService = vi.hoisted(() => ({
   decide: vi.fn(),
   hasPermission: vi.fn(async () => false),
 }));
+const mockDeliveryRows = vi.hoisted(() => ({ value: [] as unknown[] }));
 const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
+  // The delivery-target resolver reads workspace and work-product rows through
+  // `.orderBy(...).limit(...)`; an empty result means the server holds no binding.
+  orderBy: () => {
+    const rows = Promise.resolve(mockDeliveryRows.value);
+    return Object.assign(rows, { limit: () => rows });
+  },
   for: () => ({
     then: (onFulfilled: (rows: unknown[]) => unknown, onRejected?: (reason: unknown) => unknown) =>
       Promise.resolve([{
@@ -55,8 +62,11 @@ const mockDbSelectFrom = vi.hoisted(() => vi.fn(() => ({ where: mockDbSelectWher
 const mockDbSelect = vi.hoisted(() => vi.fn(() => ({ from: mockDbSelectFrom })));
 const mockDb = vi.hoisted(() => ({
   select: mockDbSelect,
-  transaction: vi.fn(async (callback: (tx: { select: typeof mockDbSelect }) => Promise<unknown>) =>
-    callback({ select: mockDbSelect })),
+  transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+    callback({
+      select: mockDbSelect,
+      insert: () => ({ values: async () => undefined }),
+    })),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
@@ -214,7 +224,14 @@ describe("issue execution policy routes", () => {
     mockIssueApprovalService.listApprovalsForIssue.mockResolvedValue([]);
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
     mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
+    mockDeliveryRows.value = [];
     mockDbSelectWhere.mockImplementation(() => ({
+      // The delivery-target resolver reads workspace and work-product rows through
+      // `.orderBy(...).limit(...)`; an empty result means the server holds no binding.
+      orderBy: () => {
+        const rows = Promise.resolve(mockDeliveryRows.value);
+        return Object.assign(rows, { limit: () => rows });
+      },
       for: () => ({
         then: (onFulfilled: (rows: unknown[]) => unknown, onRejected?: (reason: unknown) => unknown) =>
           Promise.resolve([{
@@ -1207,9 +1224,7 @@ describe("issue execution policy routes", () => {
     );
   });
 
-  it("rejects terminal approval with 409 and rolls back without updating issue status when delivery verification fails", async () => {
-    mockAccessService.hasPermission.mockResolvedValue(true);
-    mockAccessService.canUser.mockResolvedValue(true);
+  function terminalApprovalIssue(evidenceRequired: boolean) {
     const stageId = "44444444-4444-4444-8444-444444444444";
     const agentId = "33333333-3333-4333-8333-333333333333";
     const policy = {
@@ -1220,7 +1235,7 @@ describe("issue execution policy routes", () => {
           participants: [{ type: "agent" as const, agentId }],
         },
       ],
-      evidenceRequired: true,
+      evidenceRequired,
     };
     const state = {
       status: "pending" as const,
@@ -1234,75 +1249,102 @@ describe("issue execution policy routes", () => {
       lastDecisionId: null,
       lastDecisionOutcome: null,
     };
-    mockIssueService.getById.mockResolvedValue({
+    const issue = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       companyId: "company-1",
+      projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       status: "in_review",
-      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeAgentId: agentId,
       assigneeUserId: null,
       createdByUserId: "user-creator",
       identifier: "PAP-1002",
       title: "Terminal approval issue",
       executionPolicy: policy,
       executionState: state,
-    });
-    mockIssueService.getByIdForUpdate.mockResolvedValue({
-      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      companyId: "company-1",
-      status: "in_review",
-      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
-      assigneeUserId: null,
-      createdByUserId: "user-creator",
-      identifier: "PAP-1002",
-      title: "Terminal approval issue",
-      executionPolicy: policy,
-      executionState: state,
-    });
+    };
+    mockAccessService.hasPermission.mockResolvedValue(true);
+    mockAccessService.canUser.mockResolvedValue(true);
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.getByIdForUpdate.mockResolvedValue(issue);
+    return issue;
+  }
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL | Request) => {
-      const urlStr = url.toString();
-      if (urlStr.includes("/pulls/55")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            number: 55,
-            state: "open",
-            merged: false,
-            base: { ref: "master" },
-            head: { sha: "abcdef1234567890abcdef1234567890abcdef12" },
-          }),
-        } as Response;
-      }
-      return { ok: false, status: 404 } as Response;
-    });
+  const agentActor = {
+    type: "agent" as const,
+    agentId: "33333333-3333-4333-8333-333333333333",
+    companyId: "company-1",
+    runId: "55555555-5555-4555-8555-555555555555",
+  };
 
-    try {
-      const app = await createApp({
-        type: "agent",
-        agentId: "33333333-3333-4333-8333-333333333333",
-        companyId: "company-1",
-        runId: "55555555-5555-4555-8555-555555555555",
+  it("refuses a caller-named repository on the terminal evidence at the API boundary", async () => {
+    terminalApprovalIssue(true);
+    const outbound = vi.spyOn(globalThis, "fetch");
+    const app = await createApp(agentActor);
+    const res = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        evidence: {
+          pr: 55,
+          mergedSha: "abcdef1234567890abcdef1234567890abcdef12",
+          repoUrl: "https://attacker.example.com/acme/widgets",
+        },
       });
 
-      const res = await request(app)
-        .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-        .send({
-          status: "done",
-          comment: "Looks good to land",
-          evidence: {
-            pr: 55,
-            mergedSha: "abcdef1234567890abcdef1234567890abcdef12",
-            repo: "paperclipai/paperclip",
-          },
-        });
+    expect(res.status).toBe(400);
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(outbound).not.toHaveBeenCalled();
+    outbound.mockRestore();
+  });
 
-      expect(res.status).toBe(409);
-      expect(res.body.code).toBe("delivery_unverified_not_merged");
-      expect(mockIssueService.update).not.toHaveBeenCalled();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+  it("refuses the terminal write when the server holds no repository binding for the issue", async () => {
+    terminalApprovalIssue(true);
+    mockDeliveryRows.value = [];
+    const outbound = vi.spyOn(globalThis, "fetch");
+    const app = await createApp(agentActor);
+    const res = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        evidence: { pr: 55, mergedSha: "abcdef1234567890abcdef1234567890abcdef12" },
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("delivery_unverified_repository_unconfigured");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(outbound).not.toHaveBeenCalled();
+    outbound.mockRestore();
+  });
+
+  it("refuses a terminal approval that carries no evidence when the policy requires it", async () => {
+    terminalApprovalIssue(true);
+    const app = await createApp(agentActor);
+    const res = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "done", comment: "Looks good to land" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("delivery_evidence_missing");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves a policy without evidenceRequired closing on the comment alone", async () => {
+    const issue = terminalApprovalIssue(false);
+    mockIssueService.update.mockResolvedValue({ ...issue, status: "done", changes: {} });
+    const outbound = vi.spyOn(globalThis, "fetch");
+    const app = await createApp(agentActor);
+    await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "done", comment: "Looks good to land" });
+
+    // The opt-out path reaches the write with no delivery gate and no outbound request.
+    expect(mockIssueService.update).toHaveBeenCalledTimes(1);
+    expect(mockIssueService.update.mock.calls[0]![1]).toMatchObject({
+      executionState: { status: "completed", lastDecisionOutcome: "approved" },
+    });
+    expect(outbound).not.toHaveBeenCalled();
+    outbound.mockRestore();
   });
 });

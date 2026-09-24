@@ -2106,7 +2106,11 @@ function terminalApprovalPolicy(evidenceRequired: boolean) {
   return { ...base, evidenceRequired } as IssueExecutionPolicy;
 }
 
-function closeTerminalStage(policy: IssueExecutionPolicy, evidence?: unknown) {
+function closeTerminalStage(
+  policy: IssueExecutionPolicy,
+  evidence?: unknown,
+  evidenceSource?: "request" | "system",
+) {
   return applyIssueExecutionPolicyTransition({
     issue: {
       status: "in_review",
@@ -2133,6 +2137,7 @@ function closeTerminalStage(policy: IssueExecutionPolicy, evidence?: unknown) {
     actor: { userId: ctoUserId },
     commentBody: "Approved",
     ...(evidence !== undefined ? { evidence: evidence as never } : {}),
+    ...(evidenceSource ? { evidenceSource } : {}),
   });
 }
 
@@ -2163,7 +2168,27 @@ describe("evidenceRequired on the terminal transition", () => {
 
   it("enabled: rejects a SHA that is not a SHA — 'will be published' is not a commit", () => {
     expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr: 34, mergedSha: "pending" }))
-      .toThrowError(/must be a git SHA/);
+      .toThrowError(/must be a full 40-character git SHA/);
+  });
+
+  it("enabled: rejects an abbreviated SHA — seven hex characters name more than one commit", () => {
+    expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr: 34, mergedSha: "c6d3a6f" }))
+      .toThrowError(/must be a full 40-character git SHA/);
+  });
+
+  it("enabled: rejects a pr that is not a pull request number", () => {
+    expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr: "the widgets one", mergedSha: EVIDENCE_OK.mergedSha }))
+      .toThrowError(/must be a pull request number/);
+  });
+
+  it("enabled: refuses a system-initiated terminal transition instead of exempting it", () => {
+    expect(() => closeTerminalStage(terminalApprovalPolicy(true), undefined, "system"))
+      .toThrowError(/system-initiated transition/);
+  });
+
+  it("disabled: a system-initiated transition still closes the stage", () => {
+    const result = closeTerminalStage(terminalApprovalPolicy(false), undefined, "system");
+    expect(result.decision?.outcome).toBe("approved");
   });
 
   it("enabled: accepts complete evidence and closes the issue", () => {
@@ -2172,8 +2197,26 @@ describe("evidenceRequired on the terminal transition", () => {
   });
 
   it("enabled: checkRun is optional — not every project runs checks", () => {
-    const result = closeTerminalStage(terminalApprovalPolicy(true), { pr: "34", mergedSha: "c6d3a6f" });
+    const result = closeTerminalStage(terminalApprovalPolicy(true), {
+      pr: "34",
+      mergedSha: EVIDENCE_OK.mergedSha,
+    });
     expect(result.decision?.outcome).toBe("approved");
+    expect(result.decision?.evidence?.checkRun).toBeNull();
+  });
+
+  it("enabled: never carries a caller-supplied verdict onto the decision", () => {
+    const result = closeTerminalStage(terminalApprovalPolicy(true), {
+      ...EVIDENCE_OK,
+      verified: true,
+      receipt: { repository: "acme/widgets" },
+    });
+    expect(result.decision?.evidence).toEqual({
+      pr: "34",
+      mergedSha: EVIDENCE_OK.mergedSha,
+      checkRun: "31359056766",
+      note: null,
+    });
   });
 
   // The review on the first version of this change found two real defects: evidence
@@ -2209,7 +2252,7 @@ describe("evidence flows through the request contracts", () => {
     const parsed = updateIssueSchema.safeParse({
       status: "done",
       comment: "Approved",
-      evidence: { pr: 34, mergedSha: "c6d3a6fa2e" },
+      evidence: { pr: 34, mergedSha: "c6d3a6fa2e1b4f7890abcdef1234567890abcdef" },
     });
     expect(parsed.success).toBe(true);
   });
@@ -2218,7 +2261,7 @@ describe("evidence flows through the request contracts", () => {
     const { addIssueCommentSchema } = await import("@paperclipai/shared");
     const parsed = addIssueCommentSchema.safeParse({
       body: "kind: review\ndecision: approved",
-      evidence: { pr: "34", mergedSha: "c6d3a6fa2e" },
+      evidence: { pr: "34", mergedSha: "c6d3a6fa2e1b4f7890abcdef1234567890abcdef" },
     });
     expect(parsed.success).toBe(true);
   });
@@ -2228,6 +2271,19 @@ describe("evidence flows through the request contracts", () => {
     const parsed = updateIssueSchema.safeParse({
       status: "done",
       evidence: { pr: 34, mergedSha: "will be published" },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("the schema refuses a caller-named repository at the API boundary", async () => {
+    const { updateIssueSchema } = await import("@paperclipai/shared");
+    const parsed = updateIssueSchema.safeParse({
+      status: "done",
+      evidence: {
+        pr: 34,
+        mergedSha: "c6d3a6fa2e1b4f7890abcdef1234567890abcdef",
+        repoUrl: "https://attacker.example.com/acme/widgets",
+      },
     });
     expect(parsed.success).toBe(false);
   });

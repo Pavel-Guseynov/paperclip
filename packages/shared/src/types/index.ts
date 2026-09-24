@@ -786,6 +786,7 @@ export type {
   IssueWatchdogStatus,
   IssueWatchdogSummary,
   IssueTerminalEvidence,
+  IssueTerminalEvidenceRecord,
   VerifiedDeliveryReceipt,
 } from "./issue.js";
 export type {
