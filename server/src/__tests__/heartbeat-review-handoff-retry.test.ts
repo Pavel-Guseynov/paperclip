@@ -68,8 +68,11 @@ import { errorHandler } from "../middleware/index.js";
 import { issueRoutes } from "../routes/issues.js";
 import { heartbeatService } from "../services/heartbeat.js";
 import { getExecutionBlocker } from "../services/execution-blocker.js";
+import { recoveryService } from "../services/recovery/service.js";
 import {
   REVIEW_HANDOFF_COALESCED_REASON,
+  REVIEW_HANDOFF_NO_RECEIPT_REASON,
+  REVIEW_HANDOFF_REFUSED_REASON,
   buildReviewHandoffRetryIdempotencyKey,
   isReviewHandoffRetryIdempotencyConflict,
   reconcileReviewHandoffAfterBlockerClear,
@@ -655,5 +658,257 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
     );
 
     await heartbeat.drainActiveRunExecutions();
+  });
+
+  it("counts a refused wake as a consumed attempt and escalates instead of retrying forever", async () => {
+    const { companyId, issueId, reviewerAgentId, stageId } = await seedFixture();
+    // The reviewer refuses every on-demand wake. The heartbeat writes a
+    // `skipped` receipt under this attempt's key and returns no run.
+    await db
+      .update(agents)
+      .set({ runtimeConfig: { heartbeat: { wakeOnDemand: false } } })
+      .where(eq(agents.id, reviewerAgentId));
+    const heartbeat = heartbeatService(db);
+
+    const results = [];
+    for (let pass = 0; pass < 4; pass += 1) {
+      results.push(
+        await reconcileReviewHandoffAfterBlockerClear(db, {
+          issueId,
+          companyId,
+          enqueueWakeup: (agentId, req) => heartbeat.wakeup(agentId, req),
+        }),
+      );
+    }
+
+    // A refused wake is reported as refused, never as an enqueued handoff.
+    // The wake path coalesces its own refusal receipt under a derived
+    // execution-wait key, so the retry records the consumed attempt itself.
+    expect(results.slice(0, 3)).toEqual([
+      { action: "skipped", reason: REVIEW_HANDOFF_NO_RECEIPT_REASON },
+      { action: "skipped", reason: REVIEW_HANDOFF_NO_RECEIPT_REASON },
+      { action: "skipped", reason: REVIEW_HANDOFF_NO_RECEIPT_REASON },
+    ]);
+
+    // Each refusal consumed one attempt, so the rows are bounded by the budget
+    // instead of growing once per sweep.
+    const wakes = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.companyId, companyId));
+    expect(wakes.every((wake) => wake.status === "skipped")).toBe(true);
+    expect(
+      wakes
+        .map((wake) => wake.idempotencyKey)
+        .filter((key) => key?.startsWith("review-handoff:"))
+        .sort(),
+    ).toEqual(
+      [1, 2, 3].map((attempt) =>
+        buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attempt }),
+      ),
+    );
+    // The wake path's own refusal receipts stay coalesced into one row.
+    expect(
+      wakes.filter((wake) => !wake.idempotencyKey?.startsWith("review-handoff:")),
+    ).toHaveLength(1);
+
+    // The budget is exhausted, so the fourth pass escalates to the board.
+    expect(results[3].action).toBe("exhausted");
+    const recoveryActions = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.companyId, companyId));
+    expect(recoveryActions).toHaveLength(1);
+    expect(recoveryActions[0]).toMatchObject({
+      cause: "execution_recovery_budget_exhausted",
+      ownerType: "board",
+      attemptCount: 3,
+      maxAttempts: 3,
+    });
+    await heartbeat.drainActiveRunExecutions();
+  });
+
+  it("counts an execution-wait receipt that keeps this attempt's key", async () => {
+    const { companyId, issueId, reviewerAgentId, stageId } = await seedFixture();
+
+    // `recordExecutionWait` saves a refused wake as a `skipped` row that keeps
+    // the requested idempotency key when it does not coalesce.
+    const savedAsExecutionWait: Parameters<
+      typeof reconcileReviewHandoffAfterBlockerClear
+    >[1]["enqueueWakeup"] = async (agentId, request) => {
+      await db.insert(agentWakeupRequests).values({
+        id: randomUUID(),
+        companyId,
+        agentId,
+        source: "automation",
+        reason: request.reason,
+        status: "skipped",
+        idempotencyKey: request.idempotencyKey ?? null,
+        payload: {
+          ...(request.payload ?? {}),
+          executionWait: { reason: "issue_execution_disabled" },
+        },
+        finishedAt: new Date(),
+      });
+      return null;
+    };
+
+    const first = await reconcileReviewHandoffAfterBlockerClear(db, {
+      issueId,
+      companyId,
+      enqueueWakeup: savedAsExecutionWait,
+    });
+    expect(first).toEqual({ action: "skipped", reason: REVIEW_HANDOFF_REFUSED_REASON });
+
+    const second = await reconcileReviewHandoffAfterBlockerClear(db, {
+      issueId,
+      companyId,
+      enqueueWakeup: savedAsExecutionWait,
+    });
+    expect(second).toEqual({ action: "skipped", reason: REVIEW_HANDOFF_REFUSED_REASON });
+
+    const wakes = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.companyId, companyId));
+    expect([...wakes.map((wake) => wake.idempotencyKey)].sort()).toEqual(
+      [1, 2].map((attempt) =>
+        buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attempt }),
+      ),
+    );
+  });
+
+  it("records the consumed attempt when the wake persisted no receipt under this key", async () => {
+    const { companyId, issueId, reviewerAgentId, stageId } = await seedFixture();
+
+    // A coalescing execution wait records the wake under its own derived key,
+    // so this attempt's key has no receipt of its own.
+    const coalescedElsewhere: Parameters<
+      typeof reconcileReviewHandoffAfterBlockerClear
+    >[1]["enqueueWakeup"] = async (agentId) => {
+      await db.insert(agentWakeupRequests).values({
+        id: randomUUID(),
+        companyId,
+        agentId,
+        source: "automation",
+        status: "skipped",
+        idempotencyKey: `execution-wait:${issueId}`,
+        payload: { issueId },
+        finishedAt: new Date(),
+      });
+      return null;
+    };
+
+    const first = await reconcileReviewHandoffAfterBlockerClear(db, {
+      issueId,
+      companyId,
+      enqueueWakeup: coalescedElsewhere,
+    });
+    expect(first).toEqual({
+      action: "skipped",
+      reason: REVIEW_HANDOFF_NO_RECEIPT_REASON,
+    });
+
+    // The consumed attempt is durable, so the next trigger moves to attempt 2.
+    const second = await reconcileReviewHandoffAfterBlockerClear(db, {
+      issueId,
+      companyId,
+      enqueueWakeup: coalescedElsewhere,
+    });
+    expect(second).toEqual({
+      action: "skipped",
+      reason: REVIEW_HANDOFF_NO_RECEIPT_REASON,
+    });
+
+    const recorded = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(
+        and(
+          eq(agentWakeupRequests.companyId, companyId),
+          eq(agentWakeupRequests.agentId, reviewerAgentId),
+        ),
+      );
+    expect(
+      recorded
+        .map((wake) => wake.idempotencyKey)
+        .filter((key) => key?.startsWith("review-handoff:"))
+        .sort(),
+    ).toEqual(
+      [1, 2].map((attempt) =>
+        buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attempt }),
+      ),
+    );
+    expect(recorded.every((wake) => wake.status === "skipped")).toBe(true);
+  });
+
+  it("skips a hidden issue", async () => {
+    const { companyId, issueId, reviewerAgentId } = await seedFixture();
+    await db.update(issues).set({ hiddenAt: new Date() }).where(eq(issues.id, issueId));
+    const heartbeat = heartbeatService(db);
+
+    const result = await reconcileReviewHandoffAfterBlockerClear(db, {
+      issueId,
+      companyId,
+      enqueueWakeup: (agentId, req) => heartbeat.wakeup(agentId, req),
+    });
+
+    expect(result).toEqual({ action: "skipped", reason: "issue not in_review" });
+    expect(
+      await db
+        .select()
+        .from(agentWakeupRequests)
+        .where(
+          and(
+            eq(agentWakeupRequests.companyId, companyId),
+            eq(agentWakeupRequests.agentId, reviewerAgentId),
+          ),
+        ),
+    ).toHaveLength(0);
+    await heartbeat.drainActiveRunExecutions();
+  });
+
+  it("contains one issue's handoff failure and finishes the stranded sweep", async () => {
+    const failing = await seedFixture();
+    const healthy = await seedFixture();
+    const wakeFailure = new Error("wake target rejected the handoff");
+
+    const recovery = recoveryService(db, {
+      enqueueWakeup: async (agentId, opts) => {
+        if (agentId === failing.reviewerAgentId) throw wakeFailure;
+        const [row] = await db
+          .insert(agentWakeupRequests)
+          .values({
+            id: randomUUID(),
+            companyId: healthy.companyId,
+            agentId,
+            source: "automation",
+            reason: opts?.reason ?? null,
+            status: "queued",
+            idempotencyKey: opts?.idempotencyKey ?? null,
+            payload: opts?.payload ?? null,
+          })
+          .returning();
+        return row as never;
+      },
+    });
+
+    const result = await recovery.reconcileStrandedAssignedIssues();
+
+    expect(result.reviewParticipantRequeued).toBe(1);
+    expect(result.issueIds).toContain(healthy.issueId);
+    expect(result.issueIds).not.toContain(failing.issueId);
+    expect(
+      await db
+        .select()
+        .from(agentWakeupRequests)
+        .where(eq(agentWakeupRequests.companyId, healthy.companyId)),
+    ).toHaveLength(1);
+    expect(
+      await db
+        .select()
+        .from(agentWakeupRequests)
+        .where(eq(agentWakeupRequests.companyId, failing.companyId)),
+    ).toHaveLength(0);
   });
 });

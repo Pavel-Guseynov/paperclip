@@ -232,10 +232,17 @@ export async function hasQueuedReviewRetry(
 
 /**
  * The durable wake rows are the single authoritative attempt counter: every
- * enqueued handoff writes its own attempt number into the wake payload under a
- * key that the partial unique index keeps unique. Counting rows or coalesced
- * triggers instead would let a benign repeated trigger consume the budget and
- * escalate a healthy issue.
+ * handoff writes its own attempt number into the wake payload under a key the
+ * partial unique index keeps unique. Counting rows or coalesced triggers
+ * instead would let a benign repeated trigger consume the budget and escalate
+ * a healthy issue.
+ *
+ * Every persisted receipt counts, including a `skipped` one. The wake path
+ * writes such a row when it refuses the wake (heartbeat disabled, wake on
+ * demand disabled, inactive company, suppressed scheduling) or saves it as an
+ * execution wait. Ignoring those rows would let a permanently refusing target
+ * be retried under attempt 1 forever, growing `agent_wakeup_requests` without
+ * bound and never reaching the escalation this retry budget exists for.
  */
 export async function getReviewHandoffAttemptCount(
   db: Db,
@@ -251,7 +258,6 @@ export async function getReviewHandoffAttemptCount(
       and(
         eq(agentWakeupRequests.companyId, companyId),
         sql`${agentWakeupRequests.idempotencyKey} LIKE ${`${keyPrefix}%`}`,
-        ne(agentWakeupRequests.status, "skipped"),
       ),
     );
 
@@ -262,6 +268,59 @@ export async function getReviewHandoffAttemptCount(
     if (Number.isFinite(attempt) && attempt > attempts) attempts = attempt;
   }
   return attempts;
+}
+
+/**
+ * Records a consumed attempt whose wake left no receipt under this key. The
+ * wake path coalesces a refused automatic wake into an execution-wait row
+ * under its own derived key, which this retry's ledger cannot see, so without
+ * this receipt a permanently refusing target would be retried under attempt 1
+ * forever. The row mirrors the refusal receipt the wake path writes itself.
+ */
+async function recordRefusedReviewHandoffAttempt(
+  db: Db,
+  input: {
+    companyId: string;
+    agentId: string;
+    idempotencyKey: string;
+    reason: string;
+    payload: Record<string, unknown>;
+  },
+): Promise<void> {
+  await db.insert(agentWakeupRequests).values({
+    companyId: input.companyId,
+    agentId: input.agentId,
+    source: "automation",
+    triggerDetail: "system",
+    reason: input.reason,
+    status: SKIPPED_WAKE_STATUS,
+    payload: input.payload,
+    requestedByActorType: "system",
+    idempotencyKey: input.idempotencyKey,
+    finishedAt: new Date(),
+  });
+}
+
+/**
+ * The statuses of every wake row persisted under one attempt's key. A refused
+ * wake returns no run but still writes its receipt, so the receipt — not the
+ * return value — says whether the handoff was actually accepted.
+ */
+export async function getReviewHandoffWakeReceiptStatuses(
+  db: Db,
+  companyId: string,
+  idempotencyKey: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ status: agentWakeupRequests.status })
+    .from(agentWakeupRequests)
+    .where(
+      and(
+        eq(agentWakeupRequests.companyId, companyId),
+        eq(agentWakeupRequests.idempotencyKey, idempotencyKey),
+      ),
+    );
+  return rows.map((row) => row.status);
 }
 
 export type ReviewHandoffRetryDecision =
@@ -471,6 +530,12 @@ export type ReviewHandoffReconciliationResult = {
 
 export const REVIEW_HANDOFF_COALESCED_REASON =
   "durable review retry already queued for this attempt";
+export const REVIEW_HANDOFF_REFUSED_REASON =
+  "wake refused; this attempt is recorded and counts toward the retry budget";
+export const REVIEW_HANDOFF_NO_RECEIPT_REASON =
+  "wake persisted no receipt for this attempt";
+/** The wake status the heartbeat writes for a refused or saved wake. */
+const SKIPPED_WAKE_STATUS = "skipped";
 
 /**
  * Starts or schedules the one handoff an `in_review` issue is owed once its
@@ -500,7 +565,16 @@ export async function reconcileReviewHandoffAfterBlockerClear(
       executionState: issues.executionState,
     })
     .from(issues)
-    .where(and(eq(issues.id, input.issueId), eq(issues.companyId, input.companyId)));
+    .where(
+      and(
+        eq(issues.id, input.issueId),
+        eq(issues.companyId, input.companyId),
+        // A hidden issue is outside every other recovery sweep's candidate set
+        // (see `hasValidReviewBlocker` and the resolved-dependency backstop),
+        // so it must not receive an automatic handoff either.
+        sql`${issues.hiddenAt} is null`,
+      ),
+    );
 
   if (!issue || issue.status !== "in_review") {
     return { action: "skipped", reason: "issue not in_review" };
@@ -550,8 +624,9 @@ export async function reconcileReviewHandoffAfterBlockerClear(
     return { action: "skipped", reason: decision.reason };
   }
 
+  let wake: ReviewHandoffWake = null;
   try {
-    const wake = await input.enqueueWakeup(decision.targetAgentId, {
+    wake = await input.enqueueWakeup(decision.targetAgentId, {
       source: "automation",
       triggerDetail: "system",
       reason: decision.reason,
@@ -561,11 +636,34 @@ export async function reconcileReviewHandoffAfterBlockerClear(
       requestedByActorId: null,
       contextSnapshot: decision.contextSnapshot,
     });
-    return { action: "enqueued", wake };
   } catch (error) {
     if (isReviewHandoffRetryIdempotencyConflict(error)) {
       return { action: "skipped", reason: REVIEW_HANDOFF_COALESCED_REASON };
     }
     throw error;
   }
+
+  // The wake path returns no run both when it defers the handoff and when it
+  // refuses it outright, and a refusal still writes its receipt under this
+  // key. Read that receipt instead of trusting the null: reporting a refused
+  // wake as enqueued would advertise a handoff nobody will run.
+  const receiptStatuses = await getReviewHandoffWakeReceiptStatuses(
+    db,
+    issue.companyId,
+    decision.idempotencyKey,
+  );
+  if (receiptStatuses.some((status) => status !== SKIPPED_WAKE_STATUS)) {
+    return { action: "enqueued", wake };
+  }
+  if (receiptStatuses.length > 0) {
+    return { action: "skipped", reason: REVIEW_HANDOFF_REFUSED_REASON };
+  }
+  await recordRefusedReviewHandoffAttempt(db, {
+    companyId: issue.companyId,
+    agentId: decision.targetAgentId,
+    idempotencyKey: decision.idempotencyKey,
+    reason: decision.reason,
+    payload: decision.payload,
+  });
+  return { action: "skipped", reason: REVIEW_HANDOFF_NO_RECEIPT_REASON };
 }

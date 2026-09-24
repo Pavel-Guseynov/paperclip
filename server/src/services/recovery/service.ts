@@ -3400,7 +3400,9 @@ export function recoveryService(
         healthyChildren.length > 0 ||
         hasNewSourcePath
       ) {
-        if (healthyChildren.length > 0 && !sourceState.hasDurableWaitingPath) {
+        const blockedForHealthyChildren =
+          healthyChildren.length > 0 && !sourceState.hasDurableWaitingPath;
+        if (blockedForHealthyChildren) {
           const blockerIds = await existingUnresolvedBlockerIssueIds(
             issue.companyId,
             issue.id,
@@ -3430,14 +3432,24 @@ export function recoveryService(
         if (resolved) {
           result.resolved += 1;
           result.issueIds.push(issue.id);
-          if (issue.status === "in_review") {
-            await reconcileReviewHandoffAfterBlockerClear(db, {
-              issueId: issue.id,
-              companyId: issue.companyId,
-              enqueueWakeup: deps.enqueueWakeup,
-              treeControlSvc,
-              source: "reconcileActiveRecoveryActions",
-            });
+          // `issue` is the row this pass read before the branch above may have
+          // moved it to blocked, so a handoff is owed only when the issue is
+          // still in review. One issue's failure must not abort the pass.
+          if (!blockedForHealthyChildren && issue.status === "in_review") {
+            try {
+              await reconcileReviewHandoffAfterBlockerClear(db, {
+                issueId: issue.id,
+                companyId: issue.companyId,
+                enqueueWakeup: deps.enqueueWakeup,
+                treeControlSvc,
+                source: "reconcileActiveRecoveryActions",
+              });
+            } catch (err) {
+              logger.warn(
+                { err, issueId: issue.id },
+                "failed to reconcile review handoff after recovery action resolution",
+              );
+            }
           }
         }
         continue;
@@ -4750,20 +4762,33 @@ export function recoveryService(
               result.skipped += 1;
             }
           } else if (!participantLatestRun) {
-            const handoffResult = await reconcileReviewHandoffAfterBlockerClear(
-              db,
-              {
-                issueId: issue.id,
-                companyId: issue.companyId,
-                enqueueWakeup: deps.enqueueWakeup,
-                treeControlSvc,
-                source: "reconcileStrandedAssignedIssues.no_participant_run",
-              },
-            );
-            if (handoffResult.action === "enqueued") {
+            // One issue's handoff failure is contained here so the rest of the
+            // sweep still runs, the same way the resolved-dependency backstop
+            // contains its own reconciliation failures.
+            let handoffResult: Awaited<
+              ReturnType<typeof reconcileReviewHandoffAfterBlockerClear>
+            > | null = null;
+            try {
+              handoffResult = await reconcileReviewHandoffAfterBlockerClear(
+                db,
+                {
+                  issueId: issue.id,
+                  companyId: issue.companyId,
+                  enqueueWakeup: deps.enqueueWakeup,
+                  treeControlSvc,
+                  source: "reconcileStrandedAssignedIssues.no_participant_run",
+                },
+              );
+            } catch (err) {
+              logger.warn(
+                { err, issueId: issue.id },
+                "failed to reconcile review handoff for stranded review participant",
+              );
+            }
+            if (handoffResult?.action === "enqueued") {
               result.reviewParticipantRequeued += 1;
               result.issueIds.push(issue.id);
-            } else if (handoffResult.action === "exhausted") {
+            } else if (handoffResult?.action === "exhausted") {
               result.escalated += 1;
               result.issueIds.push(issue.id);
             } else {
