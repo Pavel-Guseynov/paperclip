@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readWorkspacePatchedDependencies } from "./prepare-bundled-package.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const expectedPnpmVersion = "11.21.0";
@@ -21,6 +23,21 @@ function walk(directory, visit) {
   }
 }
 
+// Lines of one top-level YAML block, without blank and comment-only lines.
+function topLevelBlock(source, key) {
+  const lines = [];
+  let inBlock = false;
+  for (const line of source.split("\n")) {
+    if (/^\s*(#.*)?$/.test(line)) continue;
+    if (/^\S/.test(line)) {
+      inBlock = new RegExp(`^${key}:\\s*(#.*)?$`).test(line);
+      continue;
+    }
+    if (inBlock) lines.push(line);
+  }
+  return lines;
+}
+
 // 1. Root package.json check
 const rootPackageJsonPath = path.join(repoRoot, "package.json");
 const rootManifest = JSON.parse(fs.readFileSync(rootPackageJsonPath, "utf8"));
@@ -37,27 +54,61 @@ if (!fs.existsSync(workspaceYamlPath)) {
   failures.push("pnpm-workspace.yaml: missing file");
 } else {
   const workspaceContent = fs.readFileSync(workspaceYamlPath, "utf8");
-  if (!workspaceContent.includes("patchedDependencies:")) {
+  if (!/^autoInstallPeers:\s*false\s*(#.*)?$/m.test(workspaceContent)) {
+    failures.push("pnpm-workspace.yaml: must set autoInstallPeers: false for deterministic resolution");
+  }
+
+  let patchedDependencies = {};
+  try {
+    patchedDependencies = readWorkspacePatchedDependencies(repoRoot);
+  } catch (error) {
+    failures.push(`pnpm-workspace.yaml: ${error.message}`);
+  }
+  if (Object.keys(patchedDependencies).length === 0) {
     failures.push("pnpm-workspace.yaml: must declare patchedDependencies");
   }
-  if (!workspaceContent.includes("allowBuilds:")) {
+  for (const [specifier, patchPath] of Object.entries(patchedDependencies)) {
+    if (!fs.existsSync(path.join(repoRoot, patchPath))) {
+      failures.push(`pnpm-workspace.yaml: patch for ${specifier} does not exist: ${patchPath}`);
+    }
+  }
+
+  const allowBuilds = topLevelBlock(workspaceContent, "allowBuilds");
+  if (allowBuilds.length === 0) {
     failures.push("pnpm-workspace.yaml: must declare explicit allowBuilds security policy");
   }
-  if (!workspaceContent.includes("autoInstallPeers: false")) {
-    failures.push("pnpm-workspace.yaml: must set autoInstallPeers: false for deterministic resolution");
+  for (const line of allowBuilds) {
+    if (!/^\s+(?:"[^"]+"|'[^']+'|[^\s#"'][^:]*?)\s*:\s*(true|false)\s*(#.*)?$/.test(line)) {
+      failures.push(`pnpm-workspace.yaml: allowBuilds entries must be package: true|false, found '${line.trim()}'`);
+    }
   }
 }
 
-// 3. GitHub Actions workflow pnpm version pins
+// 3. GitHub Actions workflow pnpm version pins, checked per setup step
 const workflowRoot = path.join(repoRoot, ".github", "workflows");
 walk(workflowRoot, (filePath) => {
   if (!/\.ya?ml$/.test(filePath)) return;
-  const source = fs.readFileSync(filePath, "utf8");
-  for (const match of source.matchAll(/uses:\s*pnpm\/action-setup@[^\n]+[\s\S]*?version:\s*([^\s\n#]+)/g)) {
-    if (match[1] !== expectedPnpmVersion) {
-      failures.push(`${relative(filePath)}: pnpm action-setup version must be ${expectedPnpmVersion}, found ${match[1]}`);
+  const lines = fs.readFileSync(filePath, "utf8").split("\n");
+  lines.forEach((line, index) => {
+    const setup = line.match(/^(\s*)(?:-\s+)?uses:\s*pnpm\/action-setup@/);
+    if (!setup) return;
+    // The step ends at the next list item at or above the step's indentation.
+    const stepIndent = setup[1].length - (line.trimStart().startsWith("-") ? 0 : 2);
+    let version = null;
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const candidate = lines[next];
+      const itemIndent = candidate.match(/^(\s*)-\s/);
+      if (itemIndent && itemIndent[1].length <= stepIndent) break;
+      const pin = candidate.match(/^\s+version:\s*["']?([^\s"'#]+)/);
+      if (pin) {
+        version = pin[1];
+        break;
+      }
     }
-  }
+    if (version !== expectedPnpmVersion) {
+      failures.push(`${relative(filePath)}:${index + 1}: pnpm action-setup version must be ${expectedPnpmVersion}, found ${version ?? "none"}`);
+    }
+  });
 });
 
 // 4. Dockerfile pnpm version pins
@@ -81,11 +132,29 @@ const docChecks = [
 
 for (const [docPath, snippet] of docChecks) {
   const fullPath = path.join(repoRoot, docPath);
-  if (fs.existsSync(fullPath)) {
-    const content = fs.readFileSync(fullPath, "utf8");
-    if (!content.includes(snippet)) {
-      failures.push(`${docPath}: must contain requirement documentation '${snippet}'`);
-    }
+  if (!fs.existsSync(fullPath)) {
+    failures.push(`${docPath}: missing; it documents the pnpm prerequisite`);
+    continue;
+  }
+  if (!fs.readFileSync(fullPath, "utf8").includes(snippet)) {
+    failures.push(`${docPath}: must contain requirement documentation '${snippet}'`);
+  }
+}
+
+// 6. No active pnpm 9 references in tracked files. Dated logs and plans are
+// historical records.
+const historicalDirectories = ["doc/logs/", "doc/plans/"];
+const scannedFile = /(\.(md|mdx|ya?ml|json|mjs|cjs|js|ts|tsx|sh)|Dockerfile)$/;
+const trackedFiles = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+  .split("\0")
+  .filter(Boolean);
+for (const relativePath of trackedFiles) {
+  if (!scannedFile.test(relativePath) || relativePath === "pnpm-lock.yaml") continue;
+  if (historicalDirectories.some((directory) => relativePath.startsWith(directory))) continue;
+  if (relativePath === "scripts/check-pnpm-version-policy.mjs") continue;
+  const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+  if (/pnpm@9\.|pnpm 9\b|9\.15\.4/.test(source)) {
+    failures.push(`${relativePath}: references pnpm 9; the supported toolchain is ${expectedPackageManager}`);
   }
 }
 

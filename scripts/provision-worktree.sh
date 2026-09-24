@@ -693,17 +693,20 @@ function walk(dir) {
 walk(root);
 // pnpm-workspace.yaml is the pnpm 11 patch manifest for this repository. Hash
 // the declared paths, including non-.patch filenames and patches outside patches/.
+// Same reader as readWorkspacePatchedDependencies in scripts/prepare-bundled-package.mjs.
 const workspaceManifestPath = path.join(root, "pnpm-workspace.yaml");
 const workspaceManifest = fs.existsSync(workspaceManifestPath) ? fs.readFileSync(workspaceManifestPath, "utf8") : "";
 let inPatchedDependencies = false;
 for (const line of workspaceManifest.split("\n")) {
+  if (/^\s*(#.*)?$/.test(line)) continue;
   if (/^\S/.test(line)) {
-    inPatchedDependencies = /^patchedDependencies:\s*$/.test(line);
+    inPatchedDependencies = /^patchedDependencies:\s*(#.*)?$/.test(line);
     continue;
   }
-  const entry = inPatchedDependencies && line.match(/^\s+(?:"[^"]+"|'[^']+'|[^\s#:][^:]*?)\s*:\s*(\S.*?)\s*$/);
-  if (!entry) continue;
-  const file = path.resolve(root, entry[1].replace(/^(["'])(.*)\1$/, "$2"));
+  if (!inPatchedDependencies) continue;
+  const entry = line.match(/^\s+(?:"([^"]+)"|'([^']+)'|([^\s#"'][^:]*?))\s*:\s*(?:"([^"]+)"|'([^']+)'|([^\s#"'][^#]*?))\s*(#.*)?$/);
+  if (!entry) throw new Error("Invalid pnpm patch path");
+  const file = path.resolve(root, entry[4] ?? entry[5] ?? entry[6]);
   if (!files.includes(file)) files.push(file);
 }
 files.sort((left, right) => path.relative(root, left).localeCompare(path.relative(root, right)));

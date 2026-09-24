@@ -63,7 +63,7 @@ test("the runner pins every qualified ACPX production dependency", () => {
   assert.match(
     workspace,
     new RegExp(
-      `"@agentclientprotocol/codex-acp@1\\.6\\.2>@openai/codex":\\s*"${runnerPackage.dependencies["@openai/codex"]}"`,
+      `"@agentclientprotocol/codex-acp@1\\.6\\.2>@openai/codex":\\s*"${runnerPackage.dependencies["@openai/codex"].replaceAll(".", "\\.")}"`,
     ),
   );
   assert.match(

@@ -191,13 +191,10 @@ async function verifyRunnerConsumer({
       "@paperclipai/paperclip-runner": `file:${runnerTarball}`,
     },
   }, null, 2)}\n`);
-  const overrides = localOverrides(runtimeDependencyTarballs);
-  const overridesYaml = Object.entries(overrides)
-    .map(([k, v]) => `  "${k}": "${v}"`)
-    .join("\n");
+  // JSON is valid YAML and escapes Windows path separators correctly.
   await writeFile(
     resolve(consumerRoot, "pnpm-workspace.yaml"),
-    `overrides:\n${overridesYaml}\n`,
+    `${JSON.stringify({ overrides: localOverrides(runtimeDependencyTarballs) }, null, 2)}\n`,
   );
   await writeFile(resolve(consumerRoot, "verify.mjs"), `
 import { createHash } from "node:crypto";

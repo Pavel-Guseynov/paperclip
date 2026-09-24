@@ -558,7 +558,10 @@ test("patch content changes invalidate an otherwise matching install fingerprint
   fs.writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\ncase "$1" in install) echo install >> pnpm-calls; mkdir -p node_modules cli/node_modules ;; esac\n', { mode: 0o700 });
   const first = runProvision(baseCwd, { pathPrefix: bin, setupWorktree(root) {
     fs.writeFileSync(path.join(root, "package.json"), "{}\n");
-    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  'dependency@1': patches/dependency.diff\n");
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "patchedDependencies: # patch manifest\n  # declared patch\n  'dependency@1': patches/dependency.diff # applied on install\n",
+    );
     fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     fs.mkdirSync(path.join(root, "patches"));
     fs.writeFileSync(path.join(root, "patches/dependency.diff"), "first patch");
