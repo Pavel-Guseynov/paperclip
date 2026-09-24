@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -385,14 +386,14 @@ describe("workspace runtime tailscale_https lifecycle", () => {
       },
     });
 
-    const port = await findFreeExposureAppPort(RUNTIME_EXPOSURE_APP_PORT_MIN);
-    const executionWorkspaceId = "11111111-2222-4333-8444-555566667771";
+    // Own identity only: automatic allocation stays under test, so the
+    // assertion below still covers the scan into the dedicated range.
+    const executionWorkspaceId = randomUUID();
     const [runtime] = await startRuntimeServicesForWorkspaceControl(startInput({
       executionWorkspaceId,
-      port,
     }));
     expect(calls.slice(0, 2)).toEqual(["reserve", "expose"]);
-    expect(runtime.port).toBe(port);
+    expect(runtime.port).toBeGreaterThanOrEqual(42000);
     expect(runtime.url).toBe(`https://runner.tail123.ts.net:${runtime.port}`);
     expect(runtime.exposure?.state).toBe("ready");
 
@@ -408,12 +409,9 @@ describe("workspace runtime tailscale_https lifecycle", () => {
     const { broker, calls } = createBroker();
     installDeps({ broker, probeHealth: async () => false });
 
-    const port = await findFreeExposureAppPort(RUNTIME_EXPOSURE_APP_PORT_MIN + 1);
-    const executionWorkspaceId = "11111111-2222-4333-8444-555566667772";
     await expect(
       startRuntimeServicesForWorkspaceControl(startInput({
-        executionWorkspaceId,
-        port,
+        executionWorkspaceId: randomUUID(),
       })),
     ).rejects.toThrow(/HTTPS exposure failed/);
     expect(calls).toEqual(["reserve", "expose", "remove"]);

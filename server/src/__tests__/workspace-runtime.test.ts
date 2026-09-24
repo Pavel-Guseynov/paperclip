@@ -356,11 +356,16 @@ async function findFreePort() {
   return port;
 }
 
-const DEDICATED_BOUNDED_PORT_RANGE_MIN = 25_000;
-const DEDICATED_BOUNDED_PORT_RANGE_MAX = 32_000;
+// A range the fixtures can hold for the length of a test: it sits below both
+// the Darwin (49152+) and the Linux (32768+) ephemeral ranges, so the kernel
+// never hands one of these ports to unrelated traffic mid-test, and it misses
+// the dedicated runtime exposure ranges (42000-42999 app, 52000-52999 HMR), so
+// it cannot collide with a real allocation either.
+const FIXTURE_PORT_RANGE_MIN = 25_000;
+const FIXTURE_PORT_RANGE_MAX = 32_000;
 
-async function reserveContiguousPorts(count: number, startAt = DEDICATED_BOUNDED_PORT_RANGE_MIN) {
-  for (let candidateBase = startAt; candidateBase + count - 1 <= DEDICATED_BOUNDED_PORT_RANGE_MAX; candidateBase += 1) {
+async function reserveContiguousPorts(count: number) {
+  for (let candidateBase = FIXTURE_PORT_RANGE_MIN; candidateBase + count - 1 <= FIXTURE_PORT_RANGE_MAX; candidateBase += 1) {
     const servers: net.Server[] = [];
     try {
       for (let offset = 0; offset < count; offset += 1) {
@@ -371,7 +376,7 @@ async function reserveContiguousPorts(count: number, startAt = DEDICATED_BOUNDED
       await Promise.all(servers.map((server) => closeNetServer(server).catch(() => undefined)));
     }
   }
-  throw new Error(`Failed to reserve ${count} contiguous test ports in dedicated range [${startAt}, ${DEDICATED_BOUNDED_PORT_RANGE_MAX}]`);
+  throw new Error(`Failed to reserve ${count} contiguous test ports in fixture range [${FIXTURE_PORT_RANGE_MIN}, ${FIXTURE_PORT_RANGE_MAX}]`);
 }
 
 function createWorkspaceOperationRecorderDouble() {
@@ -7448,7 +7453,7 @@ describeEmbeddedPostgres("workspace runtime service control persistence", () => 
         executionWorkspaceId: firstWorkspace.id,
         workspaceCwd: firstWorkspace.cwd,
       }).catch(() => undefined);
-      await Promise.all(reservation.servers.map((server) => closeNetServer(server).catch(() => undefined)));
+      await Promise.all(otherReservations.map((server) => closeNetServer(server).catch(() => undefined)));
       await cleanupRuntimeHome();
       await fixture.cleanup();
       await otherCompanyFixture.cleanup();
