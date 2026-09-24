@@ -6798,6 +6798,32 @@ export function agentRoutes(
   });
 
   router.post(
+    "/heartbeat-runs/:runId/admin/reconcile-terminal-environment-lease",
+    async (req, res) => {
+      assertBoard(req);
+      const runId = readHeartbeatRunId(req);
+      const existing = await getAccessibleResource(
+        req,
+        res,
+        heartbeat.getRun(runId),
+        "Heartbeat run not found",
+      );
+      if (!existing) return;
+      const actorUserId =
+        req.actor.userId ??
+        (req.actor.source === "local_implicit" ? "local-admin" : null);
+      if (!actorUserId) throw forbidden("Board user context required");
+      res.json(
+        await heartbeat.reconcileTerminalExecutionLease({
+          runId,
+          companyId: existing.companyId,
+          actorUserId,
+        }),
+      );
+    },
+  );
+
+  router.post(
     "/heartbeat-runs/:runId/runtime-requests/:requestId/resolve",
     async (req, res) => {
       assertBoard(req);

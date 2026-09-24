@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { environmentLeases, heartbeatRunEvents, heartbeatRuns, issueRecoveryActions, type Db } from "@paperclipai/db";
 import { readProcessStartedAt } from "./hot-restart.js";
 
@@ -92,6 +92,50 @@ function processMayBeAlive(pid: number): boolean {
   }
 }
 
+export async function getConversationRunOwnershipState(
+  db: Db,
+  run: typeof heartbeatRuns.$inferSelect,
+) {
+  let processPidAlive =
+    run.processPid !== null && processMayBeAlive(run.processPid);
+  if (processPidAlive && run.processStartedAt) {
+    // A recycled PID cannot retain authority over an old run. An unreadable
+    // identity remains conservative because the original process may still own
+    // execution.
+    const observed = await readProcessStartedAt(run.processPid!).catch(
+      () => null,
+    );
+    if (
+      observed &&
+      new Date(observed).getTime() !== run.processStartedAt.getTime()
+    ) {
+      processPidAlive = false;
+    }
+  }
+  const processGroupAlive =
+    run.processGroupId !== null && processMayBeAlive(-run.processGroupId);
+  const [lease] = await db
+    .select({ id: environmentLeases.id })
+    .from(environmentLeases)
+    .where(
+      and(
+        eq(environmentLeases.companyId, run.companyId),
+        eq(environmentLeases.heartbeatRunId, run.id),
+        or(
+          isNull(environmentLeases.releasedAt),
+          eq(environmentLeases.status, "pending_cleanup"),
+          eq(environmentLeases.cleanupStatus, "failed"),
+        ),
+      ),
+    )
+    .limit(1);
+  return {
+    processPidAlive,
+    processGroupAlive,
+    leaseHeld: Boolean(lease),
+  };
+}
+
 /** A terminal conversation row does not prove that its execution authority ended.
  * Other adapters keep their existing bootstrap and ownership protocols.
  */
@@ -111,14 +155,9 @@ export async function getConversationOwnershipBlocker(db: Db, companyId: string,
       or(isNotNull(heartbeatRuns.processPid), isNotNull(heartbeatRuns.processGroupId), activeLease),
     )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id));
   for (const { run, activeLease: leaseHeld } of candidates) {
-    let pidAlive = run.processPid !== null && processMayBeAlive(run.processPid);
-    if (pidAlive && run.processStartedAt) {
-      // A recycled PID cannot keep an old task blocked. An unreadable identity
-      // stays conservative; the original process may still own execution.
-      const observed = await readProcessStartedAt(run.processPid!).catch(() => null);
-      if (observed && new Date(observed).getTime() !== run.processStartedAt.getTime()) pidAlive = false;
-    }
-    const groupAlive = run.processGroupId !== null && processMayBeAlive(-run.processGroupId);
+    const ownership = await getConversationRunOwnershipState(db, run);
+    const pidAlive = ownership.processPidAlive;
+    const groupAlive = ownership.processGroupAlive;
     if (pidAlive || groupAlive || leaseHeld) {
       return {
         runId: run.id,

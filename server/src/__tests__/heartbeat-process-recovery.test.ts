@@ -211,6 +211,7 @@ import {
   parseSandboxProviderPluginNotReadyFailureMessage,
   redactDetectedSuccessfulRunProgressSummaryForBoard,
   redactSuccessfulRunHandoffEvidence,
+  type HeartbeatEnvironmentRuntime,
 } from "../services/heartbeat.ts";
 import {
   claimNativeRestartRecoveries,
@@ -1688,6 +1689,196 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       expectedStatus: "queued", now: new Date() })).toMatchObject({ outcome: "cancelled", errorCode: "execution_reconciliation_required" });
     await db.update(environmentLeases).set({ releasedAt: new Date(), status: "released" }).where(eq(environmentLeases.id, lease!.id));
     expect(await getExecutionBlocker(db, companyId, issueId)).toBeNull();
+  });
+
+  it("lets a board operator release only a stopped terminal conversation run's stale local lease", async () => {
+    const first = await seedRunFixture({
+      agentStatus: "idle",
+      runStatus: "interrupted",
+    });
+    const second = await seedRunFixture({
+      agentStatus: "idle",
+      runStatus: "interrupted",
+    });
+    const [environment] = await db
+      .insert(environments)
+      .values({ name: `local-${first.runId}`, driver: "local" })
+      .returning();
+    const [targetLease] = await db
+      .insert(environmentLeases)
+      .values({
+        companyId: first.companyId,
+        environmentId: environment!.id,
+        issueId: first.issueId,
+        heartbeatRunId: first.runId,
+        agentId: first.agentId,
+        provider: "local",
+        status: "active",
+      })
+      .returning();
+    const [otherLease] = await db
+      .insert(environmentLeases)
+      .values({
+        companyId: second.companyId,
+        environmentId: environment!.id,
+        issueId: second.issueId,
+        heartbeatRunId: second.runId,
+        agentId: second.agentId,
+        provider: "local",
+        status: "active",
+      })
+      .returning();
+    const releaseRunLeases = vi.fn(
+      async (
+        heartbeatRunId: string,
+        status: "released" | "expired" | "failed",
+      ) => {
+        const leases = await db
+          .select()
+          .from(environmentLeases)
+          .where(eq(environmentLeases.heartbeatRunId, heartbeatRunId));
+        const released = [];
+        for (const lease of leases) {
+          if (lease.status !== "active") continue;
+          const [updated] = await db
+            .update(environmentLeases)
+            .set({
+              status,
+              releasedAt: new Date(),
+              cleanupStatus: "success",
+            })
+            .where(eq(environmentLeases.id, lease.id))
+            .returning();
+          released.push({
+            environment: environment!,
+            lease: updated!,
+            leaseContext: {
+              executionWorkspaceId: null,
+              executionWorkspaceMode: null,
+            },
+          });
+        }
+        return released;
+      },
+    );
+    const heartbeat = heartbeatService(db, {
+      environmentRuntime: {
+        releaseRunLeases,
+      } as unknown as HeartbeatEnvironmentRuntime,
+    });
+
+    const result = await heartbeat.reconcileTerminalExecutionLease({
+      runId: first.runId,
+      companyId: first.companyId,
+      actorUserId: "board-user",
+    });
+
+    expect(result).toEqual({
+      runId: first.runId,
+      issueId: first.issueId,
+      outcome: "released",
+      releasedLeaseIds: [targetLease!.id],
+    });
+    expect(releaseRunLeases).toHaveBeenCalledWith(
+      first.runId,
+      "released",
+      expect.any(Function),
+      undefined,
+    );
+    expect(
+      await db
+        .select({ status: environmentLeases.status })
+        .from(environmentLeases)
+        .where(eq(environmentLeases.id, otherLease!.id))
+        .then((rows) => rows[0]?.status),
+    ).toBe("active");
+    expect(await getExecutionBlocker(db, first.companyId, first.issueId)).toBeNull();
+    expect(
+      await db
+        .select({ action: activityLog.action, actorId: activityLog.actorId })
+        .from(activityLog)
+        .where(eq(activityLog.runId, first.runId)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "environment.lease_released" }),
+        {
+          action: "heartbeat.terminal_execution_lease_reconciled",
+          actorId: "board-user",
+        },
+      ]),
+    );
+  });
+
+  it("refuses terminal lease reconciliation while the provider process is alive", async () => {
+    const { companyId, runId, issueId, agentId } = await seedRunFixture({
+      agentStatus: "idle",
+      runStatus: "interrupted",
+      processPid: process.pid,
+    });
+    const [environment] = await db
+      .insert(environments)
+      .values({ name: `live-${runId}`, driver: "local" })
+      .returning();
+    await db.insert(environmentLeases).values({
+      companyId,
+      environmentId: environment!.id,
+      issueId,
+      heartbeatRunId: runId,
+      agentId,
+      provider: "local",
+      status: "active",
+    });
+    const releaseRunLeases = vi.fn(async () => []);
+    const heartbeat = heartbeatService(db, {
+      environmentRuntime: {
+        releaseRunLeases,
+      } as unknown as HeartbeatEnvironmentRuntime,
+    });
+
+    await expect(
+      heartbeat.reconcileTerminalExecutionLease({
+        runId,
+        companyId,
+        actorUserId: "board-user",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(releaseRunLeases).not.toHaveBeenCalled();
+  });
+
+  it("refuses terminal lease reconciliation without local provider stop evidence", async () => {
+    const { companyId, runId, issueId, agentId } = await seedRunFixture({
+      agentStatus: "idle",
+      runStatus: "interrupted",
+    });
+    const [environment] = await db
+      .insert(environments)
+      .values({ name: `remote-${runId}`, driver: "sandbox" })
+      .returning();
+    await db.insert(environmentLeases).values({
+      companyId,
+      environmentId: environment!.id,
+      issueId,
+      heartbeatRunId: runId,
+      agentId,
+      provider: "daytona",
+      providerLeaseId: "remote-owner",
+      status: "active",
+    });
+    const releaseRunLeases = vi.fn(async () => []);
+    const heartbeat = heartbeatService(db, {
+      environmentRuntime: {
+        releaseRunLeases,
+      } as unknown as HeartbeatEnvironmentRuntime,
+    });
+
+    await expect(
+      heartbeat.reconcileTerminalExecutionLease({
+        runId,
+        companyId,
+        actorUserId: "board-user",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(releaseRunLeases).not.toHaveBeenCalled();
   });
 
   it("keeps an unsafe Stop blocked when recovery sees a deferred human comment", async () => {

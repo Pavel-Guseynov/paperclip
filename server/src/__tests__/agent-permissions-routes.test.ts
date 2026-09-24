@@ -86,6 +86,7 @@ const mockHeartbeatService = vi.hoisted(() => ({
   resetRuntimeSession: vi.fn(),
   getRun: vi.fn(),
   cancelRun: vi.fn(),
+  reconcileTerminalExecutionLease: vi.fn(),
   cancelInvocationsForAgents: vi.fn(),
 }));
 
@@ -324,6 +325,7 @@ describe.sequential("agent permission routes", () => {
     mockHeartbeatService.resetRuntimeSession.mockReset();
     mockHeartbeatService.getRun.mockReset();
     mockHeartbeatService.cancelRun.mockReset();
+    mockHeartbeatService.reconcileTerminalExecutionLease.mockReset();
     mockHeartbeatService.cancelInvocationsForAgents.mockReset();
     mockIssueApprovalService.linkManyForApproval.mockReset();
     mockIssueService.list.mockReset();
@@ -2077,5 +2079,66 @@ describe.sequential("agent permission routes", () => {
     expect(res.status).toBe(404);
     expect(res.body.error).toBe("Heartbeat run not found");
     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects terminal environment lease reconciliation by an agent", async () => {
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: "run-1",
+      source: "agent_key",
+    });
+
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post(
+          "/api/heartbeat-runs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/admin/reconcile-terminal-environment-lease",
+        )
+        .send({}),
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("Board access required");
+    expect(
+      mockHeartbeatService.reconcileTerminalExecutionLease,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an accessible terminal environment lease as the board user", async () => {
+    const runId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    mockHeartbeatService.getRun.mockResolvedValue({
+      id: runId,
+      companyId,
+      agentId,
+      status: "interrupted",
+    });
+    mockHeartbeatService.reconcileTerminalExecutionLease.mockResolvedValue({
+      runId,
+      issueId: "33333333-3333-4333-8333-333333333333",
+      outcome: "released",
+      releasedLeaseIds: ["44444444-4444-4444-8444-444444444444"],
+    });
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post(
+          `/api/heartbeat-runs/${runId}/admin/reconcile-terminal-environment-lease`,
+        )
+        .send({}),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.outcome).toBe("released");
+    expect(
+      mockHeartbeatService.reconcileTerminalExecutionLease,
+    ).toHaveBeenCalledWith({ runId, companyId, actorUserId: "board-user" });
   });
 });

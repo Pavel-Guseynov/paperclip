@@ -12,7 +12,7 @@ import { connectionIntentService } from "./connection-intents.js";
 import { managedAiSessionFingerprintConfig, prepareManagedAiRuntime, assertManagedAiProjectAuth, stripAiAuthBindings, isAiConnectionBusy, AI_AUTH_ENV_KEYS } from "./ai-connection-runtime.js";
 import { aiConnectionBindingSchema } from "@paperclipai/shared";
 import { executionBlockerPredicate, getExecutionBlocker } from "./execution-blocker.js";
-import { CONVERSATION_CONTINUATION_POLICY, claimedAdapterType, runUsedConversationAdapter, hasConversationContinuationPolicy, isConversationAdapter } from "./conversation-continuation.js";
+import { CONVERSATION_CONTINUATION_POLICY, claimedAdapterType, getConversationRunOwnershipState, runUsedConversationAdapter, hasConversationContinuationPolicy, isConversationAdapter } from "./conversation-continuation.js";
 import { recordExecutionWait } from "./execution-wait.js";
 import { getNativeReviewAssignment, readNativeReviewAssignmentContext } from "./native-runtime/native-review-participant.js";
 import { claimQueuedNativeReviewRun } from "./native-runtime/native-review-dispatch.js";
@@ -10065,7 +10065,7 @@ export function heartbeatService(
     };
   }) {
     const leaseOwnerRun = await getRun(input.runId);
-    if (leaseOwnerRun && isNativeRunnerOwnershipHeld(leaseOwnerRun)) return;
+    if (leaseOwnerRun && isNativeRunnerOwnershipHeld(leaseOwnerRun)) return null;
     if (input.providerResourceDisposition === "destroy") {
       const closeResult = await (
         options.closeWarmNativeSessionsForRun ??
@@ -10126,7 +10126,7 @@ export function heartbeatService(
           { runId: input.runId, warmNativeSessions: closeResult },
           "deferred environment lease destruction until warm native sessions close",
         );
-        return;
+        return null;
       }
     }
     const releaseResult = await envOrchestrator
@@ -10157,6 +10157,125 @@ export function heartbeatService(
       );
     }
     await acknowledgeRemoteStop(input.runId, input.companyId);
+    return releaseResult;
+  }
+
+  async function reconcileTerminalExecutionLease(input: {
+    runId: string;
+    companyId: string;
+    actorUserId: string;
+  }) {
+    const run = await getRun(input.runId);
+    if (!run || run.companyId !== input.companyId) {
+      throw notFound("Heartbeat run not found");
+    }
+    if (
+      run.runtimeMode !== "legacy" ||
+      !isHeartbeatRunTerminalStatus(run.status) ||
+      !(await runUsedConversationAdapter(db, run))
+    ) {
+      throw conflict(
+        "Only a terminal legacy conversation run can be reconciled by this operation.",
+      );
+    }
+    const issueId =
+      run.nativeIssueId ?? readNonEmptyString(run.contextSnapshot?.issueId);
+    if (!issueId) {
+      throw conflict("The terminal run is not bound to a task.");
+    }
+    if (
+      runningProcesses.has(run.id) ||
+      activeRunExecutions.has(run.id) ||
+      adapterExecutionControls.has(run.id) ||
+      (await hasLiveLegacyController(db, run))
+    ) {
+      throw conflict(
+        "The previous provider is still owned by an active Paperclip execution.",
+      );
+    }
+    const ownership = await getConversationRunOwnershipState(db, run);
+    if (ownership.processPidAlive || ownership.processGroupAlive) {
+      throw conflict(
+        "The previous provider is still running. Stop it before reconciling its environment lease.",
+      );
+    }
+
+    const heldLeases = await db
+      .select({
+        id: environmentLeases.id,
+        provider: environmentLeases.provider,
+        status: environmentLeases.status,
+        releasedAt: environmentLeases.releasedAt,
+        cleanupStatus: environmentLeases.cleanupStatus,
+      })
+      .from(environmentLeases)
+      .where(
+        and(
+          eq(environmentLeases.companyId, run.companyId),
+          eq(environmentLeases.heartbeatRunId, run.id),
+          or(
+            isNull(environmentLeases.releasedAt),
+            eq(environmentLeases.status, "pending_cleanup"),
+            eq(environmentLeases.cleanupStatus, "failed"),
+          ),
+        ),
+      );
+    const unreleasableLease = heldLeases.find(
+      (lease) =>
+        lease.status !== "active" ||
+        lease.releasedAt !== null ||
+        (lease.provider !== null && lease.provider !== "local"),
+    );
+    if (unreleasableLease) {
+      throw conflict(
+        "The previous execution lease requires provider-specific cleanup evidence before it can be reconciled.",
+      );
+    }
+
+    const releaseResult = await releaseEnvironmentLeasesForRun({
+      runId: run.id,
+      companyId: run.companyId,
+      agentId: run.agentId,
+      status: run.status,
+      failureReason: run.error ?? undefined,
+    });
+    if (releaseResult?.errors.length) {
+      throw conflict(
+        "The previous execution environment lease could not be released.",
+      );
+    }
+    const remainingOwnership = await getConversationRunOwnershipState(db, run);
+    if (remainingOwnership.leaseHeld) {
+      throw conflict(
+        "The previous execution environment lease could not be verified as released.",
+      );
+    }
+
+    await logActivity(db, {
+      companyId: run.companyId,
+      actorType: "user",
+      actorId: input.actorUserId,
+      action: "heartbeat.terminal_execution_lease_reconciled",
+      entityType: "heartbeat_run",
+      entityId: run.id,
+      agentId: run.agentId,
+      runId: run.id,
+      issueId,
+      details: {
+        issueId,
+        runStatus: run.status,
+        releasedLeaseIds:
+          releaseResult?.released.map((released) => released.lease.id) ?? [],
+      },
+    });
+    await releaseIssueExecutionAndPromote(run);
+    return {
+      runId: run.id,
+      issueId,
+      outcome: heldLeases.length > 0 ? "released" : "already_released",
+      releasedLeaseIds:
+        releaseResult?.released.map((released) => released.lease.id) ?? [],
+    };
   }
 
   async function acknowledgeRemoteStop(runId: string, companyId: string) {
@@ -29419,6 +29538,7 @@ export function heartbeatService(
     terminalizeRunOnLeaseRelease,
 
     releaseEnvironmentLeasesForRun,
+    reconcileTerminalExecutionLease,
     resumeRemoteStopComments,
     resumeQueuedCommentInterrupt,
     resumeExecutionWaitComments,
