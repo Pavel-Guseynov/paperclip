@@ -1261,10 +1261,13 @@ export function createToolGatewayService(
           // user's eye, but nothing has shown the connection to be unusable.
           // More than one place writes it and the set is not fixed. Today:
           // an abandoned tool call here; a credential due for rotation when a
-          // connection token is minted; and a health probe whose failure the
-          // classifier treats as recoverable rather than fatal — currently a
-          // Vercel Connect broker that is unavailable, unauthenticated or not
-          // installed (see sanitizeHttpFailure in tool-access). None of them
+          // connection token is minted; a health probe or catalog refresh
+          // whose failure the classifier treats as recoverable rather than
+          // fatal — currently a Vercel Connect broker that is unavailable,
+          // unauthenticated or not installed (see sanitizeHttpFailure in
+          // tool-access); and the same Vercel Connect failures when a call
+          // resolves its credential (resolveCredentialHeadersUnrecorded
+          // below, which mirrors that classification). None of them
           // proves that the next call fails, so the entry keeps being served
           // and the next call settles the question: it either succeeds and
           // clears the warning, or it is rejected and marks the connection
