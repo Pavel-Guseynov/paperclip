@@ -1237,6 +1237,62 @@ describe("HTTP logger redaction", () => {
     ]);
   });
 
+  it("redacts every credential name from a captured request body, through one authority", async () => {
+    const chunks: string[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use(createHttpLogger(productionLogger(chunks)));
+    app.post("/api/tool-gateway/register", (_req, res) => {
+      res.status(422).json({ error: "invalid registration" });
+    });
+
+    await request(app)
+      .post("/api/tool-gateway/register")
+      .send({
+        // Names owned by `isKnownCredentialName` rather than by this module's
+        // own sensitive-key list.
+        cookie: "sid=body-cookie-sentinel",
+        "proxy-authorization": "Basic Ym9keS1wcm94eS1zZW50aW5lbA==",
+        "x-api-key": "body-api-key-sentinel",
+        "x-csrf-token": "body-csrf-sentinel",
+        "x-telegram-bot-api-secret-token": "body-telegram-sentinel",
+        "x-paperclip-tool-gateway-token": GATEWAY_TOKEN,
+        "x-paperclip-signature": "sha256=body-signature-sentinel",
+        gatewayToken: SESSION_TOKEN,
+        toolGatewayToken: SESSION_TOKEN,
+        connectorId: "acme-crm",
+      })
+      .expect(422);
+
+    const output = chunks.join("");
+    for (const sentinel of [
+      "body-cookie-sentinel",
+      "Ym9keS1wcm94eS1zZW50aW5lbA==",
+      "body-api-key-sentinel",
+      "body-csrf-sentinel",
+      "body-telegram-sentinel",
+      "body-signature-sentinel",
+      GATEWAY_TOKEN,
+      SESSION_TOKEN,
+    ]) {
+      expect(output).not.toContain(sentinel);
+    }
+
+    const [log] = logRecords(chunks);
+    expect(log.reqBody).toEqual({
+      cookie: "[REDACTED]",
+      "proxy-authorization": "[REDACTED]",
+      "x-api-key": "[REDACTED]",
+      "x-csrf-token": "[REDACTED]",
+      "x-telegram-bot-api-secret-token": "[REDACTED]",
+      "x-paperclip-tool-gateway-token": "[REDACTED]",
+      "x-paperclip-signature": "[REDACTED]",
+      gatewayToken: "[REDACTED]",
+      toolGatewayToken: "[REDACTED]",
+      connectorId: "acme-crm",
+    });
+  });
+
   it("redacts credential names nested anywhere inside a log record", () => {
     const chunks: string[] = [];
     const log = productionLogger(chunks);
