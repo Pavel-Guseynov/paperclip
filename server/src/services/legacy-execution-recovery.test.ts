@@ -72,30 +72,34 @@ it("retries a busy AI subscription only when no provider work started", () => {
    expect(legacyExecutionNeedsReconciliation({ ...waiting, resultJson: { executionRecovery: { kind: "ai_connection_wait", providerWorkStarted: true } } })).toBe(true);
  });
 
-it("holds a pre-dispatch workspace validation failure but reconciles one raised after the provider ran", () => {
+// A workspace-validation failure gets no exemption of its own here. Pin the
+// three outcomes the recovery precedence depends on, so a future exemption
+// cannot quietly grant a failed workspace another automatic provider attempt.
+it("holds a pre-dispatch workspace validation failure and reconciles every other shape", () => {
   const workspaceValidation = {
     reason: "git_worktree_branch_incoherence",
     expectedBranch: "PAP-1-work",
     actualBranch: null,
   };
-  // Setup wrote the bootstrap marker: the provider never started, so there are
-  // no provider actions to reconcile — the workspace itself needs repair.
   const beforeDispatch = {
     runtimeMode: "legacy", status: "failed", errorCode: "workspace_validation_failed",
-    scheduledRetryAttempt: 2,
     resultJson: {
       workspaceValidation,
       executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
     },
   };
+  // Setup wrote the bootstrap marker: the provider never started, so there are
+  // no provider actions to reconcile — the workspace itself needs repair.
   expect(legacyExecutionNeedsReconciliation(beforeDispatch)).toBe(false);
   // The adapter finalize path raises the same failure after the provider ran.
   // That run carries no bootstrap marker, so its actions stay un-reconciled.
   expect(legacyExecutionNeedsReconciliation({
     ...beforeDispatch, resultJson: { workspaceValidation },
   })).toBe(true);
+  // Exhausted automatic retries stay held for reconciliation, which is what
+  // routes the run to `legacy_execution_requires_reconciliation` instead of
+  // scheduling yet another attempt against the same broken workspace.
   expect(legacyExecutionNeedsReconciliation({
-    ...beforeDispatch,
-    resultJson: { workspaceValidation, executionRecovery: { kind: "bootstrap", providerWorkStarted: true } },
+    ...beforeDispatch, scheduledRetryAttempt: 2,
   })).toBe(true);
 });

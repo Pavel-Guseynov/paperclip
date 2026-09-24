@@ -7,7 +7,6 @@ import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
 import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { isSupersededConversationRun } from "./agent-conversations.js";
-import { WORKSPACE_VALIDATION_FAILURE_CODE } from "../modules/wake-queue/domain/values.js";
 
 type Run = typeof heartbeatRuns.$inferSelect;
 export const LEGACY_RECOVERY_CAUSE = "legacy_execution_requires_reconciliation";
@@ -43,20 +42,6 @@ export function legacyExecutionNeedsReconciliation(
   // that the bootstrap evidence proves never started. Keep unknown outcomes held.
   if ((run.errorCode === "workspace_git_scan_timeout" || run.errorCode === "workspace_git_scan_saturated") &&
       evidence?.kind === "bootstrap" && evidence.providerWorkStarted === false) return false;
-  // A workspace-validation failure the bootstrap evidence proves happened
-  // before the provider started needs workspace repair, not reconciliation of
-  // provider actions that never ran. The adapter finalize path also raises this
-  // failure after the provider ran; that run carries no bootstrap marker, so it
-  // stays reconciled here.
-  if (
-    (run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
-      Boolean(
-        (run.resultJson as Record<string, unknown> | null)?.workspaceValidation,
-      )) &&
-    evidence?.kind === "bootstrap" && evidence.providerWorkStarted === false
-  ) {
-    return false;
-  }
   if (executionFailureRetryCount(run) >= 2) return true;
   return !(
     evidence?.kind === "bootstrap" && evidence.providerWorkStarted === false

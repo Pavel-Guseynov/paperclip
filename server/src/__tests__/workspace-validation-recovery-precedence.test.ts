@@ -352,8 +352,9 @@ describe("workspace validation recovery precedence", () => {
       async function insertRun(input: {
         agentId: string;
         issueId: string;
-        errorCode: string;
-        error: string;
+        errorCode?: string | null;
+        error?: string | null;
+        status?: "failed" | "succeeded";
         resultJson: Record<string, unknown>;
         extraContext?: Record<string, unknown>;
         finishedAt?: Date;
@@ -363,9 +364,9 @@ describe("workspace validation recovery precedence", () => {
           id: runId,
           companyId,
           agentId: input.agentId,
-          status: "failed",
-          errorCode: input.errorCode,
-          error: input.error,
+          status: input.status ?? "failed",
+          errorCode: input.errorCode ?? null,
+          error: input.error ?? null,
           contextSnapshot: { issueId: input.issueId, ...input.extraContext },
           resultJson: input.resultJson,
           startedAt: input.finishedAt ?? new Date(),
@@ -595,6 +596,45 @@ describe("workspace validation recovery precedence", () => {
         expect(notice, "no notice named the failed execution workspace").toBeDefined();
         expect(notice).toContain("git_worktree_branch_incoherence");
         expect(notice).toContain("not invokable");
+      });
+
+      it("ignores a succeeded review participant run that still carries a workspace payload", async () => {
+        const issueId = randomUUID();
+        await db.insert(issues).values(
+          reviewIssueValues({
+            issueId,
+            identifier: "PAP-208",
+            title: "Succeeded participant run with a workspace payload",
+            participantAgentId: reviewerAgentId,
+          }),
+        );
+        // A successful run can still describe the workspace it used. Only an
+        // unsuccessful terminal run is evidence of a blocked workspace.
+        await insertRun({
+          agentId: reviewerAgentId,
+          issueId,
+          status: "succeeded",
+          resultJson: {
+            workspaceValidation: {
+              reason: "git_worktree_branch_incoherence",
+              provenance: { actualHeadSha: ACTUAL_HEAD_SHA },
+            },
+          },
+          extraContext: { executionReviewParticipant: true },
+        });
+
+        await recoveryService(db, {
+          enqueueWakeup: vi.fn(),
+        }).reconcileStrandedAssignedIssues();
+
+        const activeAction = await issueRecoveryActionService(
+          db,
+        ).getActiveForIssue(companyId, issueId);
+        expect(activeAction?.cause).not.toBe("workspace_validation_failed");
+        const notices = await readSystemNoticeBodies(issueId);
+        expect(
+          notices.some((body) => body.includes("execution workspace failed")),
+        ).toBe(false);
       });
 
       it("holds the typed diagnosis when a later generic failure sweeps the same issue", async () => {

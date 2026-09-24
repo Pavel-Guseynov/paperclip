@@ -3958,7 +3958,10 @@ export function recoveryService(
                     "execution_review_participant_recovery"
                   ? "recovery.reconcile_execution_review_participant"
                   : "recovery.reconcile_stranded_assigned_issue",
-        recoveryCause: recoveryCause ?? "stranded_assigned_issue",
+        // The action this event points at is the authority for the cause. A
+        // sweep whose generic write was held against a diagnosed action must
+        // not label that action with the sweep's own generic cause.
+        recoveryCause: recoveryAction.cause,
         latestRunId: input.latestRun?.id ?? null,
         latestRunStatus: input.latestRun?.status ?? null,
         latestRunErrorCode: input.latestRun?.errorCode ?? null,
@@ -4822,8 +4825,9 @@ export function recoveryService(
           participantLatestRun,
         );
         if (
-          participantLatestRun?.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
-          participantWorkspaceValidation !== null
+          isUnsuccessfulTerminalIssueRun(participantLatestRun) &&
+          (participantLatestRun?.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
+            participantWorkspaceValidation !== null)
         ) {
           // A failed workspace is a physical blocker that outranks the generic
           // requeue path below. The notice still reports an unavailable

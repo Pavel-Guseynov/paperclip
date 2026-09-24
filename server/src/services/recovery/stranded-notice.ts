@@ -177,8 +177,8 @@ export function buildExecutionReviewParticipantWorkspaceValidationNoticeSeed(inp
     title: "Workspace validation failed",
     tone: "danger",
     nextAction:
-      "Board operator: repair the review participant's execution workspace, then explicitly retry the reviewer, " +
-      "reassign the review, or record an intentional resolution.",
+      "Repair the review participant's execution workspace, then explicitly retry the reviewer, reassign the " +
+      "review, or record an intentional resolution.",
   };
 }
 

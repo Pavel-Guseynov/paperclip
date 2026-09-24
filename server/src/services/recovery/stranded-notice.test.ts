@@ -275,7 +275,10 @@ describe("execution review participant workspace validation seed", () => {
     expect(seed.body).toContain("git_worktree_branch_incoherence");
     expect(seed.body).toContain("`blocked`");
     expect(seed.body).not.toContain("not invokable");
-    expect(seed.nextAction).toContain("repair the review participant's execution workspace");
+    expect(seed.nextAction).toBe(
+      "Repair the review participant's execution workspace, then explicitly retry the reviewer, reassign the " +
+        "review, or record an intentional resolution.",
+    );
   });
 
   it("also reports an unavailable participant so neither blocker is lost", () => {
