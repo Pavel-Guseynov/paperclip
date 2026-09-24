@@ -1,0 +1,31 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix03/cli
+
+ ❯ src/__tests__/common.test.ts (10 tests | 1 failed) 40ms
+     × resolves api base by explicit, env, profile, then config/default precedence 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/common.test.ts > resolveCommandContext > resolves api base by explicit, env, profile, then config/default precedence
+AssertionError: expected 'http://env:3' to be 'http://runtime:4' // Object.is equality
+
+Expected: "http://runtime:4"
+Received: "http://env:3"
+
+ ❯ src/__tests__/common.test.ts:117:85
+    115|     process.env.PAPERCLIP_RUNTIME_API_URL = "http://runtime:4/";
+    116|     process.env.PAPERCLIP_API_URL = "http://env:3/";
+    117|     expect(resolveApiBase({ config: configPath }, { apiBase: "http://p…
+       |                                                                                     ^
+    118|
+    119|     delete process.env.PAPERCLIP_RUNTIME_API_URL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  23:57:21
+   Duration  291ms (transform 105ms, setup 0ms, import 147ms, tests 40ms, environment 0ms)
+

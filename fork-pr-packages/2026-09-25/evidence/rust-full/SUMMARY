@@ -1,0 +1,3 @@
+test:rust --no-fail-fast exit=101 dur=179s head=e3fe89cf5bcb645866a8ef4d68dbdc83f7394851
+check:conformance-parity exit=0 dur=5s
+check:replay-parity exit=0 dur=0s

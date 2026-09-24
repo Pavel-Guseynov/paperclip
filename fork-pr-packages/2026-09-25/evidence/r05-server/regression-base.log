@@ -1,0 +1,536 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server
+
+ ❯ src/__tests__/http-log-redaction.test.ts (91 tests | 32 failed) 198ms
+     × derives every redact path from the credential header list, without duplicates 1ms
+     × redacts gateway credentials from a successful request log and keeps safe diagnostics 5ms
+     × redacts credential-bearing response headers while keeping safe response headers 3ms
+     × redacts unlisted credential-shaped headers on both sides of a request 2ms
+     × redacts a rejected session token from the 401 log and the error response 3ms
+     × redacts echoed gateway credentials from a downstream 502 message, context, and error 5ms
+     × redacts gateway credentials from an uncaught 500 error message and stack 7ms
+     × keeps the serialized error's cause chain while redacting credentials from it 3ms
+     × redacts gateway credentials from child-logger bindings, fields, and messages 2ms
+     × removes credential material from prose: 'minted session token' 0ms
+     × removes credential material from prose: 'minted gateway token' 0ms
+     × removes credential material from prose: 'bearer credential with trailing punct…' 0ms
+     × removes credential material from prose: 'all-lowercase opaque bearer token' 0ms
+     × removes credential material from prose: 'credential in a URL query' 0ms
+     × keeps safe diagnostic prose unchanged: 'documentation placeholder' 0ms
+     × keeps safe diagnostic prose unchanged: 'prose naming the header' 0ms
+     × keeps safe diagnostic prose unchanged: 'prose naming the scheme' 0ms
+     × keeps safe diagnostic prose unchanged: 'already-redacted text stays stable' 0ms
+     × keeps safe diagnostic prose unchanged: 'safe gateway token fingerprint' 0ms
+     × replaces Node HTTP objects with a content-free projection 2ms
+     × bounds a cyclic error property instead of overflowing the stack 0ms
+     × stops descending a deeply nested error property instead of recursing forever 0ms
+     × keeps array-valued error properties as arrays 5ms
+     × redacts every credential name from a captured request body, through one authority 3ms
+     × projects a live HTTP object logged under an ordinary key 1ms
+     × still lets pino's own req and res serializers project the live objects 3ms
+     × redacts a credential name in every separator spelling 0ms
+     × still redacts a credential in a sibling subtree when one field getter throws 1ms
+     × marks an unreadable array element without losing the rest of the array 0ms
+     × returns a record it cannot read at all unchanged, without throwing 0ms
+     × redacts credential names nested anywhere inside a log record 0ms
+     × redacts credential-named fields without renaming ordinary diagnostic keys 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 32 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > derives every redact path from the credential header list, without duplicates
+TypeError: CREDENTIAL_HEADER_NAMES is not iterable
+ ❯ src/__tests__/http-log-redaction.test.ts:763:24
+    761|       HTTP_LOG_REDACT_PATHS.length,
+    762|     );
+    763|     for (const name of CREDENTIAL_HEADER_NAMES) {
+       |                        ^
+    764|       const quoted = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+    765|         ? name
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts gateway credentials from a successful request log and keeps safe diagnostics
+AssertionError: expected '{"level":30,"time":1790276341821,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":30,"time":1790276341821,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"POST","url":"/api/tool-gateway/tools/call","params":{},"headers":{"host":"[::1]:54417","accept-encoding":"gzip, deflate","authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-tool-gateway-token":"pcgw_[redacted-test-token]","x-paperclip-github-capability":"capability-sentinel-84d0","x-paperclip-run-id":"run-diagnostic-6f2a","x-paperclip-client-name":"cursor-diagnostic-client","content-type":"application/json","content-length":"25","connection":"close"},"remoteAddress":"::1","remotePort":54418},"res":{"statusCode":200,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"11","etag":"W/\"b-Ai2R8hgEarLmHKwesT1qcY913ys\""}},"responseTime":1,"msg":"POST /api/tool-gateway/tools/call 200"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:799:24
+    797|     expect(response.status).toBe(200);
+    798|     const output = chunks.join("");
+    799|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    800|     expect(output).not.toContain(GATEWAY_TOKEN);
+    801|     expect(output).not.toContain(CAPABILITY_SENTINEL);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential-bearing response headers while keeping safe response headers
+AssertionError: expected '{"level":30,"time":1790276341825,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_[redacted-test-token]
++ {"level":30,"time":1790276341825,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"GET","url":"/api/tool-gateway/session","params":{},"headers":{"host":"[::1]:54419","accept-encoding":"gzip, deflate","connection":"close"},"remoteAddress":"::1","remotePort":54420},"res":{"statusCode":200,"headers":{"x-powered-by":"Express","x-paperclip-tool-gateway-token":"pcgw_[redacted-test-token]","x-paperclip-signature":"sha256=capability-sentinel-84d0","x-paperclip-bridge-outcome":"accepted","content-type":"application/json; charset=utf-8","content-length":"11","etag":"W/\"b-Ai2R8hgEarLmHKwesT1qcY913ys\""}},"responseTime":0,"msg":"GET /api/tool-gateway/session 200"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:829:24
+    827|
+    828|     const output = chunks.join("");
+    829|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    830|     expect(output).not.toContain(CAPABILITY_SENTINEL);
+    831|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts unlisted credential-shaped headers on both sides of a request
+AssertionError: expected '{"level":30,"time":1790276341828,"pid…' not to contain 'request-capability-sentinel-84d0'
+
+- Expected
++ Received
+
+- request-capability-sentinel-84d0
++ {"level":30,"time":1790276341828,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"GET","url":"/api/tool-gateway/session","params":{},"headers":{"host":"[::1]:54421","accept-encoding":"gzip, deflate","x-acme-connector-secret":"request-capability-sentinel-84d0","x-paperclip-run-id":"run-diagnostic-6f2a","connection":"close"},"remoteAddress":"::1","remotePort":54422},"res":{"statusCode":200,"headers":{"x-powered-by":"Express","x-acme-connector-secret":"response-capability-sentinel-84d0","x-paperclip-bridge-outcome":"accepted","content-type":"application/json; charset=utf-8","content-length":"11","etag":"W/\"b-Ai2R8hgEarLmHKwesT1qcY913ys\""}},"responseTime":0,"msg":"GET /api/tool-gateway/session 200"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:857:24
+    855|
+    856|     const output = chunks.join("");
+    857|     expect(output).not.toContain(`request-${CAPABILITY_SENTINEL}`);
+       |                        ^
+    858|     expect(output).not.toContain(`response-${CAPABILITY_SENTINEL}`);
+    859|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts a rejected session token from the 401 log and the error response
+AssertionError: expected '{"level":40,"time":1790276341831,"pid…' not to contain 'pcgt_11111111-2222-3333-4444-55555555…'
+
+- Expected
++ Received
+
+- pcgt_[redacted-test-token]
++ {"level":40,"time":1790276341831,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"POST","url":"/api/tool-gateway/tools","params":{},"headers":{"host":"[::1]:54423","accept-encoding":"gzip, deflate","x-paperclip-tool-gateway-token":"pcgt_[redacted-test-token]","x-paperclip-run-id":"run-diagnostic-6f2a","connection":"close","content-length":"0"},"remoteAddress":"::1","remotePort":54424},"routePath":"/api/tool-gateway/tools","res":{"statusCode":401,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"181","etag":"W/\"b5-4ncLq6MWwV1O/gcyA47FwryRwcQ\""}},"responseTime":0,"msg":"POST /api/tool-gateway/tools 401"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:896:24
+    894|
+    895|     const output = chunks.join("");
+    896|     expect(output).not.toContain(SESSION_TOKEN);
+       |                        ^
+    897|
+    898|     const [log] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts echoed gateway credentials from a downstream 502 message, context, and error
+AssertionError: expected '{"level":50,"time":1790276341834,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_[redacted-test-token]
++ {"level":50,"time":1790276341834,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"POST","url":"/api/tool-gateway/tools/call","params":{},"headers":{"host":"[::1]:54425","accept-encoding":"gzip, deflate","authorization":"Bearer bearer-sentinel-3f9c17ab","content-type":"application/json","content-length":"27","connection":"close"},"remoteAddress":"::1","remotePort":54426},"errorContext":{"message":"Downstream MCP call failed for pcgw_[redacted-test-token]","stack":"Error: Downstream MCP call failed for pcgw_[redacted-test-token]\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:913:9\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)","name":"Error","details":{"reasonCode":"downstream_failed","phase":"invoke","mechanism":"streamable_http"}},"reqBody":{"tool":"weather:forecast"},"reqParams":{},"res":{"statusCode":502,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"204","etag":"W/\"cc-SVO4RS64401cq/gEdrmSdGh06vk\""}},"err":{"type":"HttpError","message":"Downstream MCP call failed for pcgw_[redacted-test-token]","stack":"Error: Downstream MCP call failed for pcgw_[redacted-test-token]\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:913:9\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)","status":502,"details":{"reasonCode":"downstream_failed","phase":"invoke","mechanism":"streamable_http"}},"responseTime":1,"msg":"POST /api/tool-gateway/tools/call 502 — Downstream MCP call failed for pcgw_[redacted-test-token]"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:934:24
+    932|
+    933|     const output = chunks.join("");
+    934|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    935|     expect(output).not.toContain(BEARER_SENTINEL);
+    936|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts gateway credentials from an uncaught 500 error message and stack
+AssertionError: expected '{"level":50,"time":1790276341840,"pid…' not to contain 'pcgt_11111111-2222-3333-4444-55555555…'
+
+- Expected
++ Received
+
+- pcgt_[redacted-test-token]
++ {"level":50,"time":1790276341840,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"POST","url":"/api/tool-gateway/crash","params":{},"headers":{"host":"[::1]:54427","accept-encoding":"gzip, deflate","content-type":"application/json","content-length":"21","connection":"close"},"remoteAddress":"::1","remotePort":54428},"errorContext":{"message":"Unexpected crash resolving pcgt_[redacted-test-token] with Authorization: Bearer bearer-sentinel-3f9c17ab","stack":"Error: Unexpected crash resolving pcgt_[redacted-test-token] with Authorization: Bearer bearer-sentinel-3f9c17ab\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:960:13\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)","name":"Error"},"reqBody":{"data":"crash-test"},"reqParams":{},"res":{"statusCode":500,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"33","etag":"W/\"21-u8tno/8IdqEY6PFcopkQe0syfE4\""}},"err":{"type":"Error","message":"Unexpected crash resolving pcgt_[redacted-test-token] with Authorization: Bearer bearer-sentinel-3f9c17ab","stack":"Error: Unexpected crash resolving pcgt_[redacted-test-token] with Authorization: Bearer bearer-sentinel-3f9c17ab\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:960:13\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)"},"responseTime":1,"msg":"POST /api/tool-gateway/crash 500 — Unexpected crash resolving pcgt_[redacted-test-token] with Authorization: Bearer bearer-sentinel-3f9c17ab"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:972:24
+    970|
+    971|     const output = chunks.join("");
+    972|     expect(output).not.toContain(SESSION_TOKEN);
+       |                        ^
+    973|     expect(output).not.toContain(BEARER_SENTINEL);
+    974|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps the serialized error's cause chain while redacting credentials from it
+AssertionError: expected '{"level":50,"time":1790276341844,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_[redacted-test-token]
++ {"level":50,"time":1790276341844,"pid":40572,"hostname":"paperclip.guseynov.org","err":{"type":"Error","message":"gateway call failed: upstream rejected pcgw_[redacted-test-token] for connector acme-crm","stack":"Error: gateway call failed\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:995:14\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64\ncaused by: Error: upstream rejected pcgw_[redacted-test-token] for connector acme-crm\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:996:18\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"},"msg":"tool gateway invocation failed"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1005:24
+    1003|
+    1004|     const output = chunks.join("");
+    1005|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    1006|
+    1007|     const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts gateway credentials from child-logger bindings, fields, and messages
+AssertionError: expected '{"level":30,"time":1790276341848,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_[redacted-test-token]
++ {"level":30,"time":1790276341848,"pid":40572,"hostname":"paperclip.guseynov.org","service":"tool-gateway","gatewayToken":"pcgw_[redacted-test-token]","x-paperclip-tool-gateway-token":"pcgt_[redacted-test-token]","headers":{"authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-run-id":"run-diagnostic-6f2a"},"sessionToken":"pcgt_[redacted-test-token]","phase":"invoke","msg":"calling gateway with Authorization: Bearer bearer-sentinel-3f9c17ab"}
++ {"level":50,"time":1790276341848,"pid":40572,"hostname":"paperclip.guseynov.org","service":"tool-gateway","gatewayToken":"pcgw_[redacted-test-token]","x-paperclip-tool-gateway-token":"pcgt_[redacted-test-token]","headers":{"authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-run-id":"run-diagnostic-6f2a"},"err":{"type":"Error","message":"connection failed for pcgw_[redacted-test-token]","stack":"Error: connection failed for pcgw_[redacted-test-token]\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:1035:14\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"},"msg":"downstream failure"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1040:24
+    1038|
+    1039|     const output = chunks.join("");
+    1040|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    1041|     expect(output).not.toContain(SESSION_TOKEN);
+    1042|     expect(output).not.toContain(BEARER_SENTINEL);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'minted session token'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'minted gateway token'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'bearer credential with trailing punct…'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'all-lowercase opaque bearer token'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'credential in a URL query'
+TypeError: sanitizeCredentialText is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1137:12
+    1135|     },
+    1136|   ])("removes credential material from prose: $label", ({ input, expec…
+    1137|     expect(sanitizeCredentialText(input)).toBe(expected);
+       |            ^
+    1138|   });
+    1139|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'documentation placeholder'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'prose naming the header'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'prose naming the scheme'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'already-redacted text stays stable'
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'safe gateway token fingerprint'
+TypeError: sanitizeCredentialText is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1162:12
+    1160|     },
+    1161|   ])("keeps safe diagnostic prose unchanged: $label", ({ input }) => {
+    1162|     expect(sanitizeCredentialText(input)).toBe(input);
+       |            ^
+    1163|   });
+    1164|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > replaces Node HTTP objects with a content-free projection
+AssertionError: expected { _events: { …(5) }, …(19) } to deeply equal { Object (type, method) }
+
+- Expected
++ Received
+
+  {
++   "_consuming": false,
++   "_dumped": false,
++   "_events": {
++     "close": undefined,
++     "data": undefined,
++     "end": undefined,
++     "error": undefined,
++     "readable": undefined,
++   },
++   "_maxListeners": undefined,
++   "_readableState": {
++     "awaitDrainWriters": null,
++     "buffer": [],
++     "bufferIndex": 0,
++     "highWaterMark": 65536,
++     "length": 0,
++     "pipes": [],
++   },
++   "aborted": false,
++   "client": null,
++   "complete": false,
++   "httpVersion": null,
++   "httpVersionMajor": null,
++   "httpVersionMinor": null,
++   "joinDuplicateHeaders": false,
+    "method": "POST",
+-   "type": "[HttpObject]",
++   "rawHeaders": [],
++   "rawTrailers": [],
++   "socket": null,
++   "statusCode": null,
++   "statusMessage": null,
++   "upgrade": null,
++   "url": "",
+  }
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1172:39
+    1170|     incoming.headers = { authorization: `Bearer ${BEARER_SENTINEL}` };
+    1171|
+    1172|     expect(redactSensitive(incoming)).toEqual({
+       |                                       ^
+    1173|       type: "[HttpObject]",
+    1174|       method: "POST",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > bounds a cyclic error property instead of overflowing the stack
+TypeError: sanitizeErrorObject is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1202:24
+    1200|     );
+    1201|
+    1202|     const serialized = sanitizeErrorObject(error) as {
+       |                        ^
+    1203|       message: string;
+    1204|       context: { stage: string; self: unknown };
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > stops descending a deeply nested error property instead of recursing forever
+TypeError: sanitizeErrorObject is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1222:24
+    1220|     let deep: Record<string, unknown> = { leaf: "bottom" };
+    1221|     for (let level = 0; level < 12; level += 1) deep = { next: deep };
+    1222|     const serialized = sanitizeErrorObject(
+       |                        ^
+    1223|       Object.assign(new Error("boom"), { details: deep }),
+    1224|     ) as Record<string, any>;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps array-valued error properties as arrays
+AssertionError: expected '{"level":50,"time":1790276341855,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_[redacted-test-token]
++ {"level":50,"time":1790276341855,"pid":40572,"hostname":"paperclip.guseynov.org","err":{"type":"AggregateError","message":"all gateway legs failed","stack":"AggregateError: all gateway legs failed\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:1239:23\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64","aggregateErrors":[{"type":"Error","message":"first leg failed for pcgw_[redacted-test-token]","stack":"Error: first leg failed for pcgw_[redacted-test-token]\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:1241:9\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"},{"type":"Error","message":"second leg failed","stack":"Error: second leg failed\n    at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/http-log-redaction.test.ts:1242:9\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"}]},"msg":"aggregate provider failure"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1252:24
+    1250|
+    1251|     const output = chunks.join("");
+    1252|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    1253|
+    1254|     const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts every credential name from a captured request body, through one authority
+AssertionError: expected '{"level":40,"time":1790276341862,"pid…' not to contain 'body-cookie-sentinel'
+
+- Expected
++ Received
+
+- body-cookie-sentinel
++ {"level":40,"time":1790276341862,"pid":40572,"hostname":"paperclip.guseynov.org","req":{"id":1,"method":"POST","url":"/api/tool-gateway/register","params":{},"headers":{"host":"[::1]:54431","accept-encoding":"gzip, deflate","content-type":"application/json","content-length":"592","connection":"close"},"remoteAddress":"::1","remotePort":54432},"reqBody":{"cookie":"sid=body-cookie-sentinel","proxy-authorization":"Basic Ym9keS1wcm94eS1zZW50aW5lbA==","x-api-key":"body-api-key-sentinel","x-csrf-token":"body-csrf-sentinel","x-telegram-bot-api-secret-token":"body-telegram-sentinel","x-paperclip-tool-gateway-token":"pcgw_[redacted-test-token]","x-paperclip-signature":"sha256=body-signature-sentinel","gatewayToken":"pcgt_[redacted-test-token]","toolGatewayToken":"pcgt_[redacted-test-token]","connectorId":"acme-crm"},"routePath":"/api/tool-gateway/register","res":{"statusCode":422,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"32","etag":"W/\"20-uKGVwMf7EFxsXpDekytDo7vwmKE\""}},"responseTime":0,"msg":"POST /api/tool-gateway/register 422"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1311:26
+    1309|       SESSION_TOKEN,
+    1310|     ]) {
+    1311|       expect(output).not.toContain(sentinel);
+       |                          ^
+    1312|     }
+    1313|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > projects a live HTTP object logged under an ordinary key
+AssertionError: expected { _events: {}, …(18) } to deeply equal { type: '[HttpObject]', method: 'GET' }
+
+- Expected
++ Received
+
+  {
++   "_consuming": false,
++   "_dumped": false,
++   "_events": {},
++   "_readableState": {
++     "awaitDrainWriters": null,
++     "buffer": [],
++     "bufferIndex": 0,
++     "highWaterMark": 65536,
++     "length": 0,
++     "pipes": [],
++   },
++   "aborted": false,
++   "client": null,
++   "complete": false,
++   "httpVersion": null,
++   "httpVersionMajor": null,
++   "httpVersionMinor": null,
++   "joinDuplicateHeaders": false,
+    "method": "GET",
+-   "type": "[HttpObject]",
++   "rawHeaders": [],
++   "rawTrailers": [],
++   "socket": null,
++   "statusCode": null,
++   "statusMessage": null,
++   "upgrade": null,
++   "url": "",
+  }
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1343:37
+    1341|
+    1342|     const [record] = logRecords(chunks);
+    1343|     expect(record.upstreamResponse).toEqual({
+       |                                     ^
+    1344|       type: "[HttpObject]",
+    1345|       method: "GET",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > still lets pino's own req and res serializers project the live objects
+AssertionError: expected 'Bearer bearer-sentinel-3f9c17ab' to be '[Redacted]' // Object.is equality
+
+Expected: "[Redacted]"
+Received: "Bearer bearer-sentinel-3f9c17ab"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1366:43
+    1364|     expect(log.res.statusCode).toBe(200);
+    1365|     expect(log.req.method).toBe("GET");
+    1366|     expect(log.req.headers.authorization).toBe("[Redacted]");
+       |                                           ^
+    1367|   });
+    1368|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts a credential name in every separator spelling
+AssertionError: expected '{"proxyAuthorization":"proxy-auth-sen…' not to match /proxy-auth-sentinel|set-cookie-sentin…/
+
+- Expected:
+/proxy-auth-sentinel|set-cookie-sentinel|x-api-key-sentinel/
+
++ Received:
+"{\"proxyAuthorization\":\"proxy-auth-sentinel-1\",\"proxy_authorization\":\"proxy-auth-sentinel-2\",\"proxy-authorization\":\"proxy-auth-sentinel-3\",\"setCookie\":\"sid=set-cookie-sentinel\",\"xApiKey\":\"x-api-key-sentinel\",\"gateway_token\":\"pcgt_[redacted-test-token]\",\"connectorId\":\"acme-crm\"}"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1380:42
+    1378|     }) as Record<string, unknown>;
+    1379|
+    1380|     expect(JSON.stringify(redacted)).not.toMatch(
+       |                                          ^
+    1381|       /proxy-auth-sentinel|set-cookie-sentinel|x-api-key-sentinel/,
+    1382|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > still redacts a credential in a sibling subtree when one field getter throws
+AssertionError: expected '{"level":40,"time":1790276341867,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":40,"time":1790276341867,"pid":40572,"hostname":"paperclip.guseynov.org","stage":"relay","probe":"[unable to serialize, circular reference is too complex to analyze]","connection":{"authorization":"Bearer bearer-sentinel-3f9c17ab","gatewayToken":"pcgt_[redacted-test-token]","connectorId":"acme-crm"},"msg":"relay diagnostics"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1416:24
+    1414|
+    1415|     const output = chunks.join("");
+    1416|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    1417|     expect(output).not.toContain(SESSION_TOKEN);
+    1418|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > marks an unreadable array element without losing the rest of the array
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1454:45
+    1452|
+    1453|     const [written] = logRecords(chunks);
+    1454|     expect(Array.isArray(written.attempts)).toBe(true);
+       |                                             ^
+    1455|     expect(written.attempts[0]).toBe("[Unreadable]");
+    1456|     expect(written.attempts[1]).toEqual({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > returns a record it cannot read at all unchanged, without throwing
+TypeError: redactCredentialFields is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1474:12
+    1472|       },
+    1473|     );
+    1474|     expect(redactCredentialFields(hostile)).toBe(hostile);
+       |            ^
+    1475|   });
+    1476|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential names nested anywhere inside a log record
+AssertionError: expected '{"level":40,"time":1790276341869,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":40,"time":1790276341869,"pid":40572,"hostname":"paperclip.guseynov.org","outcome":"rejected","context":{"connection":{"authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-tool-gateway-token":"pcgw_[redacted-test-token]","connectorId":"acme-crm"},"attempts":[{"gatewayToken":"pcgt_[redacted-test-token]","durationMs":12}]},"msg":"gateway attempt rejected"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1517:24
+    1515|
+    1516|     const output = chunks.join("");
+    1517|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    1518|     expect(output).not.toContain(GATEWAY_TOKEN);
+    1519|     expect(output).not.toContain(SESSION_TOKEN);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/32]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential-named fields without renaming ordinary diagnostic keys
+AssertionError: expected '{"session":{"gatewayToken":"pcgw_6666…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+Expected: "pcgw_[redacted-test-token]"
+Received: "{"session":{"gatewayToken":"pcgw_[redacted-test-token]","metadata":{"toolGatewayToken":"pcgt_[redacted-test-token]","token":"[REDACTED]"}},"signature":"sha256=8c1f","capability":"issues:read","note":"raw pcgw_[redacted-test-token] echoed by a provider"}"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1546:42
+    1544|     }) as any;
+    1545|
+    1546|     expect(JSON.stringify(redacted)).not.toContain(GATEWAY_TOKEN);
+       |                                          ^
+    1547|     expect(redacted.session.gatewayToken).toBe("[REDACTED]");
+    1548|     expect(redacted.session.metadata.toolGatewayToken).toBe("[REDACTED…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/32]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  32 failed | 59 passed (91)
+   Start at  23:58:58
+   Duration  3.43s (transform 2.04s, setup 74ms, import 3.01s, tests 198ms, environment 0ms)
+

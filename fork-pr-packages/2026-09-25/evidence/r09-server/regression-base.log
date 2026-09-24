@@ -1,0 +1,840 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts (32 tests | 10 failed) 16255ms
+     × keeps the evidence gate when the same request clears evidenceRequired 235ms
+     × refuses to close an evidence-gated issue by replacing the policy's stages 332ms
+     × refuses to close an evidence-gated issue by emptying the policy 243ms
+     × refuses a board override that would close an evidence-gated issue 258ms
+     × closes the issue and persists the server-written receipt when delivery verifies 223ms
+     × refuses the terminal write when the binding moves after verification 240ms
+     × refuses an approving comment with no evidence before the comment is inserted 222ms
+     × refuses a caller-named repository on the terminal evidence at the API boundary 216ms
+     × refuses the terminal write when the server holds no repository binding for the issue 218ms
+     × refuses a terminal approval that carries no evidence when the policy requires it 224ms
+[00:20:58] [33mWARN[39m: [36mFailed to withdraw obsolete native policy review; will retry on the next pass[39m [90m{"interactionId":"8892da05-2ef9-4095-8045-ab6b05846a66","issueId":"04a5a266-7e97-403c-aa02-7b507d19a876"}[39m
+    err: {
+      "type": "Error",
+      "message": "injected cleanup failure",
+      "stack":
+          Error: injected cleanup failure
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2300:75
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[00:20:59] [33mWARN[39m: [36mObsolete native policy review cleanup committed; live activity publication failed, history is preserved[39m [90m{"interactionId":"e65f40c7-6347-45c0-98c9-1fa812c1c24b","issueId":"2cd3cf76-afdc-4f1b-9d56-f30b5bd83040"}[39m
+    err: {
+      "type": "Error",
+      "message": "injected live publication failure",
+      "stack":
+          Error: injected live publication failure
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2322:13
+              at publishActivity (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at dismissObsoleteNativePolicyReviews (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/obsolete-policy-reviews.ts:143:9)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2325:7
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[00:20:59] [33mWARN[39m: [36mObsolete native policy review lookup failed; continuing native reconciliation[39m 
+    err: {
+      "type": "Error",
+      "message": "injected cleanup lookup failure",
+      "stack":
+          Error: injected cleanup lookup failure
+              at PostgresJsDatabase.<anonymous> (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2341:13)
+              at PostgresJsDatabase.select (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at dismissObsoleteNativePolicyReviews (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/obsolete-policy-reviews.ts:17:31)
+              at reconcileNativeFinalizations (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/native-finalization-reconciler.ts:549:9)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2344:32
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts (33 tests | 1 failed) 6102ms
+     × refuses to close an evidence-gated issue from an approving review card 39ms
+ ❯ src/__tests__/delivery-verification.test.ts (0 test)
+ ❯ src/__tests__/issue-execution-policy.test.ts (94 tests | 16 failed) 27ms
+     × enabled: refuses a closure with no evidence at all 4ms
+     × enabled: names what is missing rather than just refusing 1ms
+     × enabled: rejects a SHA that is not a SHA — 'will be published' is not a commit 0ms
+     × enabled: rejects an abbreviated SHA — seven hex characters name more than one commit 0ms
+     × enabled: rejects a pr that is not a pull request number 0ms
+     × enabled: refuses a system-initiated terminal transition instead of exempting it 0ms
+     × enabled: checkRun is optional — not every project runs checks 0ms
+     × enabled: never carries a caller-supplied verdict onto the decision 1ms
+     × carries validated evidence on the decision, normalized — persistence has something to store 1ms
+     × keeps well-formed evidence even when the policy does not require it — worth persisting, never worth failing over 0ms
+     × malformed optional evidence never blocks an approval on a policy that does not require it 0ms
+     × refuses a completion whose policy no longer holds the recorded stage 1ms
+     × refuses a completion that removes the policy outright 0ms
+     × refuses when the closing request is the one that raises evidenceRequired 0ms
+     × the schema rejects a malformed SHA at the API boundary, before the service 1ms
+     × the schema refuses a caller-named repository at the API boundary 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/delivery-verification.test.ts [ src/__tests__/delivery-verification.test.ts ]
+Error: Cannot find module '../services/delivery-verification.ts' imported from /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/delivery-verification.test.ts
+ ❯ src/__tests__/delivery-verification.test.ts:23:1
+     21|   startEmbeddedPostgresTestDatabase,
+     22| } from "./helpers/embedded-postgres.js";
+     23| import {
+       | ^
+     24|   DELIVERY_ERROR_CODES,
+     25|   assertDeliveryTargetUnchanged,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/28]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 27 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > keeps the evidence gate when the same request clears evidenceRequired
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      Object {
+        "actorAgentId": "33333333-3333-4333-8333-333333333333",
+        "actorUserId": null,
+        "executionPolicy": Object {
+          "commentRequired": true,
+          "mode": "normal",
+          "stages": Array [
+            Object {
+              "approvalsNeeded": 1,
+              "id": "44444444-4444-4444-8444-444444444444",
+              "participants": Array [
+                Object {
+                  "agentId": "33333333-3333-4333-8333-333333333333",
+                  "id": "ded4141f-a816-460e-8988-a5deb5970bbf",
+                  "type": "agent",
+                  "userId": null,
+                },
+              ],
+              "type": "approval",
+            },
+          ],
+        },
+        "executionState": Object {
+          "changesRequestedCount": 0,
+          "completedStageIds": Array [
+            "44444444-4444-4444-8444-444444444444",
+          ],
+          "currentParticipant": null,
+          "currentStageId": null,
+          "currentStageIndex": null,
+          "currentStageType": null,
+          "lastDecisionId": "d81bb21d-835f-4a49-bd2a-ab28f4826f75",
+          "lastDecisionOutcome": "approved",
+          "monitor": null,
+          "returnAssignee": null,
+          "reviewRequest": null,
+          "status": "completed",
+        },
+        "status": "done",
+      },
+      Object {
+        "insert": [Function insert],
+        "select": [Function Mock],
+      },
+      undefined,
+      Array [],
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1399:41
+    1397|
+    1398|     // Assert the write first: that is the defect, and the status code…
+    1399|     expect(mockIssueService.update).not.toHaveBeenCalled();
+       |                                         ^
+    1400|     expect(res.status).toBe(422);
+    1401|     expect(res.body.code).toBe("delivery_evidence_missing");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses to close an evidence-gated issue by replacing the policy's stages
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      Object {
+        "actorAgentId": "33333333-3333-4333-8333-333333333333",
+        "actorUserId": null,
+        "executionPolicy": Object {
+          "commentRequired": true,
+          "mode": "normal",
+          "stages": Array [
+            Object {
+              "approvalsNeeded": 1,
+              "id": "99999999-9999-4999-8999-999999999999",
+              "participants": Array [
+                Object {
+                  "agentId": "33333333-3333-4333-8333-333333333333",
+                  "id": "173f6b59-3dc9-4a31-bdd2-78b36a667d3e",
+                  "type": "agent",
+                  "userId": null,
+                },
+              ],
+              "type": "approval",
+            },
+          ],
+        },
+        "executionState": null,
+        "status": "done",
+      },
+      Object {
+        "insert": [Function insert],
+        "select": [Function Mock],
+      },
+      undefined,
+      Array [],
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1429:41
+    1427|       });
+    1428|
+    1429|     expect(mockIssueService.update).not.toHaveBeenCalled();
+       |                                         ^
+    1430|     expect(res.status).toBe(422);
+    1431|     expect(res.body.code).toBe("delivery_evidence_missing");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses to close an evidence-gated issue by emptying the policy
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      Object {
+        "actorAgentId": "33333333-3333-4333-8333-333333333333",
+        "actorUserId": null,
+        "executionPolicy": null,
+        "executionState": null,
+        "status": "done",
+      },
+      Object {
+        "insert": [Function insert],
+        "select": [Function Mock],
+      },
+      undefined,
+      Array [],
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1443:41
+    1441|       .send({ status: "done", comment: "Looks good to land", execution…
+    1442|
+    1443|     expect(mockIssueService.update).not.toHaveBeenCalled();
+       |                                         ^
+    1444|     expect(res.status).toBe(422);
+    1445|     expect(res.body.code).toBe("delivery_evidence_missing");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses a board override that would close an evidence-gated issue
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      Object {
+        "actorAgentId": null,
+        "actorUserId": "local-board",
+        "executionPolicy": Object {
+          "commentRequired": true,
+          "mode": "normal",
+          "stages": Array [
+            Object {
+              "approvalsNeeded": 1,
+              "id": "99999999-9999-4999-8999-999999999999",
+              "participants": Array [
+                Object {
+                  "agentId": "33333333-3333-4333-8333-333333333333",
+                  "id": "a1f390ff-e690-43b3-8931-50ae07558515",
+                  "type": "agent",
+                  "userId": null,
+                },
+              ],
+              "type": "approval",
+            },
+          ],
+        },
+        "executionState": null,
+        "status": "done",
+      },
+      Object {
+        "insert": [Function insert],
+        "select": [Function Mock],
+      },
+      Array [],
+      Array [],
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1468:41
+    1466|       });
+    1467|
+    1468|     expect(mockIssueService.update).not.toHaveBeenCalled();
+       |                                         ^
+    1469|     expect(res.status).toBe(422);
+    1470|     expect(res.body.code).toBe("delivery_evidence_missing");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > closes the issue and persists the server-written receipt when delivery verifies
+AssertionError: expected { …(10) } to match object { outcome: 'approved', …(1) }
+(9 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "evidence": {
+-     "checkRun": "build",
+-     "mergedSha": "beefbeef1234567890abcdef1234567890abcdef",
+-     "pr": "55",
+-     "receipt": {
+-       "baseBranch": "main",
+-       "headSha": "abcdef1234567890abcdef1234567890abcdef12",
+-       "mergedSha": "beefbeef1234567890abcdef1234567890abcdef",
+-       "provider": "github",
+-       "pullRequestNumber": 55,
+-       "reachable": true,
+-       "repository": "acme/widgets",
+-     },
+-     "verified": true,
+-   },
+    "outcome": "approved",
+  }
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1536:36
+    1534|     });
+    1535|     expect(mockDecisionInserts).toHaveLength(1);
+    1536|     expect(mockDecisionInserts[0]).toMatchObject({
+       |                                    ^
+    1537|       outcome: "approved",
+    1538|       evidence: {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses the terminal write when the binding moves after verification
+AssertionError: expected 500 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 500
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1577:24
+    1575|       });
+    1576|
+    1577|     expect(res.status).toBe(409);
+       |                        ^
+    1578|     expect(res.body.code).toBe("delivery_verification_stale");
+    1579|     expect(mockIssueService.update).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses an approving comment with no evidence before the comment is inserted
+AssertionError: expected 500 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 500
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1591:24
+    1589|       .send({ body: "kind: review\ndecision: approved" });
+    1590|
+    1591|     expect(res.status).toBe(422);
+       |                        ^
+    1592|     expect(res.body.code).toBe("delivery_evidence_missing");
+    1593|     expect(mockIssueService.addComment).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses a caller-named repository on the terminal evidence at the API boundary
+AssertionError: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1613:24
+    1611|       });
+    1612|
+    1613|     expect(res.status).toBe(400);
+       |                        ^
+    1614|     expect(mockIssueService.update).not.toHaveBeenCalled();
+    1615|     expect(outbound).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses the terminal write when the server holds no repository binding for the issue
+AssertionError: expected 500 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 500
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1631:24
+    1629|       });
+    1630|
+    1631|     expect(res.status).toBe(409);
+       |                        ^
+    1632|     expect(res.body.code).toBe("delivery_unverified_repository_unconfi…
+    1633|     expect(mockIssueService.update).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > refuses a terminal approval that carries no evidence when the policy requires it
+AssertionError: expected 500 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 500
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1645:24
+    1643|       .send({ status: "done", comment: "Looks good to land" });
+    1644|
+    1645|     expect(res.status).toBe(422);
+       |                        ^
+    1646|     expect(res.body.code).toBe("delivery_evidence_missing");
+    1647|     expect(mockIssueService.update).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: refuses a closure with no evidence at all
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2159:8
+    2157|   it("enabled: refuses a closure with no evidence at all", () => {
+    2158|     expect(() => closeTerminalStage(terminalApprovalPolicy(true)))
+    2159|       .toThrowError(/evidenceRequired/);
+       |        ^
+    2160|   });
+    2161|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: names what is missing rather than just refusing
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2164:8
+    2162|   it("enabled: names what is missing rather than just refusing", () =>…
+    2163|     expect(() => closeTerminalStage(terminalApprovalPolicy(true), { me…
+    2164|       .toThrowError(/missing pr/);
+       |        ^
+    2165|     expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr…
+    2166|       .toThrowError(/missing mergedSha/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: rejects a SHA that is not a SHA — 'will be published' is not a commit
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2171:8
+    2169|   it("enabled: rejects a SHA that is not a SHA — 'will be published' i…
+    2170|     expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr…
+    2171|       .toThrowError(/must be a full 40-character git SHA/);
+       |        ^
+    2172|   });
+    2173|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: rejects an abbreviated SHA — seven hex characters name more than one commit
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2176:8
+    2174|   it("enabled: rejects an abbreviated SHA — seven hex characters name …
+    2175|     expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr…
+    2176|       .toThrowError(/must be a full 40-character git SHA/);
+       |        ^
+    2177|   });
+    2178|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: rejects a pr that is not a pull request number
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2181:8
+    2179|   it("enabled: rejects a pr that is not a pull request number", () => {
+    2180|     expect(() => closeTerminalStage(terminalApprovalPolicy(true), { pr…
+    2181|       .toThrowError(/must be a pull request number/);
+       |        ^
+    2182|   });
+    2183|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: refuses a system-initiated terminal transition instead of exempting it
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2186:8
+    2184|   it("enabled: refuses a system-initiated terminal transition instead …
+    2185|     expect(() => closeTerminalStage(terminalApprovalPolicy(true), unde…
+    2186|       .toThrowError(/system-initiated transition/);
+       |        ^
+    2187|   });
+    2188|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: checkRun is optional — not every project runs checks
+AssertionError: expected undefined to be null
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2205:49
+    2203|     });
+    2204|     expect(result.decision?.outcome).toBe("approved");
+    2205|     expect(result.decision?.evidence?.checkRun).toBeNull();
+       |                                                 ^
+    2206|   });
+    2207|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > enabled: never carries a caller-supplied verdict onto the decision
+AssertionError: expected undefined to deeply equal { pr: '34', …(3) }
+
+- Expected:
+{
+  "checkRun": "31359056766",
+  "mergedSha": "c6d3a6fa2e1b4f7890abcdef1234567890abcdef",
+  "note": null,
+  "pr": "34",
+}
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2214:39
+    2212|       receipt: { repository: "acme/widgets" },
+    2213|     });
+    2214|     expect(result.decision?.evidence).toEqual({
+       |                                       ^
+    2215|       pr: "34",
+    2216|       mergedSha: EVIDENCE_OK.mergedSha,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > carries validated evidence on the decision, normalized — persistence has something to store
+AssertionError: expected undefined to deeply equal { pr: '34', …(3) }
+
+- Expected:
+{
+  "checkRun": "31359056766",
+  "mergedSha": "c6d3a6fa2e1b4f7890abcdef1234567890abcdef",
+  "note": null,
+  "pr": "34",
+}
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2228:39
+    2226|   it("carries validated evidence on the decision, normalized — persist…
+    2227|     const result = closeTerminalStage(terminalApprovalPolicy(true), EV…
+    2228|     expect(result.decision?.evidence).toEqual({
+       |                                       ^
+    2229|       pr: "34",
+    2230|       mergedSha: EVIDENCE_OK.mergedSha,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > keeps well-formed evidence even when the policy does not require it — worth persisting, never worth failing over
+AssertionError: expected undefined to be 'c6d3a6fa2e1b4f7890abcdef1234567890abc…' // Object.is equality
+
+- Expected:
+"c6d3a6fa2e1b4f7890abcdef1234567890abcdef"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2239:50
+    2237|     const result = closeTerminalStage(terminalApprovalPolicy(false), E…
+    2238|     expect(result.decision?.outcome).toBe("approved");
+    2239|     expect(result.decision?.evidence?.mergedSha).toBe(EVIDENCE_OK.merg…
+       |                                                  ^
+    2240|   });
+    2241|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidenceRequired on the terminal transition > malformed optional evidence never blocks an approval on a policy that does not require it
+AssertionError: expected undefined to be null
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2245:39
+    2243|     const result = closeTerminalStage(terminalApprovalPolicy(false), {…
+    2244|     expect(result.decision?.outcome).toBe("approved");
+    2245|     expect(result.decision?.evidence).toBeNull();
+       |                                       ^
+    2246|   });
+    2247| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > an evidence-gated issue reaches done only through its final stage decision > refuses a completion whose policy no longer holds the recorded stage
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2293:8
+    2291|   it("refuses a completion whose policy no longer holds the recorded s…
+    2292|     expect(() => closeWithReplacedStages(terminalApprovalPolicy(true),…
+    2293|       .toThrowError(/only by approving/);
+       |        ^
+    2294|   });
+    2295|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > an evidence-gated issue reaches done only through its final stage decision > refuses a completion that removes the policy outright
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2298:8
+    2296|   it("refuses a completion that removes the policy outright", () => {
+    2297|     expect(() => closeWithReplacedStages(terminalApprovalPolicy(true),…
+    2298|       .toThrowError(/only by approving/);
+       |        ^
+    2299|   });
+    2300|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > an evidence-gated issue reaches done only through its final stage decision > refuses when the closing request is the one that raises evidenceRequired
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2303:8
+    2301|   it("refuses when the closing request is the one that raises evidence…
+    2302|     expect(() => closeWithReplacedStages(terminalApprovalPolicy(false)…
+    2303|       .toThrowError(/only by approving/);
+       |        ^
+    2304|   });
+    2305|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidence flows through the request contracts > the schema rejects a malformed SHA at the API boundary, before the service
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2373:28
+    2371|       evidence: { pr: 34, mergedSha: "will be published" },
+    2372|     });
+    2373|     expect(parsed.success).toBe(false);
+       |                            ^
+    2374|   });
+    2375|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/28]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > evidence flows through the request contracts > the schema refuses a caller-named repository at the API boundary
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/__tests__/issue-execution-policy.test.ts:2386:28
+    2384|       },
+    2385|     });
+    2386|     expect(parsed.success).toBe(false);
+       |                            ^
+    2387|   });
+    2388| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/28]⎯
+
+ FAIL  src/__tests__/native-status-arbiter-corpus.test.ts > P6-31 Section 18.13 executable status-authority corpus > refuses to close an evidence-gated issue from an approving review card
+AssertionError: promise resolved "{ interaction: { …(31) }, …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "continuationIssue": {
++     "assigneeAgentId": "3fd7241e-8e91-414a-85e4-5d62ed688b0f",
++     "assigneeUserId": null,
++     "id": "b47909f4-4ba8-4e61-9b5e-17b3fbe9bb4a",
++     "status": "done",
++   },
++   "createdIssues": [],
++   "interaction": {
++     "addresseeAgentId": null,
++     "addresseeUserId": null,
++     "companyId": "2db3f9a3-c2f7-4525-9ea7-dba0e565bdf6",
++     "continuationPolicy": "wake_assignee",
++     "createdAt": 2026-09-24T19:20:58.011Z,
++     "createdByAgentId": null,
++     "createdByUserId": null,
++     "effectiveResolverPolicy": "human_only",
++     "effectiveResolverPolicySource": "requested",
++     "id": "072c1896-8358-4124-bfe4-66447354efcb",
++     "idempotencyKey": "native-review:216694b3-3e5c-4de3-8cd8-23cc6d04db4d",
++     "issueId": "b47909f4-4ba8-4e61-9b5e-17b3fbe9bb4a",
++     "kind": "request_confirmation",
++     "legacyResolverPolicyAliases": {
++       "effective": "board_only",
++       "requested": "board_only",
++     },
++     "originCommentIds": [],
++     "payload": {
++       "acceptLabel": "Approve completion",
++       "allowDeclineReason": true,
++       "detailsMarkdown": null,
++       "prompt": "Review the release before publishing.",
++       "rejectLabel": "Continue work",
++       "rejectRequiresReason": true,
++       "supersedeOnUserComment": false,
++       "target": {
++         "key": "native_completion_review",
++         "label": "Completion decision",
++         "revisionId": "216694b3-3e5c-4de3-8cd8-23cc6d04db4d",
++         "type": "custom",
++       },
++       "version": 1,
++     },
++     "requestedResolverPolicy": "human_only",
++     "resolvedAt": 2026-09-24T19:20:58.025Z,
++     "resolvedByAgentId": null,
++     "resolvedByRunId": null,
++     "resolvedByUserId": "board-user",
++     "resolverPolicy": "human_only",
++     "resolverPolicyProvenance": "explicit",
++     "result": {
++       "outcome": "accepted",
++       "version": 1,
++     },
++     "sourceCommentId": null,
++     "sourceIdentityContextId": null,
++     "sourceRunId": "4ec9bf06-9e3d-4887-94f8-fb01c5710457",
++     "status": "accepted",
++     "summary": "Review the release before publishing.",
++     "title": "Review requested",
++     "updatedAt": 2026-09-24T19:20:58.025Z,
++   },
+  }
+
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts:2086:6
+    2084|         { userId: "board-user" },
+    2085|       ),
+    2086|     ).rejects.toMatchObject({ status: 422, details: { code: "delivery_…
+       |      ^
+    2087|
+    2088|     const [issue] = await db.select().from(issues).where(eq(issues.id,…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/28]⎯
+
+
+ Test Files  4 failed (4)
+      Tests  27 failed | 132 passed (159)
+   Start at  00:20:33
+   Duration  27.70s (transform 6.86s, setup 239ms, import 4.05s, tests 22.38s, environment 0ms)
+

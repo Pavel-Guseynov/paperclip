@@ -1,0 +1,139 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server
+
+[00:23:28] [33mWARN[39m: [36mreview admission was not recorded; the review launch continues[39m [90m{"companyId":"36cc3c31-6024-4edb-b574-a0d59f05eeb2","issueId":"115fc4df-2708-4f1f-ae0f-5f7fc7a2ef7d","decisionId":"dacae6e7-a30d-4bd8-81dd-63b50af924e9","interactionId":"7d76eb95-1b8c-44af-866c-a4f3ee78ca4c"}[39m
+    err: {
+      "type": "DrizzleQueryError",
+      "message": "Failed query: insert into \"review_admissions\" (\"id\", \"company_id\", \"issue_id\", \"source_sha\", \"policy_digest\", \"round\", \"status\", \"acceptance_contract\", \"review_policy\", \"pr_details\", \"supersedes_admission_id\", \"review_interaction_id\", \"decision_id\", \"decision\", \"decision_reason\", \"decided_at\", \"created_at\", \"updated_at\") values (default, $1, $2, $3, $4, default, default, $5, $6, default, default, default, default, default, default, default, default, default)\nparams: 9491a1cf-02d0-429f-867e-3f04f2c2c68b,115fc4df-2708-4f1f-ae0f-5f7fc7a2ef7d,1111111111111111111111111111111111111111,0000000000000000000000000000000000000000000000000000000000000000,{},anyone: insert or update on table \"review_admissions\" violates foreign key constraint \"review_admissions_company_id_companies_id_fk\"",
+      "stack":
+          Error: Failed query: insert into "review_admissions" ("id", "company_id", "issue_id", "source_sha", "policy_digest", "round", "status", "acceptance_contract", "review_policy", "pr_details", "supersedes_admission_id", "review_interaction_id", "decision_id", "decision", "decision_reason", "decided_at", "created_at", "updated_at") values (default, $1, $2, $3, $4, default, default, $5, $6, default, default, default, default, default, default, default, default, default)
+          params: 9491a1cf-02d0-429f-867e-3f04f2c2c68b,115fc4df-2708-4f1f-ae0f-5f7fc7a2ef7d,1111111111111111111111111111111111111111,0000000000000000000000000000000000000000000000000000000000000000,{},anyone
+              at PostgresJsPreparedQuery.queryWithCache (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/drizzle-orm@0.45.2_@opentelemetry+api@1.9.1_kysely@0.29.5_pg@8.18.0_postgres@3.4.9_patch_hash_uil4xuf7icnddjurbgy2qn5oo4/node_modules/drizzle-orm/pg-core/session.js:41:15)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at Object.admitReview (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2151:11)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/status-decision-committer.ts:627:9
+              at scope (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at materializeDecisionEffect (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/status-decision-committer.ts:626:7)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/status-decision-committer.ts:1881:9
+              at scope (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at commitNativeStatusDecision (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/status-decision-committer.ts:1587:21)
+          caused by: PostgresError: insert or update on table "review_admissions" violates foreign key constraint "review_admissions_company_id_companies_id_fk"
+              at ErrorResponse (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:819:30)
+              at handle (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:493:6)
+              at Socket.data (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:324:9)
+              at Socket.emit (node:events:509:28)
+              at addChunk (node:internal/streams/readable:563:12)
+              at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+              at Socket.Readable.push (node:internal/streams/readable:394:5)
+              at TCP.onStreamRead (node:internal/stream_base_commons:189:23)
+      "query": "insert into \"review_admissions\" (\"id\", \"company_id\", \"issue_id\", \"source_sha\", \"policy_digest\", \"round\", \"status\", \"acceptance_contract\", \"review_policy\", \"pr_details\", \"supersedes_admission_id\", \"review_interaction_id\", \"decision_id\", \"decision\", \"decision_reason\", \"decided_at\", \"created_at\", \"updated_at\") values (default, $1, $2, $3, $4, default, default, $5, $6, default, default, default, default, default, default, default, default, default)",
+      "params": [
+        "9491a1cf-02d0-429f-867e-3f04f2c2c68b",
+        "115fc4df-2708-4f1f-ae0f-5f7fc7a2ef7d",
+        "1111111111111111111111111111111111111111",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "{}",
+        "anyone"
+      ]
+    }
+[00:23:29] [33mWARN[39m: [36mFailed to withdraw obsolete native policy review; will retry on the next pass[39m [90m{"interactionId":"7dbb87ae-4fd8-4b15-b8e4-2861c5c258cb","issueId":"3241bc41-737e-413b-91bf-804e58959d3d"}[39m
+    err: {
+      "type": "Error",
+      "message": "injected cleanup failure",
+      "stack":
+          Error: injected cleanup failure
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2454:75
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[00:23:29] [33mWARN[39m: [36mObsolete native policy review cleanup committed; live activity publication failed, history is preserved[39m [90m{"interactionId":"30d5ea98-7565-44a9-a468-b423935c579d","issueId":"1fef3776-c18a-4a36-94f4-293e5c8b9e52"}[39m
+    err: {
+      "type": "Error",
+      "message": "injected live publication failure",
+      "stack":
+          Error: injected live publication failure
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2476:13
+              at publishActivity (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at dismissObsoleteNativePolicyReviews (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/obsolete-policy-reviews.ts:143:9)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2479:7
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[00:23:29] [33mWARN[39m: [36mObsolete native policy review lookup failed; continuing native reconciliation[39m 
+    err: {
+      "type": "Error",
+      "message": "injected cleanup lookup failure",
+      "stack":
+          Error: injected cleanup lookup failure
+              at PostgresJsDatabase.<anonymous> (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2495:13)
+              at PostgresJsDatabase.select (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at dismissObsoleteNativePolicyReviews (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/obsolete-policy-reviews.ts:17:31)
+              at reconcileNativeFinalizations (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/native-finalization-reconciler.ts:549:9)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2498:32
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts (38 tests | 2 failed) 12821ms
+     × completes the review admission when the reviewer approves the bound review 38ms
+     × records changes_requested with the reviewer's reason when the review is rejected 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/native-status-arbiter-corpus.test.ts > P6-31 Section 18.13 executable status-authority corpus > completes the review admission when the reviewer approves the bound review
+AssertionError: expected { …(18) } to match object { status: 'completed', …(1) }
+(18 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "decision": "approved",
+-   "status": "completed",
++   "decision": null,
++   "status": "in_review",
+  }
+
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts:2204:23
+    2202|     const [admission] = await db.select().from(reviewAdmissions)
+    2203|       .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    2204|     expect(admission).toMatchObject({ status: "completed", decision: "…
+       |                       ^
+    2205|     expect(admission!.decidedAt).toBeInstanceOf(Date);
+    2206|   }, 30_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/native-status-arbiter-corpus.test.ts > P6-31 Section 18.13 executable status-authority corpus > records changes_requested with the reviewer's reason when the review is rejected
+AssertionError: expected { …(18) } to match object { status: 'completed', …(2) }
+(17 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "decision": "changes_requested",
+-   "decisionReason": "Run the external verification and report only that result.",
+-   "status": "completed",
++   "decision": null,
++   "decisionReason": null,
++   "status": "in_review",
+  }
+
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts:2220:23
+    2218|     const [admission] = await db.select().from(reviewAdmissions)
+    2219|       .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    2220|     expect(admission).toMatchObject({
+       |                       ^
+    2221|       status: "completed",
+    2222|       decision: "changes_requested",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 64 passed (66)
+   Start at  00:22:49
+   Duration  42.76s (transform 9.35s, setup 316ms, import 17.18s, tests 24.99s, environment 0ms)
+

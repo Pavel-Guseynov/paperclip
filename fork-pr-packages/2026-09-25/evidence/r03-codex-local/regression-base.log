@@ -1,0 +1,101 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix03/packages/adapters/codex-local
+
+ ❯ src/server/execute.runtime-callback.test.ts (4 tests | 4 failed) 29ms
+     × points managed MCP gateways at the internal runtime origin, never the public dashboard origin 16ms
+     × exports the internal runtime origin and the public dashboard origin as distinct child env vars 5ms
+     × keeps a PAPERCLIP_API_URL override when nothing is pinned, instead of a derived loopback origin 4ms
+     × resolves both origins from PAPERCLIP_RUNTIME_API_URL alone in a sanitized inherited environment 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > points managed MCP gateways at the internal runtime origin, never the public dashboard origin
+AssertionError: expected '# BEGIN PAPERCLIP MANAGED MCP\n# Writ…' to contain 'url = "http://127.0.0.1:3199/mcp/gate…'
+
+- Expected
++ Received
+
+- url = "http://127.0.0.1:3199/mcp/gateways/gw-1"
++ # BEGIN PAPERCLIP MANAGED MCP
++ # Written by Paperclip for governed MCP gateway access. Do not edit this block by hand.
++
++ [mcp_servers."paperclip-assigned"]
++ url = "https://dashboard.paperclip.example.test/mcp/gateways/gw-1"
++ headers = { Authorization = "Bearer pcgw_fixture" }
++ # END PAPERCLIP MANAGED MCP
++
+
+ ❯ src/server/execute.runtime-callback.test.ts:138:24
+    136|     const { configToml } = await runCli();
+    137|
+    138|     expect(configToml).toContain(`url = "${RUNTIME_ORIGIN}/mcp/gateway…
+       |                        ^
+    139|     expect(configToml).not.toContain(PUBLIC_DASHBOARD_ORIGIN);
+    140|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > exports the internal runtime origin and the public dashboard origin as distinct child env vars
+AssertionError: expected undefined to be 'http://127.0.0.1:3199' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:3199"
+
++ Received:
+undefined
+
+ ❯ src/server/execute.runtime-callback.test.ts:148:43
+    146|     const { env } = await runCli();
+    147|
+    148|     expect(env.PAPERCLIP_RUNTIME_API_URL).toBe(RUNTIME_ORIGIN);
+       |                                           ^
+    149|     expect(env.PAPERCLIP_API_URL).toBe(PUBLIC_DASHBOARD_ORIGIN);
+    150|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > keeps a PAPERCLIP_API_URL override when nothing is pinned, instead of a derived loopback origin
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server/execute.runtime-callback.test.ts:163:43
+    161|     const { configToml, env } = await runCli();
+    162|
+    163|     expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+       |                                           ^
+    164|     expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    165|     expect(configToml).toContain('url = "http://10.0.0.5:3100/mcp/gate…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > resolves both origins from PAPERCLIP_RUNTIME_API_URL alone in a sanitized inherited environment
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server/execute.runtime-callback.test.ts:182:43
+    180|     const { configToml, env } = await runCli();
+    181|
+    182|     expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+       |                                           ^
+    183|     expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    184|     expect(configToml).toContain('url = "http://10.0.0.5:3100/mcp/gate…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  23:57:28
+   Duration  1.92s (transform 1.42s, setup 0ms, import 1.79s, tests 29ms, environment 0ms)
+

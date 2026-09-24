@@ -1,0 +1,126 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0102/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (74 tests | 74 skipped) 20011ms
+[23:56:51] [32mINFO[39m: [36mworkspace Git scan finished without a result[39m [90m{"event":"workspace_git_scan","operation":"referenced_source.toplevel","workspaceHash":"e96dd3f8a5f24656","outcome":"workspace_git_scan_failed","queueWaitMs":0,"executionMs":12,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"workspace_git_scan_failed"}[39m
+[23:56:54] [32mINFO[39m: [36mworkspace Git scan finished without a result[39m [90m{"event":"workspace_git_scan","operation":"referenced_source.toplevel","workspaceHash":"115e7690989a9471","outcome":"workspace_git_scan_failed","queueWaitMs":0,"executionMs":12,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"workspace_git_scan_failed"}[39m
+ ❯ src/__tests__/codex-local-execute.test.ts (22 tests | 1 failed) 13930ms
+     × writes managed MCP gateways into Codex config and warns on overlapping direct entries without logging tokens 610ms
+ ❯ src/__tests__/agent-auth-middleware.test.ts (32 tests | 3 failed) 79ms
+     × leaves managed runtime MCP gateway bearers for the gateway protocol to validate 5ms
+     × matches a managed gateway id by generic UUID shape, not by version nibble 2ms
+     × leaves gateway session tokens on tools endpoints for the gateway service to validate 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance
+Error: Hook timed out in 20000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ src/__tests__/tool-gateway.test.ts:550:3
+    548|   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatab…
+    549|
+    550|   beforeAll(async () => {
+       |   ^
+    551|     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-tool-g…
+    552|     db = createDb(tempDb.connectionString);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/agent-auth-middleware.test.ts > agent auth middleware > leaves managed runtime MCP gateway bearers for the gateway protocol to validate
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/agent-auth-middleware.test.ts:272:24
+    270|       .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
+    271|
+    272|     expect(res.status).toBe(200);
+       |                        ^
+    273|     expect(res.body).toMatchObject({ reachedManagedGatewayProtocol: tr…
+    274|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/__tests__/agent-auth-middleware.test.ts > agent auth middleware > matches a managed gateway id by generic UUID shape, not by version nibble
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/agent-auth-middleware.test.ts:287:24
+    285|       .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
+    286|
+    287|     expect(res.status).toBe(200);
+       |                        ^
+    288|     expect(res.body).toMatchObject({ reachedManagedGatewayProtocol: tr…
+    289|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/__tests__/agent-auth-middleware.test.ts > agent auth middleware > leaves gateway session tokens on tools endpoints for the gateway service to validate
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/agent-auth-middleware.test.ts:336:28
+    334|       .set("Authorization", `Bearer pcgt_${randomUUID()}.secret-abc`);
+    335|
+    336|     expect(listRes.status).toBe(200);
+       |                            ^
+    337|     expect(listRes.body).toMatchObject({ reachedSessionTools: true, ac…
+    338|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/__tests__/codex-local-execute.test.ts > codex execute > writes managed MCP gateways into Codex config and warns on overlapping direct entries without logging tokens
+AssertionError: expected 'model = "codex-mini-latest"\n\n[mcp_s…' to contain 'http_headers = { Authorization = "Bea…'
+
+- Expected
++ Received
+
+- http_headers = { Authorization = "Bearer pcgw_secret-managed-token" }
++ model = "codex-mini-latest"
++
++ [mcp_servers.github]
++ url = "https://raw.example/mcp"
++
++ # BEGIN PAPERCLIP MANAGED MCP
++ # Written by Paperclip for governed MCP gateway access. Do not edit this block by hand.
++
++ [mcp_servers."paperclip-github"]
++ url = "http://paperclip.local:3100/api/tool-gateway/gateways/gateway-1/mcp"
++ headers = { Authorization = "Bearer pcgw_secret-managed-token" }
++ # END PAPERCLIP MANAGED MCP
++
+
+ ❯ src/__tests__/codex-local-execute.test.ts:316:26
+    314|       expect(configText).toContain("[mcp_servers.\"paperclip-github\"]…
+    315|       expect(configText).toContain('url = "http://paperclip.local:3100…
+    316|       expect(configText).toContain(
+       |                          ^
+    317|         'http_headers = { Authorization = "Bearer pcgw_secret-managed-…
+    318|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  4 failed | 50 passed | 74 skipped (128)
+   Start at  23:55:58
+   Duration  65.81s (transform 17.95s, setup 321ms, import 31.10s, tests 34.02s, environment 0ms)
+

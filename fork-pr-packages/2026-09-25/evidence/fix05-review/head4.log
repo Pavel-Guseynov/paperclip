@@ -1,0 +1,10 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server
+
+
+ Test Files  1 passed (1)
+      Tests  94 passed (94)
+   Start at  01:13:37
+   Duration  3.04s (transform 1.61s, setup 113ms, import 2.62s, tests 165ms, environment 0ms)
+

@@ -1,0 +1,162 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix1112/server
+
+[00:06:27] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.base_refresh_clean_guard","workspaceHash":"7500487c85b96046","outcome":"success","queueWaitMs":0,"executionMs":19,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:06:31] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.base_refresh_clean_guard","workspaceHash":"5b4eb9ac702d9541","outcome":"success","queueWaitMs":0,"executionMs":60,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:06:33] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.base_refresh_clean_guard","workspaceHash":"e05c0e41f20589d0","outcome":"success","queueWaitMs":0,"executionMs":35,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:06:39] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"48e2744d53db9dd5","outcome":"success","queueWaitMs":0,"executionMs":26,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:10] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"dae4b4418573b000","outcome":"success","queueWaitMs":0,"executionMs":25,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:11] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"c433897bd6b0779d","outcome":"success","queueWaitMs":0,"executionMs":20,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:12] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"fbee35d2f3da349c","outcome":"success","queueWaitMs":0,"executionMs":22,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:14] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"ef00f1087878acc5","outcome":"success","queueWaitMs":0,"executionMs":24,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:15] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"46aca44015f38c91","outcome":"success","queueWaitMs":0,"executionMs":20,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:15] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"7e431a2354cfd28b","outcome":"success","queueWaitMs":0,"executionMs":25,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:16] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"ce06878f6067f064","outcome":"success","queueWaitMs":0,"executionMs":25,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:16] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"a7e02e23b96d4d26","outcome":"success","queueWaitMs":0,"executionMs":21,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:17] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"9a1b9f37c95a94d0","outcome":"success","queueWaitMs":0,"executionMs":24,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:18] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"123ad54744062c1e","outcome":"success","queueWaitMs":0,"executionMs":22,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:46] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"1e159db46697194b","outcome":"success","queueWaitMs":0,"executionMs":87,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:46] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.dirty_quarantine_verify","workspaceHash":"1e159db46697194b","outcome":"success","queueWaitMs":0,"executionMs":20,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:47] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"d7f24230b3707dae","outcome":"success","queueWaitMs":0,"executionMs":21,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:47] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.dirty_quarantine_verify","workspaceHash":"d7f24230b3707dae","outcome":"success","queueWaitMs":0,"executionMs":19,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:48] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"4cfadee80f5f7943","outcome":"success","queueWaitMs":0,"executionMs":28,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:49] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"88d84071d8001193","outcome":"success","queueWaitMs":0,"executionMs":19,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:50] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"f6e8db426db6d0e7","outcome":"success","queueWaitMs":0,"executionMs":47,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:50] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"b53599b7f5dfadc2","outcome":"success","queueWaitMs":0,"executionMs":29,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:07:51] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"8f0ce1ecbe3bef44","outcome":"success","queueWaitMs":0,"executionMs":25,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+ ❯ src/__tests__/workspace-runtime.test.ts (161 tests | 5 failed) 213387ms
+     × provisions worktree-local pnpm node_modules instead of reusing base-repo links 5028ms
+     × provisions successfully when install is needed but there are no symlinked node_modules to move 3477ms
+     × reinstalls worktree-local pnpm dependencies when package metadata changes 2033ms
+     × retries worktree-local pnpm install without a frozen lockfile when the lockfile is outdated 2353ms
+     × provisions worktree-local pnpm node_modules instead of reusing base-repo links 4919ms
+ ❯ src/__tests__/workspace-runtime-start-terminality.test.ts (11 tests | 1 failed) 3514ms
+     × clears in-flight port reservations when runtime services are reset for tests 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/workspace-runtime-start-terminality.test.ts > managed runtime start terminality > clears in-flight port reservations when runtime services are reset for tests
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/workspace-runtime-start-terminality.test.ts:205:54
+    203|     expect(claimRuntimeServiceBindPort(25100, null)).toBe(false);
+    204|     await resetRuntimeServicesForTests();
+    205|     expect(claimRuntimeServiceBindPort(25100, null)).toBe(true);
+       |                                                      ^
+    206|   });
+    207| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/__tests__/workspace-runtime.test.ts > realizeExecutionWorkspace > provisions worktree-local pnpm node_modules instead of reusing base-repo links
+Error: Execution workspace provision command "bash ./scripts/provision-worktree.sh" failed: existing worktree env is missing PAPERCLIP_HOME or PAPERCLIP_INSTANCE_ID
+Existing isolated Paperclip worktree config is stale for this host; regenerating.
+Invalid config at /private/tmp/pv-hEZkrn/t/paperclip-worktree-repo-0lIwXC/.paperclip/config.json: $meta: Invalid input: expected object, received undefined; database: Invalid input: expected object, received undefined; logging: Invalid input: expected object, received undefined; server: Invalid input: expected object, received undefined
+paperclipai worktree init failed (exit 1); failing provisioning instead of writing an unseeded fallback config.
+[36m██████╗  █████╗ ██████╗ ███████╗██████╗  ██████╗██╗     ██╗██████╗ [39m
+[36m██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║██╔══██╗[39m
+[36m██████╔╝███████║██████╔╝█████╗  ██████╔╝██║     ██║     ██║██████╔╝[39m
+[36m██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║██╔═══╝ [39m
+[36m██║     ██║  ██║██║     ███████╗██║  ██║╚██████╗███████╗██║██║     [39m
+[36m╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝╚═╝     [39m
+[34m  ───────────────────────────────────────────────────────[39m
+[1m[37m  The app people use to manage AI agents for work[39m[22m
+
+┌  [46m[30m paperclipai worktree init [39m[49m
+ ❯ runWorkspaceCommand src/services/workspace-runtime.ts:2965:9
+    2963|
+    2964|   const details = [proc.stderr.trim(), proc.stdout.trim()].filter(Bool…
+    2965|   throw new Error(
+       |         ^
+    2966|     details.length > 0
+    2967|       ? `${input.label} failed: ${details}`
+ ❯ recordWorkspaceCommandOperation src/services/workspace-runtime.ts:3049:5
+ ❯ provisionExecutionWorktree src/services/workspace-runtime.ts:3123:3
+ ❯ realizeExecutionWorkspace src/services/workspace-runtime.ts:3607:3
+ ❯ src/__tests__/workspace-runtime.test.ts:1947:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/__tests__/workspace-runtime.test.ts > realizeExecutionWorkspace > provisions successfully when install is needed but there are no symlinked node_modules to move
+Error: Execution workspace provision command "bash ./scripts/provision-worktree.sh" failed: Invalid config at /private/tmp/pv-hEZkrn/t/paperclip-worktree-repo-IptHcv/.paperclip/config.json: $meta: Invalid input: expected object, received undefined; database: Invalid input: expected object, received undefined; logging: Invalid input: expected object, received undefined; server: Invalid input: expected object, received undefined
+paperclipai worktree init failed (exit 1); failing provisioning instead of writing an unseeded fallback config.
+[36m██████╗  █████╗ ██████╗ ███████╗██████╗  ██████╗██╗     ██╗██████╗ [39m
+[36m██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║██╔══██╗[39m
+[36m██████╔╝███████║██████╔╝█████╗  ██████╔╝██║     ██║     ██║██████╔╝[39m
+[36m██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║██╔═══╝ [39m
+[36m██║     ██║  ██║██║     ███████╗██║  ██║╚██████╗███████╗██║██║     [39m
+[36m╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝╚═╝     [39m
+[34m  ───────────────────────────────────────────────────────[39m
+[1m[37m  The app people use to manage AI agents for work[39m[22m
+
+┌  [46m[30m paperclipai worktree init [39m[49m
+ ❯ runWorkspaceCommand src/services/workspace-runtime.ts:2965:9
+    2963|
+    2964|   const details = [proc.stderr.trim(), proc.stdout.trim()].filter(Bool…
+    2965|   throw new Error(
+       |         ^
+    2966|     details.length > 0
+    2967|       ? `${input.label} failed: ${details}`
+ ❯ recordWorkspaceCommandOperation src/services/workspace-runtime.ts:3049:5
+ ❯ provisionExecutionWorktree src/services/workspace-runtime.ts:3123:3
+ ❯ realizeExecutionWorkspace src/services/workspace-runtime.ts:3607:3
+ ❯ src/__tests__/workspace-runtime.test.ts:2028:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/__tests__/workspace-runtime.test.ts > realizeExecutionWorkspace > reinstalls worktree-local pnpm dependencies when package metadata changes
+Error: Command failed: /private/tmp/pv-hEZkrn/t/paperclip-worktree-stale-deps-PB2hs0/worktree/provision-worktree.sh
+Invalid config at /private/tmp/pv-hEZkrn/t/paperclip-worktree-stale-deps-PB2hs0/base/.paperclip/config.json: $meta: Invalid input: expected object, received undefined; database: Invalid input: expected object, received undefined; logging: Invalid input: expected object, received undefined; server: Invalid input: expected object, received undefined
+paperclipai worktree init failed (exit 1); failing provisioning instead of writing an unseeded fallback config.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/__tests__/workspace-runtime.test.ts > realizeExecutionWorkspace > retries worktree-local pnpm install without a frozen lockfile when the lockfile is outdated
+Error: Command failed: /private/tmp/pv-hEZkrn/t/paperclip-worktree-outdated-lockfile-ugoPdI/worktree/provision-worktree.sh
+Invalid config at /private/tmp/pv-hEZkrn/t/paperclip-worktree-outdated-lockfile-ugoPdI/base/.paperclip/config.json: $meta: Invalid input: expected object, received undefined; database: Invalid input: expected object, received undefined; logging: Invalid input: expected object, received undefined; server: Invalid input: expected object, received undefined
+paperclipai worktree init failed (exit 1); failing provisioning instead of writing an unseeded fallback config.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/__tests__/workspace-runtime.test.ts > realizeExecutionWorkspace > provisions worktree-local pnpm node_modules instead of reusing base-repo links
+Error: Execution workspace provision command "bash ./scripts/provision-worktree.sh" failed: existing worktree env is missing PAPERCLIP_HOME or PAPERCLIP_INSTANCE_ID
+Existing isolated Paperclip worktree config is stale for this host; regenerating.
+Invalid config at /private/tmp/pv-hEZkrn/t/paperclip-worktree-repo-6l3NCE/.paperclip/config.json: $meta: Invalid input: expected object, received undefined; database: Invalid input: expected object, received undefined; logging: Invalid input: expected object, received undefined; server: Invalid input: expected object, received undefined
+paperclipai worktree init failed (exit 1); failing provisioning instead of writing an unseeded fallback config.
+[36m██████╗  █████╗ ██████╗ ███████╗██████╗  ██████╗██╗     ██╗██████╗ [39m
+[36m██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║██╔══██╗[39m
+[36m██████╔╝███████║██████╔╝█████╗  ██████╔╝██║     ██║     ██║██████╔╝[39m
+[36m██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║██╔═══╝ [39m
+[36m██║     ██║  ██║██║     ███████╗██║  ██║╚██████╗███████╗██║██║     [39m
+[36m╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝╚═╝     [39m
+[34m  ───────────────────────────────────────────────────────[39m
+[1m[37m  The app people use to manage AI agents for work[39m[22m
+
+┌  [46m[30m paperclipai worktree init [39m[49m
+ ❯ runWorkspaceCommand src/services/workspace-runtime.ts:2965:9
+    2963|
+    2964|   const details = [proc.stderr.trim(), proc.stdout.trim()].filter(Bool…
+    2965|   throw new Error(
+       |         ^
+    2966|     details.length > 0
+    2967|       ? `${input.label} failed: ${details}`
+ ❯ recordWorkspaceCommandOperation src/services/workspace-runtime.ts:3049:5
+ ❯ provisionExecutionWorktree src/services/workspace-runtime.ts:3123:3
+ ❯ realizeExecutionWorkspace src/services/workspace-runtime.ts:3607:3
+ ❯ src/__tests__/workspace-runtime.test.ts:2445:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  6 failed | 194 passed | 3 skipped (203)
+   Start at  00:06:05
+   Duration  252.00s (transform 11.24s, setup 522ms, import 20.20s, tests 230.73s, environment 0ms)
+

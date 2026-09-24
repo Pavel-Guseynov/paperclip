@@ -1,0 +1,807 @@
+warning: fields `config` and `system_instructions` are never read
+    --> crates/runner-core/src/claude_managed_provider.rs:1248:5
+     |
+1232 | pub struct ClaudeManagedProvider {
+     |            --------------------- fields in this struct
+...
+1248 |     config: ClaudeManagedProviderConfig,
+     |     ^^^^^^
+1249 |     system_instructions: String,
+     |     ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `receive_plain` is never used
+    --> crates/runner-core/src/durable/transport.rs:1545:4
+     |
+1545 | fn receive_plain(
+     |    ^^^^^^^^^^^^^
+
+warning: function `validate_tool_result_contract` is never used
+    --> crates/runner-core/src/provider_bridge.rs:1043:4
+     |
+1043 | fn validate_tool_result_contract(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `paperclip-runner-core` (lib) generated 3 warnings
+warning: `paperclip-runner-core` (lib test) generated 2 warnings (2 duplicates)
+    Finished `release` profile [optimized] target(s) in 0.20s
+     Running unittests src/lib.rs (runner/target/release/deps/paperclip_runner_core-91502b15138e16f9)
+
+running 294 tests
+test acpx_provider_backend::tests::authoritative_clear_fences_queued_and_unsequenced_goal_notifications ... ok
+test acpx_provider_backend::tests::goal_state_overrides_optimistic_prompt_disposition ... ok
+test acpx_provider_backend::tests::lifetime_fence_fixtures_do_not_reuse_a_retired_provider_quorum ... ok
+test acpx_provider_checkpoint::tests::bounded_checkpoint_reader_rejects_growth_beyond_the_metadata_hint ... ok
+test acpx_sidecar_transport::tests::classifies_only_allowlisted_internal_sidecar_failures ... ok
+test acpx_provider_backend::tests::describes_process_replacement_as_same_session_continuity ... ok
+test acpx_provider_backend::tests::rejects_pi_before_process_launch ... ok
+test acpx_provider_session::permission_mode_tests::paperclip_permission_mode_round_trips_without_widening_legacy_modes ... ok
+test aws_agentcore_provider::tests::agentcore_context_aggregate_bounds_are_closed_at_provider_limits ... ok
+test acpx_event_scope::tests::rotates_a_full_ledger_only_after_revalidating_the_next_identity ... ok
+test acpx_provider_backend::tests::rejects_symlinked_launch_artifacts ... ok
+test acpx_provider_backend::tests::admits_only_exact_qualified_claude_and_codex_descriptors ... ok
+test aws_agentcore_provider::tests::agentcore_system_replaces_the_local_instruction_path_with_the_harness_skill ... ok
+test aws_agentcore_provider::tests::agentcore_rejects_unsafe_context_prefixes_before_cloud_access ... ok
+test aws_agentcore_provider::tests::durable_usage_restore_rejects_missing_or_untrusted_spend_state ... ok
+test aws_agentcore_provider::tests::estimates_only_the_qualified_model_token_component ... ok
+test aws_agentcore_provider::tests::durable_usage_restore_preserves_accumulated_spend_and_tokens ... ok
+test aws_agentcore_provider::tests::eventstream_harness_skills_trace_is_not_forwarded_as_an_inline_function ... ok
+test acpx_provider_session::tests::sidecar_catalog_leaves_reserved_terminal_tools_to_the_trusted_bridge ... ok
+test acpx_sidecar_transport::tests::parse_frame_does_not_echo_untrusted_deserialization_details ... ok
+test aws_agentcore_provider::tests::harness_managed_message_stops_resolve_to_the_final_stop_reason ... ok
+test aws_agentcore_provider::tests::harness_skills_tool_is_allowed_only_when_skills_are_attached ... ok
+test aws_agentcore_provider::tests::eventstream_empty_tool_input_is_normalized_to_an_empty_object ... ok
+test aws_agentcore_provider::tests::eventstream_tool_json_is_buffered_until_the_block_is_complete ... ok
+test aws_agentcore_provider::tests::eventstream_text_delta_is_normalized_without_provider_objects ... ok
+test aws_agentcore_provider::tests::early_tool_result_waits_for_invocation_metadata_before_continuing ... ok
+test aws_agentcore_provider::tests::memory_history_scan_fails_closed_at_the_page_bound ... ok
+test aws_agentcore_provider::tests::interrupt_drains_queued_metadata_into_the_preterminal_snapshot ... ok
+test acpx_provider_backend::tests::retained_events_exposes_terminal_suffix_without_restoring_provider ... ok
+test aws_agentcore_provider::tests::memory_purge_restarts_from_the_first_page_after_mutating_deletes ... ok
+test aws_agentcore_provider::tests::agentcore_rejects_too_many_assigned_skills_before_reading_any_skill_root ... ok
+test aws_agentcore_provider::tests::interrupted_usage_metadata_is_reconciled_at_most_once ... ok
+test aws_agentcore_provider::tests::redacts_credential_markers_from_remote_errors ... ok
+test aws_agentcore_provider::tests::rejects_more_than_sixty_four_tools ... ok
+test acpx_provider_backend::tests::suspension_waits_for_the_original_provider_lifetime_quorum ... ok
+test aws_agentcore_provider::tests::restored_cumulative_spend_is_enforced_before_another_invocation ... ok
+test aws_agentcore_provider::tests::runtime_session_ids_are_valid_and_unique ... ok
+test aws_agentcore_provider::tests::stop_runtime_targets_the_runtime_arn_and_endpoint_qualifier ... ok
+test aws_agentcore_provider::tests::mid_stream_interrupt_waits_for_late_usage_and_suppresses_truncated_completion ... ok
+test aws_agentcore_provider::tests::tool_names_are_safe_stable_and_collision_resistant ... ok
+test aws_agentcore_provider::tests::stop_waits_for_usage_metadata_before_emitting_turn_terminal ... ok
+test aws_agentcore_provider::tests::tool_results_use_the_harness_supported_text_content_variant ... ok
+test aws_agentcore_provider::tests::tool_allowlist_is_confined_to_the_paperclip_inline_namespace ... ok
+test aws_agentcore_provider::tests::unknown_eventstream_record_before_message_stop_fails_closed ... ok
+test aws_agentcore_provider::tests::transport_failure_discards_pending_tool_state_and_rejects_late_result ... ok
+test acpx_provider_backend::tests::unconfirmed_suspension_state_becomes_recoverable_only_after_cleanup_and_suspend ... ok
+test aws_agentcore_provider::tests::trailing_unknown_eventstream_record_cannot_overturn_message_stop ... ok
+test claude_managed_provider::tests::ambiguous_session_create_checkpoints_skills_for_metadata_reconciliation ... ok
+test aws_agentcore_provider::tests::interrupt_usage_timeout_is_durably_charged_before_next_turn_admission ... ok
+test claude_managed_provider::tests::local_bootstrap_failure_deletes_all_uploaded_skills ... ok
+test aws_agentcore_provider::tests::ambiguous_invoke_delivery_retains_identity_for_interrupt_reconciliation ... ok
+test claude_managed_provider::tests::conflicting_duplicate_remote_event_ids_fail_closed ... ok
+test claude_managed_provider::tests::accepted_session_with_lost_response_is_reconciled_by_exact_metadata ... ok
+test claude_managed_provider::tests::budget_increase_is_monotonic_and_remote_deletion_is_explicit ... ok
+test claude_managed_provider::tests::managed_overrides_pin_inline_tools_and_never_embed_remote_mcp_credentials ... ok
+test claude_managed_provider::tests::managed_profile_requires_a_canonical_numeric_agent_version ... ok
+test claude_managed_provider::tests::managed_skill_aggregate_bounds_are_closed_at_provider_limits ... ok
+test claude_managed_provider::tests::fake_service_waits_for_request_bytes_on_an_accepted_nonblocking_socket ... ok
+test claude_managed_provider::tests::malformed_tool_arguments_fail_closed_before_paperclip_execution ... ok
+test claude_managed_provider::tests::lost_tool_result_response_uses_durable_running_status_as_delivery_receipt ... ok
+test claude_managed_provider::tests::lost_tool_result_response_retries_when_durable_status_is_still_pending ... ok
+test claude_managed_provider::tests::persisted_managed_skill_refs_are_strictly_bounded_and_complete ... ok
+test claude_managed_provider::tests::managed_system_replaces_the_local_instruction_path_with_the_companion_skill ... ok
+test claude_managed_provider::tests::managed_skill_creation_ignores_mutable_latest_mappings_and_avoids_title_collisions ... ok
+test claude_managed_provider::tests::rejects_oversized_remote_catalogs ... ok
+test aws_agentcore_provider::tests::agentcore_upload_plan_contains_instruction_siblings_and_complete_assigned_skill_trees ... ok
+test acpx_provider_backend::tests::binds_sidecar_paths_arguments_and_contents_to_the_runner_profile ... ok
+test acpx_provider_backend::tests::active_turn_recovery_closes_without_starting_the_provider ... ok
+test claude_managed_provider::tests::tool_names_are_anthropic_safe_stable_and_collision_resistant ... ok
+test claude_managed_provider::tests::managed_skill_count_is_rejected_before_any_remote_upload ... ok
+test claude_managed_provider::tests::stream_bootstrap_failure_deletes_session_before_its_skills ... ok
+test claude_managed_provider::tests::recovery_opens_stream_then_replays_only_after_the_durable_cursor ... ok
+test codex_provider::notification_identity_tests::account_notifications_are_connection_information_without_execution_authority ... ok
+test codex_provider::notification_identity_tests::child_mcp_startup_before_lineage_has_no_execution_authority ... ok
+test codex_provider::notification_identity_tests::classifies_provider_lineage_before_root_authority ... ok
+test codex_provider::notification_identity_tests::bounds_lineage_without_eviction_or_misclassifying_capacity_as_integrity ... ok
+test claude_managed_provider::tests::tool_result_recovery_fails_closed_without_a_linked_pending_receipt ... ok
+test claude_managed_provider::tests::terminal_fails_closed_when_current_cumulative_usage_is_missing ... ok
+test claude_managed_provider::tests::terminal_fetches_cumulative_usage_when_no_periodic_snapshot_arrives ... ok
+test claude_managed_provider::tests::terminal_replaces_a_stale_periodic_snapshot_with_current_cumulative_usage ... ok
+test claude_managed_provider::tests::managed_transport_streams_reconciles_tools_and_accounts_without_leaking_auth ... ok
+test codex_provider::notification_identity_tests::rejects_missing_authority_and_malformed_turn_identities ... ok
+test codex_provider::notification_identity_tests::recognizes_explicit_parent_thread_lineage_without_granting_root_authority ... ok
+test codex_provider::notification_identity_tests::skills_changed_is_connection_information_without_execution_authority ... ok
+test codex_provider::tests::bounds_all_retained_runtime_request_data_in_aggregate ... ok
+test codex_provider::tests::bounds_all_retained_pending_tool_request_data_in_aggregate ... ok
+test codex_provider::tests::bounds_messages_buffered_while_waiting_for_a_response ... ok
+test codex_provider::tests::codex_provider_accepts_only_the_controller_derived_external_sandbox_bit ... ok
+test codex_provider::tests::does_not_forward_an_ambient_opencode_command_override ... ok
+test codex_provider::tests::admits_only_exact_local_facade_provider_driver_pairs ... ok
+test codex_provider::notification_identity_tests::spawn_receipts_require_completed_root_authority_and_preserve_capacity ... ok
+test codex_provider::tests::converts_codex_questions_and_responses_without_provider_leakage ... ok
+test codex_provider::tests::finds_only_active_turns_during_resume ... ok
+test codex_provider::tests::github_credentials_cross_only_the_bounded_provider_environment ... ok
+test codex_provider::tests::preserves_canonical_opencode_questions_and_wraps_the_validated_resolution ... ok
+test codex_provider::tests::rejects_notifications_bound_to_another_thread_or_active_turn ... ok
+test codex_provider::tests::rejects_requests_bound_to_any_non_active_turn_nonfatally ... ok
+test codex_provider::tests::rejects_non_input_and_malformed_opencode_runtime_requests ... ok
+test codex_provider::tests::restored_provider_turn_identity_is_retained_in_release_builds ... ok
+test codex_provider::tests::restores_the_complete_durable_provider_turn_ledger ... ok
+test codex_provider::tests::exited_child_reader_deadline_precedes_buffered_output_and_is_generation_scoped ... ok
+test claude_managed_provider::tests::managed_skill_uploads_include_instruction_siblings_and_complete_assigned_skill_trees ... ok
+test codex_provider::tests::settled_provider_turn_history_never_evicts_exact_identities ... ok
+test codex_provider::tests::exited_child_waits_for_held_actual_terminal_reader_before_certifying_exit ... ok
+test acpx_provider_backend::tests::restores_settled_session_for_explicit_run_attachment_only ... ok
+test codex_provider::tests::startup_observer_failure_reaps_the_exact_child_before_any_initialization_rpc ... ok
+test claude_managed_provider::tests::upload_n_failure_deletes_every_known_uploaded_skill ... ok
+test codex_startup_trust::tests::rejects_invalid_project_tables_without_overwriting_configuration ... ok
+test codex_provider::tests::warm_attachment_accepts_normalized_usage_for_the_completed_turn ... ok
+test aws_agentcore_provider::tests::late_usage_is_suppressed_then_next_turn_boundary_charges_the_ceiling ... ok
+test claude_managed_provider::tests::managed_skills_upload_once_reuse_on_cold_recovery_and_delete_with_session ... ok
+test durable::runner::tests::control_first_poll_keeps_cleanup_live_and_preserves_transport_failure ... ok
+test durable::runner::tests::controller_ack_debt_runs_cleanup_without_moving_event_or_ack_cursors ... ok
+test codex_provider::tests::verified_opencode_proxy_executes_the_descriptor_safe_commonjs_bundle ... ok
+test durable::runner::tests::completed_suspend_replay_remains_restartable ... ok
+test durable::runner::tests::completed_shutdown_replay_still_stops_after_delivery ... ok
+test durable::runner::tests::controller_ack_flow_control_preserves_replay_and_unsent_events ... ok
+test durable::runner::tests::event_batch_never_acknowledges_a_failed_durable_save ... ok
+test codex_startup_trust::tests::trusts_non_git_and_worktree_roots_without_replacing_configuration ... ok
+test durable::runner::tests::event_batch_keeps_accepted_prefix_and_unacknowledged_suffix ... ok
+test durable::runner::tests::duplicate_delivery_replays_the_durable_result ... ok
+test durable::runner::tests::controller_commands_progress_while_provider_poll_waits_for_ack ... ok
+test durable::runner::tests::event_batch_preserves_original_error_when_prefix_ack_also_fails ... ok
+test durable::runner::tests::executor_failure_is_durable_and_does_not_become_indeterminate ... ok
+test durable::runner::tests::completed_attachment_commits_retained_fifo_before_execution_events_and_replays_without_effects ... ok
+test durable::runner::tests::failed_terminal_cleanup_keeps_the_recovery_fence ... ok
+test durable::runner::tests::idle_control_poll_admits_only_durable_provider_events_and_keeps_ack_debt_gate ... ok
+test durable::runner::tests::indeterminate_recovery_result_is_a_failed_wire_result ... ok
+test durable::runner::tests::failed_lifecycle_commands_replay_their_terminal_transition ... ok
+test durable::runner::tests::indeterminate_lifecycle_command_still_stops_after_recovery_delivery ... ok
+test durable::runner::tests::cumulative_ack_bursts_checkpoint_without_blocking_the_next_command ... ok
+test durable::runner::tests::delivery_only_reconciliation_keeps_cleanup_fenced_until_a_new_proven_stop ... ok
+test durable::runner::tests::process_death_after_journaling_remains_indeterminate_without_reexecution ... ok
+test durable::runner::tests::explicit_drain_preserves_unsettled_suffix_on_disk_ack_and_oversized_failures ... ok
+test durable::runner::tests::pending_provider_cleanup_rejects_forged_terminal_identity_on_reload ... ok
+test durable::runner::tests::ordinary_success_preserves_retained_backlog_for_control_first_polling ... ok
+test durable::runner::tests::pending_provider_cleanup_blocks_new_work_and_preserves_failed_terminal ... ok
+test durable::runner::tests::terminal_lifecycle_is_durable_before_fallible_cleanup ... ok
+test durable::runner::tests::queued_suspend_precedes_provider_tail_after_last_controller_ack ... ok
+test durable::runner::tests::unlimited_lifetime_keeps_attempts_bounded_after_weeks_of_work ... ok
+test durable::runner::tests::v2_outbox_event_becomes_redacted_v1_diagnostic_without_losing_sequence ... ok
+test durable::runner::tests::warm_attachment_rejects_v1_before_provider_rebind_even_without_replay_cache ... ok
+test durable::runner::tests::receipt_survives_outbox_ack_and_prevents_duplicate_delivery ... ok
+test claude_managed_provider::tests::failed_skill_cleanup_returns_a_retryable_cleanup_inventory ... ok
+test claude_managed_provider::tests::failed_session_cleanup_checkpoints_session_and_skills_without_deleting_skills ... ok
+test durable::runner::tests::pre_auth_deadline_preserves_pending_terminal_delivery_without_launching ... ok
+test durable::state::tests::command_gaps_and_identifier_reuse_fail_closed ... ok
+test durable::state::tests::command_results_redact_display_text_but_reject_mutated_identity ... ok
+test durable::state::tests::credential_shaped_question_identity_and_validation_fail_closed ... ok
+test durable::state::tests::cumulative_ack_is_monotonic_and_bounded ... ok
+test durable::state::tests::diagnostic_redaction_is_idempotent ... ok
+test durable::state::tests::diagnostic_redaction_preserves_context_and_removes_only_secret_values ... ok
+test durable::runner::tests::successful_terminal_cleanup_clears_the_recovery_fence ... ok
+test durable::state::tests::diagnostic_redaction_removes_complete_private_key_pem_blocks ... ok
+test durable::runner::tests::warm_run_attachment_reuses_the_provider_ingress_listener ... ok
+test durable::state::tests::diagnostic_redaction_still_bounds_retained_text ... ok
+test durable::state::tests::duplicate_command_replays_without_executing ... ok
+test durable::state::tests::durable_question_sets_preserve_safe_identity_and_redact_display_text ... ok
+test durable::state::tests::event_payloads_are_redacted_before_persistence ... ok
+test durable::state::tests::goal_usage_fields_are_not_mistaken_for_credentials ... ok
+test durable::state::tests::protocol_authorization_boundary_is_not_redacted_as_a_credential ... ok
+test durable::state::tests::outbox_reserves_capacity_for_p0_and_bounds_frames ... ok
+test durable::state::tests::semantic_finish_digest_covers_the_exact_finally_persisted_long_summary ... ok
+test durable::state::tests::semantic_prose_does_not_exempt_credential_syntax_or_shapes ... ok
+test durable::state::tests::cleanup_marker_prevents_compacting_its_original_terminal_receipt ... ok
+test durable::state::tests::semantic_handoff_preserves_acceptance_identifiers_in_declared_prose ... ok
+test durable::state::tests::semantic_redaction_preserves_benign_token_system_prose ... ok
+test durable::state::tests::sentence_period_redaction_keeps_credentials_and_embedded_dots_private ... ok
+test durable::state::tests::semantic_summary_capacity_and_digest_resealing_fail_closed_outside_exact_finish_input ... ok
+test durable::state::tests::session_goal_commands_require_and_accept_the_v2_schema ... ok
+test durable::runner::tests::warm_rotation_preserves_unobserved_v2_session_state_until_native_ack ... ok
+test durable::state::tests::session_goal_events_use_the_prp_v2_event_schema ... ok
+test durable::state::tests::usage_count_keys_only_bypass_redaction_for_numbers ... ok
+test durable::state::tests::transparent_token_system_requires_exact_prose_boundaries ... ok
+test durable::state::tests::token_system_prose_exception_preserves_credential_redaction ... ok
+test codex_provider::tests::exited_child_reader_deadline_bounds_continuous_descendant_stdout ... ok
+test durable::state::tests::v1_acknowledgement_replays_latest_goal_state_for_v2 ... ok
+test durable::runner::tests::terminal_result_delivery_failure_stops_without_reopening_lifecycle ... ok
+test durable::tests::validates_durable_event_identity_boundaries ... ok
+test durable::transport::tests::authenticates_bootstrap_and_receives_bound_lease ... ok
+test durable::transport::tests::control_identity_mismatch_fails_closed ... ok
+test durable::transport::tests::dial_bootstrap_failure_after_auth_response_is_fail_closed ... ok
+test durable::transport::tests::authentication_io_rejects_work_past_the_lifecycle_deadline ... ok
+test durable::transport::tests::dial_bootstrap_failure_before_auth_response_is_retryable ... ok
+test durable::runner::tests::warm_run_attachment_rotates_only_the_run_authority ... ok
+test durable::transport::tests::listener_path_is_exact_and_unambiguous ... ok
+test durable::transport::tests::pinned_connect_falls_back_in_deterministic_order_with_bounded_attempts ... ok
+test durable::transport::tests::secure_frames_reject_replay_and_tampering ... ok
+test durable::transport::tests::url_resolution_rejects_non_loopback_and_ambiguous_inputs ... ok
+test durable::transport::tests::listener_rejects_invalid_peer_before_accepting_valid_bootstrap_peer ... ok
+test durable::state::tests::state_binding_prevents_cross_run_reuse ... ok
+test local_runner::tests::all_local_runner_scripts_load ... ok
+test local_runner::tests::bounded_line_reader_rejects_an_oversized_frame_and_recovers ... ok
+test local_runner::tests::bounded_logs_keep_only_the_tail ... ok
+test local_runner::tests::canonical_json_sorts_object_keys_without_reordering_arrays ... ok
+test local_runner::tests::nonzero_exit_overrides_a_success_terminal_proposal ... ok
+test local_runner::tests::successful_process_and_result_override_a_failed_terminal_proposal ... ok
+test managed_provider_backend::tests::agentcore_usage_snapshot_accepts_only_bounded_reconciliation_states ... ok
+test managed_provider_backend::tests::claude_runtime_identity_uses_the_pinned_agent_version ... ok
+test durable::state::tests::recovery_marks_ambiguous_effect_without_reexecution ... ok
+test managed_provider_backend::tests::claude_usage_maps_nested_cache_creation_token_buckets ... ok
+test managed_provider_backend::tests::claude_skill_ids_cannot_be_supplied_by_the_prepare_caller ... ok
+test managed_provider_backend::tests::claude_destroy_reports_closed_only_after_all_owned_resources_are_deleted ... ok
+test managed_provider_backend::tests::ambiguous_fresh_create_checkpoints_skills_before_metadata_reconciliation ... ok
+test managed_provider_backend::tests::durable_claude_skill_ownership_is_reused_on_cold_recovery ... ok
+test managed_provider_backend::tests::managed_crash_preserves_result_before_failure_closes_authority ... ok
+test managed_provider_backend::tests::managed_active_turn_recovery_preserves_result_before_failure ... ok
+test managed_provider_backend::tests::failed_fresh_bootstrap_checkpoints_session_and_skills_before_recovery ... ok
+test process_supervisor::tests::stdout_read_error_never_becomes_successful_drain ... ok
+test provider_backend::tests::accepted_terminal_tool_preserves_an_explicit_response_wait ... ok
+test process_supervisor::tests::stdout_eof_is_sticky_across_consumers_while_stderr_remains_open ... ok
+test provider_backend::tests::accepted_terminal_tool_remains_successful_after_controller_interrupt ... ok
+test provider_backend::tests::codex_terminal_tool_authority_is_valid_durable_state ... ok
+test provider_backend::tests::accepted_terminal_tool_suppresses_the_generated_terminal_fallback ... ok
+test provider_backend::tests::durable_provider_turn_ledger_backfills_legacy_completion_authority ... ok
+test provider_backend::tests::durable_provider_turn_ledger_never_evicts_within_an_epoch ... ok
+test provider_backend::tests::emits_a_structured_result_before_the_terminal_event ... ok
+test provider_backend::tests::completed_replays_are_read_only_at_the_regular_event_boundary ... ok
+test provider_backend::tests::exact_regular_backlog_capacity_rejects_turn_admission ... ok
+test process_supervisor::tests::commonjs_artifacts_use_the_bounded_descriptor_loader ... ok
+test provider_backend::tests::goal_snapshot_serializes_required_nullable_fields ... ok
+test provider_backend::tests::goal_timestamps_normalize_seconds_milliseconds_and_iso ... ok
+test provider_backend::tests::invalid_tool_results_expose_only_reserved_schema_guidance ... ok
+test provider_backend::tests::opencode_terminal_fallback_uses_its_actual_provider_identity ... ok
+test provider_backend::tests::pending_replays_are_read_only_at_the_regular_event_boundary ... ok
+test provider_backend::tests::preserves_one_verified_opencode_result_before_its_terminal ... ok
+test process_supervisor::tests::executable_arguments_use_the_private_nested_launch_contract ... ok
+test provider_backend::tests::receipt_limit_diagnostic_is_durable_and_turn_idempotent ... ok
+test provider_backend::tests::recovered_active_turn_revokes_prior_completion_authority ... ok
+test durable::state::tests::warm_transition_snapshot_is_exact_and_never_a_legacy_state ... ok
+test provider_backend::tests::rejects_inconsistent_provider_state ... ok
+test durable::transport::tests::reconnect_replays_unacked_events_and_not_command_effects ... ok
+test provider_backend::tests::rejects_unbound_conflicting_or_spoofed_opencode_results ... ok
+test provider_backend::tests::runtime_launch_rebinding_preserves_protected_arguments ... ok
+test provider_backend::tests::failed_authenticated_identity_commit_keeps_the_durable_startup_fence ... ok
+test provider_backend::tests::semantic_input_digest_covers_the_transmitted_redacted_value ... ok
+test provider_backend::tests::settled_receipt_limit_interrupt_cannot_be_marked_accepted ... ok
+test provider_backend::tests::semantic_finish_input_preserves_a_complete_long_redacted_summary ... ok
+test provider_backend::tests::receipt_limit_deadline_settlement_preserves_unacknowledged_events ... ok
+test provider_backend::tests::regular_backlog_preserves_receipt_limit_and_terminal_settlement_capacity ... ok
+test provider_backend::tests::startup_phase_fields_are_closed_and_coherent ... ok
+test provider_backend::tests::terminal_tool_authority_rejects_an_incompatible_disposition ... ok
+test provider_backend::tests::stopped_checkpoint_rebinding_keeps_unsettled_and_missing_process_fences ... ok
+test provider_backend::tests::terminal_tool_authority_rejects_an_unbound_yield ... ok
+test provider_backend::tests::transient_receipt_limit_clears_before_a_later_turn ... ok
+test provider_bridge::tests::canonical_number_uses_decimal_notation_at_javascript_lower_boundary ... ok
+test provider_backend::tests::restore_reattaches_the_durable_tool_result_byte_counter ... ok
+test provider_bridge::tests::completion_summary_enforces_the_canonical_unicode_character_limit ... ok
+test provider_bridge::tests::completion_validation_identifies_schema_location_without_echoing_input ... ok
+test provider_bridge::tests::admission_reserves_exact_identity_capacity_for_settlement ... ok
+test provider_bridge::tests::completion_validation_names_missing_fields_and_bounds_feedback ... ok
+test provider_bridge::tests::cross_bridge_receipt_lookup_reserves_pending_call_ids ... ok
+test provider_bridge::tests::legacy_replay_filter_quarantines_the_durable_run ... ok
+test provider_bridge::tests::legacy_full_exact_receipt_epoch_is_quarantined_before_dispatch ... ok
+test provider_bridge::tests::provider_restart_rotates_only_an_idle_replay_epoch ... ok
+test provider_events::tests::bounds_and_redacts_command_output ... ok
+test managed_provider_backend::tests::durable_pending_agentcore_usage_is_charged_once_before_turn_admission ... ok
+test provider_bridge::tests::worst_case_result_identity_overhead_fits_the_admission_reserve ... ok
+test provider_events::tests::does_not_substitute_session_cumulative_usage_for_a_missing_run_delta ... ok
+test provider_backend::tests::startup_evidence_save_failure_cannot_become_an_empty_drain_or_admission ... ok
+test provider_events::tests::enforces_the_declared_safe_path_contract ... ok
+test provider_events::tests::maps_codex_plan_without_retaining_native_envelope ... ok
+test provider_events::tests::maps_codex_final_answer_as_final_agent_message ... ok
+test provider_events::tests::maps_terminal_and_usage_events_at_priority_zero ... ok
+test provider_events::tests::preserves_bounded_actionable_opencode_proxy_failure_details ... ok
+test provider_bridge::tests::exact_completed_results_are_bounded_without_changing_replay ... ok
+test provider_backend::tests::stopped_prepared_checkpoint_rebinds_without_restarting_its_old_provider ... ok
+test provider_events::tests::preserves_codex_notice_text_from_current_and_legacy_payloads ... ok
+test provider_events::tests::preserves_dynamic_tool_identity_without_arguments ... ok
+test provider_events::tests::preserves_only_typed_acpx_input_update_marker ... ok
+test provider_events::tests::preserves_proxy_shaped_current_run_usage_as_an_explicit_delta ... ok
+test provider_events::tests::preserves_valid_posix_display_characters ... ok
+test replay::tests::replay_fixture_parity_duplicate_event ... ok
+test replay::tests::replay_fixture_parity_bounds_large_sequence_gap_details ... ok
+test replay::tests::replay_fixture_parity_failed_run ... ok
+test replay::tests::replay_fixture_parity_happy_path ... ok
+test provider_backend::tests::goal_command_can_persist_provider_restart_ownership ... ok
+test replay::tests::replay_fixture_parity_interrupted_run ... ok
+test replay::tests::replay_fixture_parity_rejects_unsupported_fixture_version ... ok
+test replay::tests::replay_fixture_parity_rejects_inexact_json_sequence_values ... ok
+test replay::tests::replay_fixture_parity_source_gap ... ok
+test replay::tests::replay_fixture_parity_rejects_unsupported_required_version ... ok
+test replay::tests::replay_fixture_parity_rejects_a_mismatched_declared_result ... ok
+test replay::tests::replay_fixture_parity_unknown_optional_fields ... ok
+test tests::rejects_a_sequence_gap ... ok
+test tests::runs_the_mock_core_path_with_stable_output ... ok
+test tests::validates_the_shared_fixture ... ok
+test durable::transport::tests::lost_renewal_reply_reconnects_without_restarting_the_provider ... ok
+test codex_provider::tests::exited_child_reader_timeout_preserves_only_observed_turn_authority ... ok
+test durable::runner::tests::event_batch_acknowledges_only_bounded_durable_prefixes ... ok
+test durable::runner::tests::explicit_quiescing_snapshot_advances_one_retained_prefix_only_after_old_ack ... ok
+test durable::runner::tests::provider_poll_yields_until_the_sent_controller_ack_prefix_is_consumed ... ok
+test durable::runner::tests::explicit_drain_transfers_completed_semantic_result_despite_98_busy_controls ... ok
+test durable::runner::tests::startup_failure_facts_cross_full_fifo_before_failed_command_and_never_poll ... ok
+
+test result: ok. 294 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.07s
+
+     Running unittests src/bin/conformance-tracer.rs (runner/target/release/deps/conformance_tracer-28f193832bc0b11d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/fake-acpx-sidecar.rs (runner/target/release/deps/fake_acpx_sidecar-7a79119d0a433cab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/fake-codex-app-server.rs (runner/target/release/deps/fake_codex_app_server-d3326a48b236b34a)
+
+running 10 tests
+test tests::task_context_tool_accepts_any_non_empty_description ... ok
+test tests::task_context_result_preserves_exact_legacy_fixture_by_default ... ok
+test tests::task_context_result_accepts_only_the_expected_canonical_binding ... ok
+test tests::task_context_tool_rejects_blank_descriptions_and_wrong_schemas ... ok
+test state_persistence_tests::malformed_existing_state_does_not_reset_the_provider_turn_counter ... ok
+test state_persistence_tests::active_split_suffix_retains_the_original_work_without_a_terminal_claim ... ok
+test state_persistence_tests::settled_split_suffix_persists_before_output_even_when_the_first_write_fails ... ok
+test state_persistence_tests::failed_partial_state_write_preserves_the_previous_turn_counter ... ok
+test state_persistence_tests::terminal_notification_observes_already_persisted_settled_state ... ok
+test state_persistence_tests::settled_split_suffix_keeps_the_original_identity_and_terminal_after_all_output ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/bin/fake-harness.rs (runner/target/release/deps/fake_harness-0b1041d5493950cf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/paperclip-runnerd.rs (runner/target/release/deps/paperclip_runnerd-213c051cfb8be38f)
+
+running 3 tests
+test tests::build_metadata_advertises_the_remote_transport_contract ... ok
+test tests::startup_installs_a_crypto_provider_before_tls_initialization ... ok
+test tests::persistent_diagnostic_is_private_bounded_and_redacted ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/acpx_event_payload.rs (runner/target/release/deps/acpx_event_payload-dd27f4103e2f9ff3)
+
+running 8 tests
+test rejects_unclassified_and_malformed_runtime_payloads ... ok
+test rejects_payloads_before_decoding_when_scope_or_size_is_invalid ... ok
+test admits_sidecar_replacement_scalars_in_tool_fields ... ok
+test retains_full_kind_classification_from_a_bounded_sidecar_frame ... ok
+test decodes_every_admitted_runtime_event_shape ... ok
+test decodes_terminal_and_redacts_diagnostic_payloads ... ok
+test decodes_tool_and_permission_requests_after_scope_validation ... ok
+test validates_question_sets_and_rejects_duplicate_question_ids ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/acpx_event_projection.rs (runner/target/release/deps/acpx_event_projection-195ec64c6924553a)
+
+running 12 tests
+test rejects_invalid_durable_projection_identity ... ok
+test recovery_preserves_the_preceding_provider_turn_answer ... ok
+test projects_assistant_terminal_and_diagnostic_events_fail_closed ... ok
+test projects_reserved_completion_tool_input_for_server_feedback_roundtrip ... ok
+test projects_authorized_tools_with_exact_durable_correlation ... ok
+test rejects_semantic_events_that_cannot_form_stable_receipts ... ok
+test keeps_durable_correlation_separate_from_the_active_provider_turn ... ok
+test projects_terminal_tool_cancellations_as_correlated_results ... ok
+test deterministically_projects_bounded_upstream_request_ids ... ok
+test projects_structured_input_and_semantic_results_without_provider_envelopes ... ok
+test projects_runtime_request_prompt_and_origin_into_the_strict_schema ... ok
+test runtime_request_projection_preserves_durable_identity_boundaries ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/acpx_event_scope.rs (runner/target/release/deps/acpx_event_scope-f5c74f4d4d6b58fe)
+
+running 8 tests
+test admits_every_turn_scoped_event_only_for_the_active_run_and_turn ... ok
+test admits_unbound_process_and_diagnostic_events ... ok
+test binds_and_clears_one_turn_idempotently ... ok
+test rejects_late_events_after_rotating_to_a_distinct_turn_identity ... ok
+test rejects_invalid_scope_identifiers ... ok
+test rejects_missing_and_cross_run_turn_bindings ... ok
+test validates_optional_scope_on_process_and_diagnostic_events ... ok
+test bounds_settled_turn_identity_retention ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/acpx_provider_checkpoint.rs (runner/target/release/deps/acpx_provider_checkpoint-e712b8d0d5c4dd3a)
+
+running 6 tests
+test rejects_an_existing_runner_state_directory_that_is_not_private ... ok
+test rejects_a_symlinked_runner_state_directory ... ok
+test rejects_identity_drift_before_a_checkpoint_is_created ... ok
+test admits_recovery_only_for_the_exact_run_catalog_and_provider_identity ... ok
+test fails_closed_on_unknown_or_oversized_checkpoint_files ... ok
+test round_trips_an_exact_private_suspension_checkpoint_idempotently ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/acpx_provider_events.rs (runner/target/release/deps/acpx_provider_events-b5308e9cbe5bf2ac)
+
+running 12 tests
+test generated_tool_classification_uses_ascii_case_mapping_for_kind_and_title ... ok
+test leaves_operational_semantic_and_terminal_events_to_the_adapter ... ok
+test maps_bounded_plan_and_completion_state ... ok
+test maps_provider_notices_and_errors_with_stable_fields ... ok
+test preserves_usage_counters_across_sidecar_payload_redaction ... ok
+test does_not_label_non_usd_acpx_cost_as_usd ... ok
+test does_not_claim_missing_or_partial_usage_breakdowns_are_exact ... ok
+test hashes_opaque_acpx_tool_identities_without_losing_lifecycle_correlation ... ok
+test maps_text_and_visible_reasoning_summaries_on_stable_stream_identities ... ok
+test maps_usage_and_review_status_but_ignores_inventory_updates ... ok
+test preserves_tool_operation_authority_across_payload_sanitization ... ok
+test maps_tool_lifecycle_and_preserves_safe_display_paths ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/acpx_provider_resolutions.rs (runner/target/release/deps/acpx_provider_resolutions-edd2d1d52a446447)
+
+running 7 tests
+test fake_sidecar_rejects_the_unsupported_permission_resolution_command ... ok
+test rejects_permission_requests_that_bypass_the_pinned_codex_policy ... ok
+test redacts_failed_tool_payload_without_losing_correlation_or_retry ... ok
+test fails_closed_when_a_resolution_is_not_acknowledged ... ok
+test projected_request_id_resolves_the_exact_upstream_sidecar_request ... ok
+test commits_each_resolution_only_after_sidecar_acknowledgement ... ok
+test local_validation_preserves_pending_requests_for_a_correct_retry ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running tests/acpx_provider_session.rs (runner/target/release/deps/acpx_provider_session-a812f9c04916f7ef)
+
+running 8 tests
+test rejects_non_utf8_directories_before_spawning ... ok
+test validates_qualified_policy_and_tool_catalog_before_spawning ... ok
+test admits_custom_claude_models_and_legacy_codex_profile ... ok
+test bootstraps_a_codex_session_and_confirms_run_identity ... ok
+test rejects_a_sidecar_that_reports_another_effective_model ... ok
+test rejects_a_sidecar_that_does_not_confirm_the_run_attachment ... ok
+test validates_recovery_identity_against_the_requested_session ... ok
+test controls_goals_and_observes_updates_without_an_active_prompt ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/acpx_provider_state.rs (runner/target/release/deps/acpx_provider_state-e2f5e10652d55344)
+
+running 14 tests
+test validates_scope_before_mutating_pending_state ... ok
+test correlates_semantic_tool_calls_until_the_sidecar_resolution_commits ... ok
+test accepts_an_identical_semantic_result_once_and_rejects_a_conflict ... ok
+test preserves_an_idless_prefix_when_the_provider_begins_identifying_deltas ... ok
+test promotes_only_the_latest_provider_message_as_the_terminal_reply ... ok
+test does_not_promote_partial_text_to_a_final_reply_after_failure_or_cancellation ... ok
+test keeps_dynamic_results_independent_from_terminal_result_authority ... ok
+test accepts_global_process_and_diagnostic_events_without_an_active_turn ... ok
+test assigns_monotonic_revisions_to_plan_snapshots_within_a_turn ... ok
+test terminal_events_clear_pending_requests_and_reject_late_turn_events ... ok
+test accumulates_assistant_text_preserves_reasoning_and_flushes_before_terminal ... ok
+test mutation_prose_survives_sidecar_decode_pending_state_and_semantic_projection ... ok
+test correlates_projected_runtime_requests_to_the_upstream_input_id ... ok
+test tracks_structured_input_and_permission_requests_without_cross_kind_reuse ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/acpx_provider_suspend.rs (runner/target/release/deps/acpx_provider_suspend-fd1072aa15b623d1)
+
+running 4 tests
+test reaps_an_active_provider_generation_at_the_suspension_boundary ... ok
+test suspends_only_after_the_exact_persistent_identity_is_confirmed ... ok
+test rejects_suspension_during_an_active_turn_without_closing_the_session ... ok
+test fails_closed_when_the_suspension_acknowledgement_does_not_match ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/acpx_provider_turns.rs (runner/target/release/deps/acpx_provider_turns-9d7331ab2d7f9783)
+
+running 22 tests
+test fails_closed_before_returning_a_malformed_reserved_result ... ok
+test fails_closed_when_cancellation_is_not_confirmed ... ok
+test failed_semantic_results_preserve_error_status_and_release_pending_capacity ... ok
+test fails_closed_when_turn_start_acknowledges_another_turn ... ok
+test fails_closed_when_a_polled_event_violates_run_scope ... ok
+test fails_closed_before_reusing_a_settled_turn_identity ... ok
+test fails_closed_before_returning_an_uncorrelated_reserved_result ... ok
+test completed_tool_results_are_not_cancelled_when_the_turn_terminates ... ok
+test fails_closed_before_returning_an_unauthorized_tool_call ... ok
+test completes_multiple_distinct_dynamic_tool_results_in_one_turn ... ok
+test fails_closed_before_returning_a_mismatched_reserved_result ... ok
+test admits_only_catalog_authorized_tool_calls ... ok
+test correlates_reserved_results_by_raw_digest_without_exposing_sensitive_values ... ok
+test rejects_invalid_turn_inputs_without_mutating_the_session ... ok
+test preserves_the_durable_turn_identity_boundary_through_the_sidecar ... ok
+test rejects_sensitive_reserved_results_that_only_match_after_redaction ... ok
+test starts_interrupts_and_settles_one_scoped_turn ... ok
+test reserved_completion_waits_for_feedback_and_allows_correction_in_same_turn ... ok
+test returns_pending_tool_cancellations_before_the_terminal_event ... ok
+test reaps_the_old_provider_before_admitting_a_late_tool_callback ... ok
+test rotates_settled_tool_receipts_between_reusable_turns ... ok
+test reserved_terminal_results_require_an_authorized_correlated_invocation ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/acpx_sidecar_transport.rs (runner/target/release/deps/acpx_sidecar_transport-4f6dcbdac907428b)
+
+running 14 tests
+
+running 1 test
+test rejects_an_unbounded_event_poll_without_poisoning_the_transport ... ok
+test keeps_valid_command_rejections_separate_from_protocol_failures ... ok
+test buffers_events_that_arrive_before_a_response ... ok
+test rejects_response_identity_mismatch ... ok
+test redacts_sidecar_stderr_when_the_process_exits ... ok
+test preserves_only_allowlisted_stderr_categories_when_the_process_exits ... ok
+test rejects_an_oversized_stdout_frame ... ok
+test a_poisoned_transport_discards_events_buffered_before_failure ... ok
+test rejects_event_replay ... ok
+test rejects_event_gaps_and_poisoned_transport_reuse ... ok
+test bounds_events_while_waiting_for_a_response ... ok
+test assigned_gateway_binding_reaches_qualified_sidecar_without_unrelated_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.02s
+
+test assigned_gateway_binding_reaches_qualified_sidecar_without_unrelated_secrets ... ok
+test times_out_and_terminates_a_silent_sidecar ... ok
+test an_empty_event_poll_does_not_poison_the_transport ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/acpx_warm_attachment.rs (runner/target/release/deps/acpx_warm_attachment-a5d5b9fef7d16700)
+
+running 1 test
+test checkpoints_the_sidecar_and_rebinds_consecutive_warm_runs_before_accepting_work ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.48s
+
+     Running tests/codex_provider.rs (runner/target/release/deps/codex_provider-23124f10b991c9ac)
+
+running 91 tests
+test codex_dynamic_tool_round_trips_through_the_provider_boundary ... ok
+test clean_idle_provider_exit_preserves_completed_turn_success ... ok
+test codex_completion_survives_failed_pending_request_cancellation ... ok
+test accepted_replacement_turn_revokes_prior_authority_before_idle_crash ... ok
+test codex_completion_cancels_pending_tool_request_before_releasing_capacity ... ok
+test ambiguous_replacement_turn_rejects_conflicting_later_identity ... ok
+test ambiguous_replacement_turn_rejects_an_older_settled_identity ... ok
+test codex_account_updates_do_not_interrupt_turns_or_publish_account_details ... ok
+test codex_facade_bridges_opencode_native_questions_instead_of_rejecting_the_method ... ok
+test codex_fails_closed_when_a_provider_reuses_a_settled_turn_id ... ok
+test codex_goal_autostart_binds_the_provider_turn_authority ... ok
+test codex_rejects_a_runtime_response_after_its_turn_terminates ... ok
+test codex_rejects_a_tool_call_that_was_not_advertised ... ok
+test codex_objective_only_paused_goal_edit_does_not_arm_turn_reconciliation ... ok
+test ambiguous_or_dead_replacement_start_preserves_result_not_exit_authority ... ok
+test codex_rejects_a_delayed_prior_turn_call_while_the_next_turn_is_active ... ok
+test codex_resume_advertises_the_same_authorized_tools ... ok
+test codex_fails_closed_when_a_provider_reuses_an_older_settled_turn_id ... ok
+test codex_resume_rejects_an_oversized_active_turn_identity ... ok
+test codex_rejects_replay_of_a_completed_tool_call_id_in_the_same_turn ... ok
+test codex_rejects_delayed_calls_after_every_terminal_notification ... ok
+test codex_rejects_a_two_turn_old_call_while_idle ... ok
+test codex_rejects_a_two_turn_old_call_while_fresh_work_is_active ... ok
+test delegates_command_isolation_to_an_explicit_external_sandbox ... ok
+test codex_transport_buffers_notifications_while_waiting_for_responses ... ok
+test codex_completion_emits_the_bound_result_before_the_terminal_event ... ok
+test ambiguous_replacement_turn_adopts_one_later_completion_identity ... ok
+test clean_exit_after_ambiguous_replacement_start_fails_the_durable_session ... ok
+test durable_backend_closes_after_accepted_turn_omits_its_identity ... ok
+test ambiguous_replacement_completion_replaces_durable_turn_authority ... ok
+test durable_backend_delivers_a_terminal_before_rejecting_a_delayed_tool_call ... ok
+test durable_backend_closes_when_identity_rollover_resumes_unowned_work ... ok
+test durable_backend_rejects_a_runtime_response_after_terminal_settlement ... ok
+test durable_backend_rejects_new_work_in_a_completed_turn_tail ... ok
+test completed_ambiguous_replacement_fails_closed_after_process_loss ... ok
+test durable_ambiguous_start_recovers_a_distinct_active_replacement_after_process_loss ... ok
+test durable_backend_reaps_before_rotating_full_provider_identity_epochs ... ok
+test durable_backend_attaches_after_a_settled_restore_notice ... ok
+test durable_backend_replays_completed_results_without_mutating_the_event_queue ... ok
+test durable_backend_drains_completed_turn_usage_and_passive_tail_during_warm_attach ... ok
+test durable_stop_does_not_reopen_an_unprepared_or_closed_executor ... ok
+test durable_backend_resumes_the_active_thread_without_restarting_the_turn ... ok
+test durable_backend_rejects_an_older_provider_turn_id_after_restart ... ok
+test durable_backend_settles_tools_before_a_natural_terminal_event ... ok
+test durable_stop_does_not_wait_for_a_repeated_interrupt_acknowledgement ... ok
+test durable_backend_routes_a_semantic_tool_result_back_to_codex ... ok
+test durable_backend_settles_pending_tools_when_recovery_finds_the_turn_ended ... ok
+test durable_integrity_failure_preserves_code_and_stops_provider_authority ... ok
+test failed_provider_startup_new_process_subprocess ... ignored, isolated process checks persisted failed-startup admission
+test durable_recovery_closes_a_provider_that_reopens_a_settled_turn ... ok
+test durable_stop_prepares_a_turn_that_ended_before_provider_resume ... ok
+test durable_backend_rotates_tool_authority_for_fresh_run_attach ... ok
+
+running 1 test
+test failed_provider_startup_new_process_subprocess ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 90 filtered out; finished in 0.01s
+
+test durable_backend_replays_pending_tool_calls_without_mutating_the_event_queue ... ok
+test durable_stop_settles_pending_semantic_tools_without_a_courtesy_interrupt ... ok
+test durable_stop_prepares_an_active_resumed_turn ... ok
+test helper_tool_requests_do_not_terminate_or_borrow_root_authority ... ok
+test failed_provider_startup_is_persistently_fenced_before_another_process_can_resume ... ok
+test durable_terminal_delivery_reconciliation_does_not_launch_a_cold_provider ... ok
+test explicit_skill_input_survives_durable_turn_and_cold_restore ... ok
+test lightweight_history_repeated_cursor_is_not_idle_evidence ... ok
+test pending_runtime_request_count_limit_rejects_the_overflowing_request ... ok
+test provider_receives_isolated_codex_auth_home_subprocess ... ignored, subprocess helper for provider_receives_the_isolated_codex_auth_home
+test lightweight_history_pages_metadata_only_when_state_is_active ... 
+running 1 test
+ok
+kill: '17589': No such process
+kill: '17586': No such process
+test idle_resource_limit_persists_reconciliation_and_retires_provider ... ok
+test idle_integrity_failure_persists_reconciliation_and_retires_provider ... ok
+test provider_receives_isolated_codex_auth_home_subprocess ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 90 filtered out; finished in 0.18s
+
+test provider_receives_the_isolated_codex_auth_home ... ok
+test legacy_filtered_ambiguous_epoch_is_closed_on_recovery ... ok
+test legacy_full_active_epoch_is_closed_on_recovery ... ok
+test failed_autonomous_restore_and_rollover_keep_their_exact_startup_origin ... ok
+test rejected_codex_goal_activation_restores_turn_reconciliation ... ok
+test legacy_full_ended_epoch_reconciles_before_idle_rollover ... ok
+test rejected_replacement_turn_start_preserves_result_and_exit_authority ... ok
+test rejected_replacement_turn_start_does_not_hide_contradictory_turn_evidence ... ok
+test reused_provider_question_ids_get_unique_controller_identities ... ok
+test provider_exit_preserves_and_reconciles_the_active_turn ... ok
+test post_completion_observation_does_not_hide_same_or_resumed_process_failure ... ok
+test skill_flag_can_be_added_to_an_old_checkpoint_at_settled_run_attach ... ok
+test skill_instructions_flag_reaches_start_and_resume_and_preserves_absent_config ... ok
+test replacement_item_is_not_persisted_before_ambiguous_turn_identity ... ok
+test resume_usage_is_a_historical_diagnostic_not_a_warning_or_charge ... ok
+test clean_provider_exit_does_not_refail_a_completed_turn ... ok
+test structured_question_round_trips_through_the_normalized_backend ... ok
+test unacknowledged_provider_events_survive_executor_restart ... ok
+test receipt_limit_accepts_a_terminal_after_the_initial_interrupt_deadline ... ok
+test receipt_limit_polling_bounds_and_rejects_runtime_request_floods ... ok
+test durable_descendant_lineage_survives_capacity_and_provider_restoration ... ok
+test receipt_limit_polls_an_authoritative_terminal_with_unacknowledged_events ... ok
+test receipt_limit_rejects_the_call_and_keeps_polling_when_interrupt_fails ... ok
+test receipt_limit_retry_preserves_a_turn_settled_during_provider_recovery ... ok
+test receipt_limit_synthesizes_interrupted_after_an_accepted_terminal_deadline ... ok
+test direct_provider_reaps_before_rotating_a_full_turn_identity_epoch has been running for over 60 seconds
+test direct_provider_reaps_before_rotating_a_full_turn_identity_epoch ... ok
+
+test result: ok. 89 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 144.10s
+
+     Running tests/durable_recovery.rs (runner/target/release/deps/durable_recovery-8988a62892236491)
+
+running 3 tests
+test duplicate_replay_requires_the_complete_command_identity ... ok
+test pre_fingerprint_journal_recovers_without_reexecuting_old_commands ... ok
+test public_store_never_reexecutes_a_journaled_command_after_recovery ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/local_integrity_boundary_golden.rs (runner/target/release/deps/local_integrity_boundary_golden-1d10b63d51a60179)
+
+running 3 tests
+test canonical_boundary_fixture_names_all_qualified_local_profiles ... ok
+test codex_facade_normalization_matches_the_shared_identity_and_channel_golden ... ok
+test acpx_projection_matches_shared_plan_question_final_and_terminal_identity ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_runner.rs (runner/target/release/deps/local_runner-c97c66c95cfeb3fc)
+
+running 3 tests
+test runnerd_startup_reports_build_metadata_without_panicking ... ok
+test equivalent_command_redelivery_is_idempotent ... ok
+test happy_path_emits_one_result_and_one_terminal ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.19s
+
+     Running tests/native_provider_backend.rs (runner/target/release/deps/native_provider_backend-236374ffcfe7594c)
+
+running 12 tests
+test rejects_pi_before_starting_a_sidecar ... ok
+test rejects_a_mutable_opencode_command_outside_the_runner_launch_profile ... ok
+test rejects_opencode_launch_profile_drift_across_fresh_recovery ... ok
+test preserves_managed_provider_descriptors_through_the_native_selector ... ok
+test preserves_acpx_semantic_disposition_in_the_run_terminal ... ok
+test executes_opencode_through_the_local_facade_without_codex_event_labels ... ok
+test executes_a_qualified_acpx_profile_through_the_native_selector ... ok
+test keeps_native_acpx_semantic_events_on_the_durable_controller_turn ... ok
+test routes_reserved_completion_feedback_with_the_full_controller_catalog ... ok
+test starts_a_distinct_acpx_provider_turn_for_same_run_recovery ... ok
+test resumes_an_idle_acpx_session_in_a_cold_replacement_runner ... ok
+test replacement_shutdown_restores_the_persisted_provider_before_cleanup ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.56s
+
+     Running tests/process_supervisor.rs (runner/target/release/deps/process_supervisor-f5f98f7fa6651c01)
+
+running 5 tests
+test oversized_harness_stdout_frame_is_rejected ... ok
+test natural_harness_exit_also_cleans_up_workers ... ok
+test forced_process_group_cleanup_stops_harness_and_worker ... ok
+test verified_launch_preserves_homebrew_node_loader_layout ... FAILED
+test verified_launch_uses_open_command_and_script_after_atomic_path_replacement ... ok
+
+failures:
+
+---- verified_launch_preserves_homebrew_node_loader_layout stdout ----
+
+thread 'verified_launch_preserves_homebrew_node_loader_layout' (59342718) panicked at crates/runner-core/tests/process_supervisor.rs:180:6:
+verified Node should start with its loader-relative libraries: LocalRunnerError("failed to create immutable process snapshot for /nix/store/r8aiprpyml1kxbkdf4zs8ji7faxrsbdb-nodejs-slim-24.19.0/bin/node: Permission denied (os error 13)")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    verified_launch_preserves_homebrew_node_loader_layout
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+error: test failed, to rerun pass `--test process_supervisor`
+     Running tests/provider_bridge.rs (runner/target/release/deps/provider_bridge-4453b91951c5b0f6)
+
+running 31 tests
+test catalog_digest_matches_the_typescript_canonical_json_contract ... ok
+test catalog_digest_normalizes_json_numbers_like_javascript ... ok
+test recovery_preserves_a_pristine_bridge_without_a_catalog ... ok
+test recovered_bridge_rejects_tampered_authorization_state ... ok
+test forwards_only_authorized_calls_and_correlates_results ... ok
+test cancellation_completes_pending_calls_and_rejects_late_results ... ok
+test durable_session_refuses_catalog_drift ... ok
+test recovery_preserves_pending_calls_for_the_existing_run ... ok
+test keeps_pending_calls_when_a_result_envelope_has_wrong_identity ... ok
+test recovery_rejects_nonempty_state_without_a_catalog_digest ... ok
+test recovery_preserves_a_reverse_ordered_authorization_catalog ... ok
+test recovery_preserves_completed_call_replay_identities ... ok
+test recovery_rejects_tampered_authorization_catalog_bindings ... ok
+test recovery_rejects_tampered_retained_result_contracts ... ok
+test recovery_rejects_tampered_pending_call_contracts ... ok
+test rejects_unknown_tools_and_conflicting_duplicate_results ... ok
+test settlement_preserves_call_ids_for_the_durable_run ... ok
+test settles_pending_receipts_with_explicit_terminal_results ... ok
+test turn_settlement_releases_value_capacity_without_reusing_call_ids ... ok
+test validates_the_operation_value_inside_a_semantic_dispatch_envelope ... ok
+test recovery_rejects_an_oversized_settled_result_envelope ... ok
+test rejects_noncanonical_digests_and_oversized_contract_values ... ok
+test recovery_rejects_state_without_room_for_a_pending_result ... ok
+test turn_settlement_cannot_be_blocked_by_completed_value_pressure ... ok
+test full_identity_ledger_fails_closed_across_turn_and_recovery ... ok
+test reserves_settled_result_bytes_before_accepting_a_call ... ok
+test exact_identity_overflow_saturates_the_durable_run ... ok
+test recovered_turn_preserves_exact_results_at_the_value_boundary ... ok
+test settled_result_byte_exhaustion_recovers_after_turn_cleanup ... ok
+test settles_completed_receipts_before_the_next_turn ... ok
+test completed_receipts_are_exact_until_the_controlled_turn_limit ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests/question_response.rs (runner/target/release/deps/question_response-eb266fadcb5d5fc7)
+
+running 10 tests
+test treats_ecmascript_bom_whitespace_as_an_empty_required_answer ... ok
+test rejects_present_empty_optional_answers ... ok
+test counts_text_lengths_like_javascript_utf16 ... ok
+test rounds_large_prefixed_integers_like_javascript_number ... ok
+test rejects_malformed_or_oversized_response_envelopes ... ok
+test rejects_malformed_persisted_text_constraints ... ok
+test accepts_answers_that_match_the_exact_question_set ... ok
+test rejects_semantically_malformed_unanswered_questions ... ok
+test rejects_cross_document_and_answer_mode_mismatches ... ok
+test matches_javascript_radix_overflow_midpoint ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests paperclip_runner_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `--test process_supervisor`

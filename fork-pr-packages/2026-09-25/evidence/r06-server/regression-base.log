@@ -1,0 +1,119 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0607/server
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts (21 tests | 2 failed) 13944ms
+     × honors approval-stage returnAssignee participant selection via PATCH /api/issues/:id (#4912) 273ms
+     × auto-skips intermediate self-review stage and advances to approval stage via PATCH 303ms
+ ❯ src/__tests__/issue-execution-policy.test.ts (81 tests | 4 failed) 25ms
+       × selects the returnAssignee when review approval advances to an approval stage (#4912) 5ms
+       × auto-skips an intermediate self-review stage and selects the returnAssignee for approval 0ms
+       × auto-skips consecutive self-review stages to complete the workflow 0ms
+       × selects the returnAssignee on initial entry into an approval stage 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > honors approval-stage returnAssignee participant selection via PATCH /api/issues/:id (#4912)
+AssertionError: expected 422 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 422
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1294:24
+    1292|       .send({ status: "done", comment: "LGTM approved by reviewer" });
+    1293|
+    1294|     expect(res.status).toBe(200);
+       |                        ^
+    1295|     expect(mockIssueService.update).toHaveBeenCalledWith(
+    1296|       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > auto-skips intermediate self-review stage and advances to approval stage via PATCH
+AssertionError: expected 422 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 422
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1392:24
+    1390|       .send({ status: "done", comment: "First review approved" });
+    1391|
+    1392|     expect(res.status).toBe(200);
+       |                        ^
+    1393|     expect(mockIssueService.update).toHaveBeenCalledWith(
+    1394|       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > selects the returnAssignee when review approval advances to an approval stage (#4912)
+Error: No eligible approval participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:817:17
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1266:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > auto-skips an intermediate self-review stage and selects the returnAssignee for approval
+Error: No eligible review participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:817:17
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1370:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > auto-skips consecutive self-review stages to complete the workflow
+Error: No eligible review participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:817:17
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1425:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > selects the returnAssignee on initial entry into an approval stage
+Error: No eligible approval participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:1022:11
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1536:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 96 passed (102)
+   Start at  23:59:23
+   Duration  16.28s (transform 7.08s, setup 247ms, import 1.76s, tests 13.97s, environment 0ms)
+

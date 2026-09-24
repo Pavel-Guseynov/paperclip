@@ -1,0 +1,8 @@
+head=6b754cea82a197d33e27e26ebacb85378b061a09 exit=0
+restored-to-U: packages/db/src/migrations/meta/_journal.json packages/db/src/schema/agent_wakeup_requests.ts server/src/routes/issues.ts server/src/services/recovery/service.ts
+restored-from-U (absent in head): packages/db/src/migrations/meta/0279_snapshot.json
+moved-aside (added by branch): packages/db/src/migrations/0284_rapid_prowler.sql packages/db/src/migrations/meta/0284_snapshot.json server/src/services/recovery/review-handoff-retry.ts
+base-production exit=1
+restored clean
+regression-head:  Test Files 2 passed (2)  Tests 26 passed (26) 
+regression-base:  Test Files 2 failed (2)  Tests no tests 

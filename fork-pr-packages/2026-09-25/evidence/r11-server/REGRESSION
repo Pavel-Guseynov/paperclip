@@ -1,0 +1,8 @@
+head=ea6107e611ac3febf075111fd2cc5cdaa7522ac8 exit=0
+restored-to-U: server/src/services/native-runtime/native-runner-file-handoff.ts
+restored-from-U (absent in head): 
+moved-aside (added by branch): 
+base-production exit=1
+restored clean
+regression-head:  Test Files 1 passed (1)  Tests 22 passed (22) 
+regression-base:  Test Files 1 failed (1)  Tests 4 failed | 18 passed (22) 

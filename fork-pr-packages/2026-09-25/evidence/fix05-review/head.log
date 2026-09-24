@@ -1,0 +1,36 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server
+
+ ❯ src/__tests__/http-log-redaction.test.ts (93 tests | 1 failed) 290ms
+     × marks an unreadable array element without losing the rest of the array 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > marks an unreadable array element without losing the rest of the array
+AssertionError: expected { authorization: '[Redacted]' } to be '[Unreadable]' // Object.is equality
+
+- Expected:
+"[Unreadable]"
+
++ Received:
+{
+  "authorization": "[Redacted]",
+}
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1455:33
+    1453|     const [written] = logRecords(chunks);
+    1454|     expect(Array.isArray(written.attempts)).toBe(true);
+    1455|     expect(written.attempts[0]).toBe("[Unreadable]");
+       |                                 ^
+    1456|     expect(written.attempts[1]).toEqual({
+    1457|       gatewayToken: "[Redacted]",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 92 passed (93)
+   Start at  01:08:41
+   Duration  7.10s (transform 4.60s, setup 169ms, import 6.48s, tests 290ms, environment 0ms)
+

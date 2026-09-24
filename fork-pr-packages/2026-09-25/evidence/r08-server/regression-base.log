@@ -1,0 +1,182 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix08/server
+
+[00:00:58] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"ee2d215d87b1f7fc","outcome":"success","queueWaitMs":0,"executionMs":17,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+[00:00:58] [32mINFO[39m: [36mworkspace Git scan completed[39m [90m{"event":"workspace_git_scan","operation":"workspace_runtime.branch_incoherence_status","workspaceHash":"98974301fe92aed0","outcome":"success","queueWaitMs":0,"executionMs":18,"activeCount":1,"queuedCount":0,"cacheHit":false,"singleFlightJoinCount":0,"exitOutcome":"zero"}[39m
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts (14 tests | 8 failed) 5056ms
+       × finds the typed failure through a generic wrapper's cause chain 3ms
+       × returns null for a generic error without a workspace validation cause 0ms
+       × terminates on a self-referencing cause chain 0ms
+       × escalates a failed review participant to workspace_validation_failed and preserves its typed evidence 99ms
+       × reports both blockers when the failed review participant is also not invokable 109ms
+       × holds the typed diagnosis when a later generic failure sweeps the same issue 105ms
+       × leaves an active workspace_validation action untouched when a generic sweep writes 7ms
+       × merges a partial workspace diagnosis onto the recorded one on a preserving write 7ms
+ ❯ src/services/recovery/stranded-notice.test.ts (23 tests | 3 failed) 8ms
+     × names the typed diagnosis and the repair the board owns 2ms
+     × also reports an unavailable participant so neither blocker is lost 0ms
+     × omits the diagnosis sentence when the run recorded no reason 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/recovery/stranded-notice.test.ts > execution review participant workspace validation seed > names the typed diagnosis and the repair the board owns
+TypeError: buildExecutionReviewParticipantWorkspaceValidationNoticeSeed is not a function
+ ❯ src/services/recovery/stranded-notice.test.ts:269:18
+    267| describe("execution review participant workspace validation seed", () …
+    268|   it("names the typed diagnosis and the repair the board owns", () => {
+    269|     const seed = buildExecutionReviewParticipantWorkspaceValidationNot…
+       |                  ^
+    270|       participantInvokable: true,
+    271|       workspaceValidationReason: "git_worktree_branch_incoherence",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  src/services/recovery/stranded-notice.test.ts > execution review participant workspace validation seed > also reports an unavailable participant so neither blocker is lost
+TypeError: buildExecutionReviewParticipantWorkspaceValidationNoticeSeed is not a function
+ ❯ src/services/recovery/stranded-notice.test.ts:285:18
+    283|
+    284|   it("also reports an unavailable participant so neither blocker is lo…
+    285|     const seed = buildExecutionReviewParticipantWorkspaceValidationNot…
+       |                  ^
+    286|       participantInvokable: false,
+    287|       workspaceValidationReason: "git_worktree_branch_incoherence",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  src/services/recovery/stranded-notice.test.ts > execution review participant workspace validation seed > omits the diagnosis sentence when the run recorded no reason
+TypeError: buildExecutionReviewParticipantWorkspaceValidationNoticeSeed is not a function
+ ❯ src/services/recovery/stranded-notice.test.ts:294:18
+    292|
+    293|   it("omits the diagnosis sentence when the run recorded no reason", (…
+    294|     const seed = buildExecutionReviewParticipantWorkspaceValidationNot…
+       |                  ^
+    295|       participantInvokable: true,
+    296|       workspaceValidationReason: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > wrapped workspace validation failures > finds the typed failure through a generic wrapper's cause chain
+TypeError: findWorkspaceValidationFailure is not a function
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:295:25
+    293|       });
+    294|
+    295|       const extracted = findWorkspaceValidationFailure(wrappedError);
+       |                         ^
+    296|       expect(extracted).toBe(innerFailure);
+    297|       expect(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > wrapped workspace validation failures > returns null for a generic error without a workspace validation cause
+TypeError: findWorkspaceValidationFailure is not a function
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:305:9
+    303|     it("returns null for a generic error without a workspace validatio…
+    304|       expect(
+    305|         findWorkspaceValidationFailure(
+       |         ^
+    306|           new Error("process_lost: child process terminated"),
+    307|         ),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > wrapped workspace validation failures > terminates on a self-referencing cause chain
+TypeError: findWorkspaceValidationFailure is not a function
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:314:14
+    312|       const looping = new Error("outer") as Error & { cause?: unknown …
+    313|       looping.cause = looping;
+    314|       expect(findWorkspaceValidationFailure(looping)).toBeNull();
+       |              ^
+    315|     });
+    316|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > escalates a failed review participant to workspace_validation_failed and preserves its typed evidence
+AssertionError: expected [] to include '773399a0-109c-450a-931c-50c1c040c8cd'
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:525:42
+    523|           enqueueWakeup: vi.fn(),
+    524|         }).reconcileStrandedAssignedIssues();
+    525|         expect(reconcileResult.issueIds).toContain(issueId);
+       |                                          ^
+    526|
+    527|         const activeAction = await issueRecoveryActionService(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > reports both blockers when the failed review participant is also not invokable
+AssertionError: expected 'execution_review_participant_recovery' to be 'workspace_validation_failed' // Object.is equality
+
+Expected: "workspace_validation_failed"
+Received: "execution_review_participant_recovery"
+
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:588:37
+    586|           db,
+    587|         ).getActiveForIssue(companyId, issueId);
+    588|         expect(activeAction?.cause).toBe("workspace_validation_failed"…
+       |                                     ^
+    589|
+    590|         const notices = await readSystemNoticeBodies(issueId);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > holds the typed diagnosis when a later generic failure sweeps the same issue
+AssertionError: expected 'stranded_assigned_issue' to be 'workspace_validation_failed' // Object.is equality
+
+Expected: "workspace_validation_failed"
+Received: "stranded_assigned_issue"
+
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:672:40
+    670|           issueId,
+    671|         );
+    672|         expect(afterFirstSweep?.cause).toBe("workspace_validation_fail…
+       |                                        ^
+    673|         expect(afterFirstSweep?.kind).toBe("workspace_validation");
+    674|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > leaves an active workspace_validation action untouched when a generic sweep writes
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:780:45
+    778|         // The sweep attempted no recovery, so it neither consumes an …
+    779|         // nor adds its own observations to the diagnosed action.
+    780|         expect(genericAttempt.attemptCount).toBe(initial.attemptCount);
+       |                                             ^
+    781|         const evidence = genericAttempt.evidence as {
+    782|           workspaceValidation?: { actualHeadSha: string };
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > merges a partial workspace diagnosis onto the recorded one on a preserving write
+AssertionError: expected undefined to be 'git_worktree_branch_incoherence' // Object.is equality
+
+- Expected:
+"git_worktree_branch_incoherence"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:899:54
+    897|         // The partial rebuild merges onto the complete diagnosis inst…
+    898|         // replacing it.
+    899|         expect(evidence.workspaceValidation?.reason).toBe(
+       |                                                      ^
+    900|           "git_worktree_branch_incoherence",
+    901|         );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  11 failed | 37 passed (48)
+   Start at  00:00:46
+   Duration  18.60s (transform 7.81s, setup 191ms, import 12.96s, tests 5.07s, environment 0ms)
+

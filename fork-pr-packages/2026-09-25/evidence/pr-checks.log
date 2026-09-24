@@ -1,0 +1,78 @@
+== 01 fix(server): authorize managed MCP gateway bearers for Codex
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 02 fix(server): accept run-scoped gateway session tokens as Authorization bearers
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 03 fix(codex): give agents the internal runtime API URL, not the public origin
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 04 fix(gateway): keep remote MCP tools listed after an ambiguous invocation timeout
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 05 fix(logger): redact tool gateway credentials from every log path
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 06 fix(server): honor approval-stage returnAssignee participant selection
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 07 fix(server): retry a skipped review handoff after its stale blocker clears
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 08 fix(recovery): keep the typed workspace-validation diagnosis ahead of generic failures
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 09 feat(issues): verify delivery evidence before an evidence-gated issue closes
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 10 feat(review): record revision-keyed review admissions
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 11 fix(native-runner): decode hex-escaped lsof paths without corrupting Unicode
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 12 test(server): isolate workspace runtime port reservations between tests
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":true,"failures":[]}
+== 13 refactor(toolchain): migrate the repository to pnpm 11.21.0
+check-pr-template: {"passed":true,"failures":[]}
+check-pr-linked-issue: {"passed":true,"failures":[]}
+check-pr-dedup-search: {"passed":true,"failures":[]}
+check-pr-test-coverage: {"passed":true,"failures":[]}
+check-pr-lockfile: {"passed":false,"failures":["You have changes to `pnpm-lock.yaml` — `pr.yml` will hard-fail this PR with a confusing message about lockfile edits. To fix: run `pnpm install` locally, exclude the lock

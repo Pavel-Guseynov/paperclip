@@ -1,0 +1,186 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0102/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (74 tests | 8 failed) 19757ms
+     × exposes a named gateway with scoped bearer-token auth and revocation 256ms
+     × answers an initialized notification without a JSON-RPC body or a session-setup charge 40ms
+     × validates audit filter ids as generic UUIDs rather than by version nibble 8ms
+       × authenticates tools/list and tools/call for its own session over an Authorization bearer 40ms
+       × reads only a session-token bearer out of Authorization 36ms
+       × rejects revoked, cross-session, unknown, and malformed session bearers 30ms
+       × rejects a session bound to another agent's run and a session whose run has finished 52ms
+       × rejects a gateway token on the run-scoped session endpoints 45ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > exposes a named gateway with scoped bearer-token auth and revocation
+AssertionError: expected '<!DOCTYPE html>\n<html lang="en">\n<h…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ <!DOCTYPE html>
++ <html lang="en">
++ <head>
++ <meta charset="utf-8">
++ <title>Error</title>
++ </head>
++ <body>
++ <pre>Error: Agent token did not verify; obtain fresh credentials and retry<br> &nbsp; &nbsp;at unauthorized (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0102/server/src/errors.ts:17:10)<br> &nbsp; &nbsp;at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0102/server/src/middleware/auth.ts:350:14<br> &nbsp; &nbsp;at processTicksAndRejections (node:internal/process/task_queues:104:5)</pre>
++ </body>
++ </html>
++
+
+ ❯ src/__tests__/tool-gateway.test.ts:664:41
+    662|         .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+    663|         .expect(401);
+    664|       expect(rejectedNotification.text).toBe("");
+       |                                         ^
+    665|
+    666|       const initialized = await request(app)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > answers an initialized notification without a JSON-RPC body or a session-setup charge
+Error: expected 200 "OK", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1358:8
+    1356|       .set("authorization", `Bearer ${token.token}`)
+    1357|       .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    1358|       .expect(200);
+       |        ^
+    1359|
+    1360|     const afterHandshake = await tokenRow();
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > validates audit filter ids as generic UUIDs rather than by version nibble
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/__tests__/tool-gateway.test.ts:4855:31
+    4853|         .get("/api/tool-gateway/audit")
+    4854|         .query({ companyId: company.id, [filter]: genericUuid });
+    4855|       expect(accepted.status).toBe(200);
+       |                               ^
+    4856|       expect(accepted.body.events).toEqual([]);
+    4857|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > authenticates tools/list and tools/call for its own session over an Authorization bearer
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/tool-gateway.test.ts:5592:29
+    5590|         .get("/api/tool-gateway/tools")
+    5591|         .set("Authorization", `Bearer ${session.token}`);
+    5592|       expect(listed.status).toBe(200);
+       |                             ^
+    5593|       expect(listed.body).toEqual(expect.arrayContaining([
+    5594|         expect.objectContaining({ name: toolName }),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > reads only a session-token bearer out of Authorization
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/tool-gateway.test.ts:5655:36
+    5653|         .get("/api/tool-gateway/tools")
+    5654|         .set("Authorization", `Bearer ${session.token}`);
+    5655|       expect(sessionBearer.status).toBe(200);
+       |                                    ^
+    5656|
+    5657|       // The documented precedence: the header wins when both are pres…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > rejects revoked, cross-session, unknown, and malformed session bearers
+AssertionError: expected {} to match object { reasonCode: 'session_revoked' }
+
+- Expected
++ Received
+
+- {
+-   "reasonCode": "session_revoked",
+- }
++ {}
+
+ ❯ src/__tests__/tool-gateway.test.ts:5692:28
+    5690|         .set("Authorization", `Bearer ${sessionA.token}`);
+    5691|       expect(revoked.status).toBe(401);
+    5692|       expect(revoked.body).toMatchObject({ reasonCode: "session_revoke…
+       |                            ^
+    5693|
+    5694|       // Session A's id carrying Session B's secret: a stolen secret m…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > rejects a session bound to another agent's run and a session whose run has finished
+AssertionError: expected {} to match object { reasonCode: 'session_run_inactive' }
+
+- Expected
++ Received
+
+- {
+-   "reasonCode": "session_run_inactive",
+- }
++ {}
+
+ ❯ src/__tests__/tool-gateway.test.ts:5745:29
+    5743|         .set("Authorization", `Bearer ${wrongRunSession.token}`);
+    5744|       expect(wrongRun.status).toBe(401);
+    5745|       expect(wrongRun.body).toMatchObject({ reasonCode: "session_run_i…
+       |                             ^
+    5746|
+    5747|       const finishedRunSession = await gateway.createSession({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > rejects a gateway token on the run-scoped session endpoints
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ src/__tests__/tool-gateway.test.ts:5795:37
+    5793|         .get("/api/tool-gateway/tools")
+    5794|         .set("x-paperclip-tool-gateway-token", gatewayToken.token);
+    5795|       expect(listedByHeader.status).toBe(401);
+       |                                     ^
+    5796|       expect(listedByHeader.body).toMatchObject({ reasonCode: "session…
+    5797|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 66 passed (74)
+   Start at  00:17:22
+   Duration  48.78s (transform 13.10s, setup 132ms, import 28.78s, tests 19.76s, environment 0ms)
+

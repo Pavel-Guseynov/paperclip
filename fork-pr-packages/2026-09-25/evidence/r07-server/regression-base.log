@@ -1,0 +1,39 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0607/server
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts (0 test)
+ ❯ src/services/recovery/review-handoff-retry.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts [ src/__tests__/heartbeat-review-handoff-retry.test.ts ]
+Error: Cannot find module '/src/services/recovery/review-handoff-retry.js' imported from /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0607/server/src/__tests__/heartbeat-review-handoff-retry.test.ts
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:72:1
+     70| import { getExecutionBlocker } from "../services/execution-blocker.js";
+     71| import { recoveryService } from "../services/recovery/service.js";
+     72| import {
+       | ^
+     73|   REVIEW_HANDOFF_COALESCED_REASON,
+     74|   REVIEW_HANDOFF_NO_RECEIPT_REASON,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/services/recovery/review-handoff-retry.test.ts [ src/services/recovery/review-handoff-retry.test.ts ]
+Error: Cannot find module './review-handoff-retry.js' imported from /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0607/server/src/services/recovery/review-handoff-retry.test.ts
+ ❯ src/services/recovery/review-handoff-retry.test.ts:3:1
+      1| import { randomUUID } from "node:crypto";
+      2| import { describe, expect, it } from "vitest";
+      3| import {
+       | ^
+      4|   DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
+      5|   EXECUTION_APPROVAL_REQUESTED_REASON,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  no tests
+   Start at  00:00:07
+   Duration  13.30s (transform 10.18s, setup 171ms, import 0ms, tests 0ms, environment 0ms)
+

@@ -1,0 +1,47 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix04/packages/shared
+
+ ❯ src/tool-connection-health.test.ts (2 tests | 2 failed) 4ms
+     × places every declared status in exactly one of settled and unsettled 3ms
+     × settles every state that needs attention except an abandoned exchange 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/tool-connection-health.test.ts > tool connection health statuses > places every declared status in exactly one of settled and unsettled
+AssertionError: unknown: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/tool-connection-health.test.ts:14:69
+     12|     const unsettled = new Set<string>(TOOL_CONNECTION_UNSETTLED_HEALTH…
+     13|     for (const status of TOOL_CONNECTION_HEALTH_STATUSES) {
+     14|       expect(settled.has(status) !== unsettled.has(status), status).to…
+       |                                                                     ^
+     15|     }
+     16|     expect(settled.size + unsettled.size).toBe(TOOL_CONNECTION_HEALTH_…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/tool-connection-health.test.ts > tool connection health statuses > settles every state that needs attention except an abandoned exchange
+TypeError: Cannot read properties of undefined (reading 'includes')
+ ❯ src/tool-connection-health.test.ts:21:54
+     19|   it("settles every state that needs attention except an abandoned exc…
+     20|     for (const status of TOOL_CONNECTION_ATTENTION_HEALTH_STATUSES) {
+     21|       expect(TOOL_CONNECTION_SETTLED_HEALTH_STATUSES.includes(status),…
+       |                                                      ^
+     22|     }
+     23|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  23:58:19
+   Duration  157ms (transform 30ms, setup 0ms, import 41ms, tests 4ms, environment 0ms)
+

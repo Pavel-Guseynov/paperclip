@@ -1,0 +1,134 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0607/server
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts (16 tests | 6 failed) 9450ms
+     × starts or schedules exactly one handoff after a stale dependency blocker clears 208ms
+     × continues the durable retry ledger on a restarted instance 81ms
+     × escalates to board with one actionable blocker upon exhausting the review handoff budget 56ms
+     × reconciles the owed handoff before the recovery-action resolve response returns 109ms
+     × contains one issue's handoff failure and finishes the stranded sweep 97ms
+     × reconciles every in_review dependent of a cleared blocker even when one fails 49ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > starts or schedules exactly one handoff after a stale dependency blocker clears
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:270:46
+    268|     // Reconcile: stale blocker cleared, handoff scheduled atomically
+    269|     const result = await heartbeat.reconcileStrandedAssignedIssues();
+    270|     expect(result.reviewParticipantRequeued).toBe(1);
+       |                                              ^
+    271|     expect(result.issueIds).toContain(issueId);
+    272|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > continues the durable retry ledger on a restarted instance
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:493:47
+    491|
+    492|     const resumed = await restarted.reconcileStrandedAssignedIssues();
+    493|     expect(resumed.reviewParticipantRequeued).toBe(1);
+       |                                               ^
+    494|     expect(resumed.issueIds).toContain(issueId);
+    495|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > escalates to board with one actionable blocker upon exhausting the review handoff budget
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:549:30
+    547|
+    548|     const result = await heartbeat.reconcileStrandedAssignedIssues();
+    549|     expect(result.escalated).toBe(1);
+       |                              ^
+    550|     expect(result.issueIds).toContain(issueId);
+    551|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > reconciles the owed handoff before the recovery-action resolve response returns
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:655:19
+    653|         ),
+    654|       );
+    655|     expect(wakes).toHaveLength(1);
+       |                   ^
+    656|     expect(wakes[0].idempotencyKey).toBe(
+    657|       buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attemp…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > contains one issue's handoff failure and finishes the stranded sweep
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:898:46
+    896|     const result = await recovery.reconcileStrandedAssignedIssues();
+    897|
+    898|     expect(result.reviewParticipantRequeued).toBe(1);
+       |                                              ^
+    899|     expect(result.issueIds).toContain(healthy.issueId);
+    900|     expect(result.issueIds).not.toContain(failing.issueId);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > reconciles every in_review dependent of a cleared blocker even when one fails
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:1114:26
+    1112|     // carries the receipt that records its consumed attempt.
+    1113|     const healthyWakes = wakes.filter((wake) => wake.agentId === healt…
+    1114|     expect(healthyWakes).toHaveLength(1);
+       |                          ^
+    1115|     expect(healthyWakes[0].status).toBe("queued");
+    1116|     expect(healthyWakes[0].idempotencyKey).toContain(`review-handoff:$…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  6 failed | 20 passed (26)
+   Start at  00:15:16
+   Duration  32.14s (transform 14.89s, setup 170ms, import 22.30s, tests 9.45s, environment 0ms)
+

@@ -1,0 +1,8 @@
+head=fd793881526ae41433115a2c28436c9671bad6f7 exit=0
+restored-to-U: packages/db/src/migrations/meta/_journal.json packages/db/src/schema/issue_execution_decisions.ts packages/shared/src/index.ts packages/shared/src/types/index.ts packages/shared/src/types/issue.ts packages/shared/src/validators/index.ts packages/shared/src/validators/issue.ts server/src/routes/issues.ts server/src/services/execution-workspaces.ts server/src/services/issue-execution-policy.ts server/src/services/issue-thread-interactions.ts server/src/services/recovery/service.ts
+restored-from-U (absent in head): packages/db/src/migrations/meta/0279_snapshot.json
+moved-aside (added by branch): packages/db/src/migrations/0284_keen_mac_gargan.sql packages/db/src/migrations/meta/0284_snapshot.json server/src/services/delivery-verification.ts
+base-production exit=1
+restored clean
+regression-head:  Test Files 4 passed (4)  Tests 208 passed (208) 
+regression-base:  Test Files 4 failed (4)  Tests 27 failed | 132 passed (159) 

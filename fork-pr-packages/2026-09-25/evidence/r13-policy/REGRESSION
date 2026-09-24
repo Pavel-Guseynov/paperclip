@@ -1,0 +1,6 @@
+r13-policy base(U) exit=1
+restored clean
+r13-policy head exit=0
+r13-policy head test exit=0
+r13-policy base2(U + 13's check and helper) exit=1
+restored clean

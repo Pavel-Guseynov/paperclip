@@ -1,0 +1,8 @@
+head=9044c3df1abf7f523a142f3aa795472ff0246cf1 exit=0
+restored-to-U: packages/adapters/codex-local/src/server/codex-home.ts server/src/middleware/auth.ts server/src/routes/tool-gateway.ts server/src/services/tool-gateway.ts
+restored-from-U (absent in head): 
+moved-aside (added by branch): server/src/lib/uuid.ts
+base-production exit=1
+restored clean
+regression-head:  Test Files 1 passed (1)  Tests 53 passed (53) 
+regression-base:  Test Files 1 failed (1)  Tests 1 failed | 52 passed (53) 

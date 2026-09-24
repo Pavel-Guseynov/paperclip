@@ -1,0 +1,77 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix1112/server
+
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts (22 tests | 4 failed) 8800ms
+     × registers deliverables whatever escaping lsof applies to their names 335ms
+     × decodes a doubled backslash back to the one the filename carries 0ms
+     × decodes an lsof escape run that carries valid UTF-8 0ms
+     × fails closed on an lsof escape run whose bytes are not valid UTF-8 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/native-runtime/native-runner-file-handoff.test.ts > native runner file handoff > registers deliverables whatever escaping lsof applies to their names
+Error: ENOENT: no such file or directory, realpath '/private/tmp/pv-dSY0Di/t/paperclip-native-file-handoff-hin3Y2/workspace/unicode/lit\\x41name.txt'
+ ❯ readVerifiedWorkspaceFile src/services/native-runtime/native-runner-file-handoff.ts:377:28
+    375|       throw new Error("paperclip_runner_file_handoff_file_changed");
+    376|     }
+    377|     const descriptorPath = await openedFilePath(handle.fd);
+       |                            ^
+    378|     if (!isWithin(workspaceRoot, descriptorPath)) {
+    379|       throw new Error("paperclip_runner_file_handoff_path_denied");
+ ❯ prepareNativeRunnerFileHandoff src/services/native-runtime/native-runner-file-handoff.ts:1139:20
+ ❯ result.#withMutationReceipt.onDefinitePreCommitFailure.rollback src/services/native-runtime/paperclip-runner-tool-authority.ts:1148:26
+ ❯ src/services/native-runtime/paperclip-runner-tool-authority.ts:1459:28
+ ❯ scope ../node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18
+ ❯ Proxy.begin ../node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14
+ ❯ PaperclipRunnerToolAuthority.#registerDeliverable src/services/native-runtime/paperclip-runner-tool-authority.ts:1143:20
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts:1281:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/services/native-runtime/native-runner-file-handoff.test.ts > native runner file handoff > decodes a doubled backslash back to the one the filename carries
+TypeError: decodeLsofPath is not a function
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts:1311:12
+    1309|
+    1310|   it("decodes a doubled backslash back to the one the filename carries…
+    1311|     expect(decodeLsofPath("/workspace/out/lit\\\\x41name.txt"))
+       |            ^
+    1312|       .toBe("/workspace/out/lit\\x41name.txt");
+    1313|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/services/native-runtime/native-runner-file-handoff.test.ts > native runner file handoff > decodes an lsof escape run that carries valid UTF-8
+TypeError: decodeLsofPath is not a function
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts:1316:12
+    1314|
+    1315|   it("decodes an lsof escape run that carries valid UTF-8", () => {
+    1316|     expect(decodeLsofPath("/workspace/out/r\\xc3\\xa9sum\\xc3\\xa9 rep…
+       |            ^
+    1317|       .toBe("/workspace/out/résumé report.pdf");
+    1318|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/services/native-runtime/native-runner-file-handoff.test.ts > native runner file handoff > fails closed on an lsof escape run whose bytes are not valid UTF-8
+AssertionError: expected [Function] to throw error including 'paperclip_runner_file_handoff_descrip…' but got '(0 , __vite_ssr_import_15__.decodeLso…'
+
+Expected: "paperclip_runner_file_handoff_descriptor_unverifiable"
+Received: "(0 , __vite_ssr_import_15__.decodeLsofPath) is not a function"
+
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts:1329:10
+    1327|     ]) {
+    1328|       expect(() => decodeLsofPath(raw))
+    1329|         .toThrow("paperclip_runner_file_handoff_descriptor_unverifiabl…
+       |          ^
+    1330|     }
+    1331|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 18 passed (22)
+   Start at  00:01:25
+   Duration  21.20s (transform 7.86s, setup 111ms, import 12.15s, tests 8.80s, environment 0ms)
+

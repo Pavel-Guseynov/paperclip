@@ -1,0 +1,118 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server
+
+[00:21:36] [33mWARN[39m: [36mFailed to withdraw obsolete native policy review; will retry on the next pass[39m [90m{"interactionId":"1f5b71f7-79fb-4d13-90bb-15fc7e892628","issueId":"f7b514e7-d850-41c1-b4e2-17a97b6d89e6"}[39m
+    err: {
+      "type": "Error",
+      "message": "injected cleanup failure",
+      "stack":
+          Error: injected cleanup failure
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2454:75
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[00:21:37] [33mWARN[39m: [36mObsolete native policy review cleanup committed; live activity publication failed, history is preserved[39m [90m{"interactionId":"a24f4e50-bdd9-45cf-b478-39849451ee4e","issueId":"63fab80f-46e1-49ae-a220-9feb26fd9772"}[39m
+    err: {
+      "type": "Error",
+      "message": "injected live publication failure",
+      "stack":
+          Error: injected live publication failure
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2476:13
+              at publishActivity (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at dismissObsoleteNativePolicyReviews (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/obsolete-policy-reviews.ts:143:9)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2479:7
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[00:21:37] [33mWARN[39m: [36mObsolete native policy review lookup failed; continuing native reconciliation[39m 
+    err: {
+      "type": "Error",
+      "message": "injected cleanup lookup failure",
+      "stack":
+          Error: injected cleanup lookup failure
+              at PostgresJsDatabase.<anonymous> (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2495:13)
+              at PostgresJsDatabase.select (file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at dismissObsoleteNativePolicyReviews (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/obsolete-policy-reviews.ts:17:31)
+              at reconcileNativeFinalizations (/private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/services/native-runtime/native-finalization-reconciler.ts:549:9)
+              at /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/server/src/__tests__/native-status-arbiter-corpus.test.ts:2498:32
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix05/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts (38 tests | 3 failed) 8577ms
+     × records a review admission in the same transaction that binds a reviewer 31ms
+     × completes the review admission when the reviewer approves the bound review 42ms
+     × records changes_requested with the reviewer's reason when the review is rejected 29ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/native-status-arbiter-corpus.test.ts > P6-31 Section 18.13 executable status-authority corpus > records a review admission in the same transaction that binds a reviewer
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts:2113:24
+    2111|     const admissions = await db.select().from(reviewAdmissions)
+    2112|       .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    2113|     expect(admissions).toHaveLength(1);
+       |                        ^
+    2114|     expect(admissions[0]).toMatchObject({
+    2115|       companyId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/__tests__/native-status-arbiter-corpus.test.ts > P6-31 Section 18.13 executable status-authority corpus > completes the review admission when the reviewer approves the bound review
+AssertionError: expected undefined to match object { status: 'completed', …(1) }
+
+- Expected:
+{
+  "decision": "approved",
+  "status": "completed",
+}
+
++ Received:
+undefined
+
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts:2204:23
+    2202|     const [admission] = await db.select().from(reviewAdmissions)
+    2203|       .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    2204|     expect(admission).toMatchObject({ status: "completed", decision: "…
+       |                       ^
+    2205|     expect(admission!.decidedAt).toBeInstanceOf(Date);
+    2206|   }, 30_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/__tests__/native-status-arbiter-corpus.test.ts > P6-31 Section 18.13 executable status-authority corpus > records changes_requested with the reviewer's reason when the review is rejected
+AssertionError: expected undefined to match object { status: 'completed', …(2) }
+
+- Expected:
+{
+  "decision": "changes_requested",
+  "decisionReason": "Run the external verification and report only that result.",
+  "status": "completed",
+}
+
++ Received:
+undefined
+
+ ❯ src/__tests__/native-status-arbiter-corpus.test.ts:2220:23
+    2218|     const [admission] = await db.select().from(reviewAdmissions)
+    2219|       .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    2220|     expect(admission).toMatchObject({
+       |                       ^
+    2221|       status: "completed",
+    2222|       decision: "changes_requested",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 63 passed (66)
+   Start at  00:21:23
+   Duration  26.66s (transform 4.98s, setup 556ms, import 12.77s, tests 12.80s, environment 0ms)
+

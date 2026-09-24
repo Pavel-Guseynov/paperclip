@@ -1,0 +1,8 @@
+head=cc46b33bc9f46b1dd08cf1117e15582a22f6996c exit=0
+restored-to-U: packages/shared/src/constants.ts packages/shared/src/index.ts server/src/services/tool-access-policy.ts server/src/services/tool-gateway.ts
+restored-from-U (absent in head): 
+moved-aside (added by branch): 
+base-production exit=1
+restored clean
+regression-head:  Test Files 1 passed (1)  Tests 17 passed (17) 
+regression-base:  Test Files 1 failed (1)  Tests 15 failed | 2 passed (17) 

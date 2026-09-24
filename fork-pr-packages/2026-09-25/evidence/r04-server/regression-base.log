@@ -1,0 +1,288 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix04/server
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts (17 tests | 15 failed) 7238ms
+     × keeps an abandoned call's connection in the catalog and records the ambiguous outcome 400ms
+     × keeps serving a connection degraded only because its credential is due for rotation 131ms
+     × restores ok health when a later exchange succeeds 182ms
+     × refuses to replay an abandoned write under its original idempotency key 223ms
+     × still replays an abandoned read under its original idempotency key 162ms
+     × refuses an abandoned write's key even when the replay names a read tool 247ms
+     × still replays an abandoned low-risk call under its original idempotency key 189ms
+     × refuses to replay an abandoned call that recorded no risk level 135ms
+     × fails closed and withdraws the catalog when the transport never answers 131ms
+     × fails closed and withdraws the catalog on every protocol failure 121ms
+       × keeps a newer successful health check 140ms
+       × keeps a newer healthy health check 135ms
+       × keeps a settled health state that recorded no observation time 126ms
+       × records the ambiguous outcome over an unsettled state with no observation time 73ms
+       × does not return a newly failed connection to the catalog 111ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > keeps an abandoned call's connection in the catalog and records the ambiguous outcome
+AssertionError: expected undefined to be 'invocation_timeout' // Object.is equality
+
+- Expected:
+"invocation_timeout"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:268:46
+    266|     expect(gatewayError.status).toBe(504);
+    267|     expect(gatewayError.reasonCode).toBe("tool_timeout");
+    268|     expect(gatewayError.details.failureKind).toBe("invocation_timeout"…
+       |                                              ^
+    269|     expect(gatewayError.details.execution).toMatchObject({ failureKind…
+    270|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > keeps serving a connection degraded only because its credential is due for rotation
+AssertionError: expected undefined to be defined
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:320:24
+    318|     const targetTool = (await gateway.listToolsForSession(session.toke…
+    319|       .find((tool) => tool.providerType === "mcp_remote_http");
+    320|     expect(targetTool).toBeDefined();
+       |                        ^
+    321|
+    322|     const result = await gateway.executeTool({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > restores ok health when a later exchange succeeds
+AssertionError: expected 'error' to be 'degraded' // Object.is equality
+
+Expected: "degraded"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:350:63
+    348|       gateway.executeTool({ sessionToken: session.token, tool: targetT…
+    349|     ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" …
+    350|     expect((await connectionRow(connection.id)).healthStatus).toBe("de…
+       |                                                               ^
+    351|
+    352|     answer = true;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > refuses to replay an abandoned write under its original idempotency key
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:413:33
+    411|     }).catch((caught: unknown) => caught as { status?: number; message…
+    412|
+    413|     expect(replayError?.status).toBe(409);
+       |                                 ^
+    414|     expect(replayError?.message).toContain("ambiguous outcome");
+    415|     expect(replayError?.message).toContain("new idempotency key");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > still replays an abandoned read under its original idempotency key
+Error: Tool "mcp.remote-461cafea-2d99ec3f:query-data" not found
+ ❯ findToolForSession src/services/tool-gateway.ts:2661:13
+    2659|       .find((candidate) => candidate.name === toolName);
+    2660|     if (!tool) {
+    2661|       throw new ToolGatewayHttpError(
+       |             ^
+    2662|         404,
+    2663|         `Tool "${toolName}" not found`,
+ ❯ Object.executeTool src/services/tool-gateway.ts:9720:18
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:451:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > refuses an abandoned write's key even when the replay names a read tool
+AssertionError: promise resolved "{ …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "invocationId": "0f49f89c-0a0a-40f2-a89b-0ebb82f4ef50",
++   "result": null,
++   "status": "replayed",
++   "tool": "mcp.remote-5cb97e71-fc622903:query-data",
+  }
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:502:6
+    500|         idempotencyKey,
+    501|       }),
+    502|     ).rejects.toMatchObject({ status: 409, details: { code: "ambiguous…
+       |      ^
+    503|   });
+    504|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > still replays an abandoned low-risk call under its original idempotency key
+Error: Tool "mcp.remote-c7f9973f-6ec7d76d:list-items" not found
+ ❯ findToolForSession src/services/tool-gateway.ts:2661:13
+    2659|       .find((candidate) => candidate.name === toolName);
+    2660|     if (!tool) {
+    2661|       throw new ToolGatewayHttpError(
+       |             ^
+    2662|         404,
+    2663|         `Tool "${toolName}" not found`,
+ ❯ Object.executeTool src/services/tool-gateway.ts:9720:18
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:528:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > refuses to replay an abandoned call that recorded no risk level
+AssertionError: promise resolved "{ …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "invocationId": "067c4443-8c38-4b27-8d79-750a74cf5e01",
++   "result": null,
++   "status": "replayed",
++   "tool": "mcp.remote-9db7328b-ad0cf844:query-data",
+  }
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:568:6
+    566|         idempotencyKey,
+    567|       }),
+    568|     ).rejects.toMatchObject({ status: 409, details: { code: "ambiguous…
+       |      ^
+    569|   });
+    570|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > fails closed and withdraws the catalog when the transport never answers
+AssertionError: expected undefined to be 'transport_failure' // Object.is equality
+
+- Expected:
+"transport_failure"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:602:46
+    600|     expect(gatewayError.status).toBe(502);
+    601|     expect(gatewayError.reasonCode).toBe("mcp_remote_fetch_failed");
+    602|     expect(gatewayError.details.failureKind).toBe("transport_failure");
+       |                                              ^
+    603|
+    604|     expect((await connectionRow(connection.id)).healthStatus).toBe("er…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > fails closed and withdraws the catalog on every protocol failure
+AssertionError: HTTP error status: expected undefined to be 'protocol_failure' // Object.is equality
+
+- Expected:
+"protocol_failure"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:683:56
+    681|       expect(error.status, testCase.name).toBe(502);
+    682|       expect(error.reasonCode, testCase.name).toBe(testCase.reasonCode…
+    683|       expect(error.details.failureKind, testCase.name).toBe("protocol_…
+       |                                                        ^
+    684|       expect(error.details.execution, testCase.name).toMatchObject({ f…
+    685|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a newer successful health check
+AssertionError: expected 'error' to be 'ok' // Object.is equality
+
+Expected: "ok"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:835:35
+    833|       });
+    834|       const stored = await connectionRow(connection.id);
+    835|       expect(stored.healthStatus).toBe("ok");
+       |                                   ^
+    836|       expect(stored.healthMessage).toBe("Tool catalog refreshed concur…
+    837|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a newer healthy health check
+AssertionError: expected 'error' to be 'healthy' // Object.is equality
+
+Expected: "healthy"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:845:35
+    843|       });
+    844|       const stored = await connectionRow(connection.id);
+    845|       expect(stored.healthStatus).toBe("healthy");
+       |                                   ^
+    846|       expect(stored.healthMessage).toBe("Connection probe succeeded.");
+    847|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a settled health state that recorded no observation time
+AssertionError: expected 'error' to be 'ok' // Object.is equality
+
+Expected: "ok"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:884:35
+    882|         healthMessage: "Adopted without a health check.",
+    883|       });
+    884|       expect(stored.healthStatus).toBe("ok");
+       |                                   ^
+    885|       expect(stored.healthMessage).toBe("Adopted without a health chec…
+    886|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > records the ambiguous outcome over an unsettled state with no observation time
+TypeError: Cannot read properties of undefined (reading 'name')
+ ❯ abandonOneCallAgainst src/__tests__/remote-mcp-timeout-health.test.ts:871:28
+    869|         gateway.executeTool({
+    870|           sessionToken: session.token,
+    871|           tool: targetTool.name,
+       |                            ^
+    872|           parameters: {},
+    873|           timeoutMs: 20,
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:889:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/15]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > does not return a newly failed connection to the catalog
+AssertionError: expected 'Remote MCP tool call timed out.' to be 'Connection probe failed.' // Object.is equality
+
+Expected: "Connection probe failed."
+Received: "Remote MCP tool call timed out."
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:904:36
+    902|       const stored = await connectionRow(connection.id);
+    903|       expect(stored.healthStatus).toBe("error");
+    904|       expect(stored.healthMessage).toBe("Connection probe failed.");
+       |                                    ^
+    905|       const remaining = await gateway.listToolsForSession(session.toke…
+    906|       expect(remaining.some((tool) => tool.name === targetTool.name)).…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/15]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  15 failed | 2 passed (17)
+   Start at  23:58:36
+   Duration  15.13s (transform 4.42s, setup 76ms, import 7.70s, tests 7.24s, environment 0ms)
+

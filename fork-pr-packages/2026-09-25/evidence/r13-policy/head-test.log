@@ -1,0 +1,18 @@
+✔ accepts a repository that follows the pnpm 11 policy (150.982709ms)
+✔ rejects a pnpm 9 package manager and a package.json#pnpm section (187.29775ms)
+✔ rejects a setup step pinned to another pnpm version (118.034042ms)
+✔ rejects a setup step without a version instead of reading the next step (142.971625ms)
+✔ requires autoInstallPeers to be false (127.130791ms)
+✔ requires explicit boolean build permissions (380.557833ms)
+✔ requires every declared patch to exist (207.170042ms)
+✔ rejects a patch declaration it cannot parse (208.103ms)
+✔ requires each documented prerequisite (194.613209ms)
+✔ rejects tracked pnpm 9 references outside dated logs and plans (209.668333ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1987.653584

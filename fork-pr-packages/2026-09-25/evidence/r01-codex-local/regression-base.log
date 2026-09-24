@@ -1,0 +1,41 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix0102/packages/adapters/codex-local
+
+ ❯ src/server/codex-home.test.ts (53 tests | 1 failed) 2080ms
+     × replaces the managed MCP block and clears stale servers for an empty runtime set 63ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/server/codex-home.test.ts > evaluateCodexCredentialReadiness > replaces the managed MCP block and clears stale servers for an empty runtime set
+AssertionError: expected '# BEGIN PAPERCLIP MANAGED MCP\n# Writ…' to contain 'http_headers = { Authorization = "Bea…'
+
+- Expected
++ Received
+
+- http_headers = { Authorization = "Bearer alpha-token" }
++ # BEGIN PAPERCLIP MANAGED MCP
++ # Written by Paperclip for governed MCP gateway access. Do not edit this block by hand.
++
++ [mcp_servers."alpha"]
++ url = "https://paperclip.example/api/tool-gateway/gateways/alpha/mcp"
++ headers = { Authorization = "Bearer alpha-token" }
++ # END PAPERCLIP MANAGED MCP
++
+
+ ❯ src/server/codex-home.test.ts:1029:21
+    1027|       // `headers` key is parsed and then ignored, so the gateway bear…
+    1028|       // reaches the request and every managed call fails unauthentica…
+    1029|       expect(alpha).toContain('http_headers = { Authorization = "Beare…
+       |                     ^
+    1030|       expect(alpha).not.toMatch(/^headers\s*=/m);
+    1031|       expect(zero).not.toContain("mcp_servers.");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 52 passed (53)
+   Start at  23:54:15
+   Duration  5.43s (transform 2.52s, setup 0ms, import 3.14s, tests 2.08s, environment 0ms)
+

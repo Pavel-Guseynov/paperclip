@@ -1,0 +1,78 @@
+pnpm version policy check failed:
+- package.json: packageManager must be pnpm@11.21.0, found pnpm@9.15.4
+- package.json: root package.json must not have a 'pnpm' configuration section; pnpm 11 requires pnpm-workspace.yaml authority
+- pnpm-workspace.yaml: must set autoInstallPeers: false for deterministic resolution
+- pnpm-workspace.yaml: must declare explicit allowBuilds security policy
+- .github/workflows/cloud-migrator-artifacts.yml:26: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/docker.yml:122: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/e2e.yml:64: pnpm action-setup version must be 11.21.0, found 9
+- .github/workflows/pr-trusted.yml:288: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:370: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:573: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:731: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:847: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:998: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:1057: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/pr-trusted.yml:1221: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/refresh-lockfile.yml:26: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-smoke.yml:116: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-verify.yml:35: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-verify.yml:163: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-verify.yml:218: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-verify.yml:248: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-verify.yml:287: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release-verify.yml:371: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:139: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:211: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:360: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:452: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:622: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:888: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:1258: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/release.yml:1305: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-chaos-evals.yml:35: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:181: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:259: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:551: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:682: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:847: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:1102: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-full-stack-e2e.yml:1252: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-live-evals.yml:139: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-protocol-live-evals.yml:189: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-protocol-live-evals.yml:319: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-protocol-live-evals.yml:695: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/runner-protocol-live-evals.yml:795: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/sentry-contract.yml:45: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/storybook-deploy.yml:84: pnpm action-setup version must be 11.21.0, found 9.15.4
+- .github/workflows/storybook-visual.yml:51: pnpm action-setup version must be 11.21.0, found 9.15.4
+- docker/daytona-runner/Dockerfile: must contain 'corepack prepare pnpm@11.21.0 --activate'
+- README.md: must contain requirement documentation 'pnpm 11.21+'
+- cli/README.md: must contain requirement documentation 'pnpm 11.21+'
+- doc/DEVELOPING.md: must contain requirement documentation 'pnpm 11+'
+- docs/start/architecture.md: must contain requirement documentation 'pnpm 11 with workspaces'
+- docs/deploy/local-development.md: must contain requirement documentation 'pnpm 11+'
+- docs/start/quickstart.md: must contain requirement documentation 'pnpm 11+'
+- .github/scripts/tests/lockfile-refresh-cache.test.mjs: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- README.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- cli/README.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- doc/DEVELOPING.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- docker/daytona-runner/Dockerfile: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- docs/deploy/local-development.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- docs/start/architecture.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- docs/start/quickstart.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- package.json: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/README.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/capability-clean-room-chat.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/capability-issue-thread.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/capability-scenario-explorer.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/codex.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/conformance-standalone-tracer.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/local-runner.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/replay.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/docs/tutorials/scenario-chat.md: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- packages/paperclip-runner/scripts/check-clean-consumers.mjs: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- scripts/__tests__/provision-worktree-self-heal.test.mjs: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- scripts/provision-worktree-runtime.sh: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- scripts/provision-worktree.sh: references pnpm 9; the supported toolchain is pnpm@11.21.0
+- server/src/__tests__/workspace-runtime.test.ts: references pnpm 9; the supported toolchain is pnpm@11.21.0

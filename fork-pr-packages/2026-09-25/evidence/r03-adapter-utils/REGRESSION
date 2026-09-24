@@ -1,0 +1,8 @@
+head=191a0283e7b28c2e064a9aabec3e72f027c9c36c exit=0
+restored-to-U: cli/src/commands/client/common.ts packages/adapter-utils/src/execution-target.ts packages/adapter-utils/src/server-utils.ts packages/adapters/codex-local/src/server/execute.ts packages/adapters/cursor-cloud/src/server/execute.ts server/src/index.ts server/src/runtime-api.ts server/src/services/heartbeat.ts skills/paperclip/scripts/paperclip-upload-artifact.sh
+restored-from-U (absent in head): 
+moved-aside (added by branch): 
+base-production exit=1
+restored clean
+regression-head:  Test Files 2 passed (2)  Tests 267 passed (267) 
+regression-base:  Test Files 2 failed (2)  Tests 7 failed | 260 passed (267) 

@@ -1,0 +1,6 @@
+head=bfd3092312d890c4f328ad9b90bda0329e41d02a exit=0
+restored-from-fd793881526ae41433115a2c28436c9671bad6f7: server/src/services/issue-thread-interactions.ts
+base-production exit=1
+restored clean
+regression-head:  Test Files 2 passed (2)  Tests 66 passed (66) 
+regression-base:  Test Files 1 failed | 1 passed (2)  Tests 2 failed | 64 passed (66) 

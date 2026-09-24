@@ -1,0 +1,13 @@
+01	fix/codex-managed-mcp-auth	fix(server): authorize managed MCP gateway bearers for Codex
+02	fix/tool-gateway-session-token-verification	fix(server): accept run-scoped gateway session tokens as Authorization bearers
+03	fix/codex-runtime-api-reachability	fix(codex): give agents the internal runtime API URL, not the public origin
+04	fix/remote-mcp-timeout-health	fix(gateway): keep remote MCP tools listed after an ambiguous invocation timeout
+05	fix/tool-gateway-token-log-redaction	fix(logger): redact tool gateway credentials from every log path
+06	fix/approval-stage-return-assignee	fix(server): honor approval-stage returnAssignee participant selection
+07	fix/retry-skipped-review-handoff	fix(server): retry a skipped review handoff after its stale blocker clears
+08	fix/workspace-validation-recovery-precedence	fix(recovery): keep the typed workspace-validation diagnosis ahead of generic failures
+09	feat/verified-terminal-delivery-evidence	feat(issues): verify delivery evidence before an evidence-gated issue closes
+10	feat/revision-keyed-review-admission	feat(review): record revision-keyed review admissions
+11	fix/native-runner-darwin-lsof-unicode	fix(native-runner): decode hex-escaped lsof paths without corrupting Unicode
+12	test/workspace-runtime-exposure-isolation	test(server): isolate workspace runtime port reservations between tests
+13	chore/pnpm-11-toolchain	refactor(toolchain): migrate the repository to pnpm 11.21.0

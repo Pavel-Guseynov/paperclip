@@ -1,0 +1,13 @@
+0	server/src/__tests__/access-routes-hidden-floor.test.ts
+0	server/src/__tests__/access-routes-permissions-upgrade.test.ts
+0	server/src/__tests__/activity-routes.test.ts
+0	server/src/__tests__/adapter-auth-signal-routes.test.ts
+0	server/src/__tests__/adapter-model-refresh-routes.test.ts
+0	server/src/__tests__/adapter-routes-authz.test.ts
+0	server/src/__tests__/adapter-routes.test.ts
+0	server/src/__tests__/agent-action-audit-routes.test.ts
+0	server/src/__tests__/agent-adapter-validation-routes.test.ts
+0	server/src/__tests__/agent-cross-tenant-authz-routes.test.ts
+0	server/src/__tests__/agent-device-login-routes.test.ts
+0	server/src/__tests__/agent-hire-auth-inheritance-routes.test.ts
+0	server/src/__tests__/agent-hire-idempotency-routes.test.ts

@@ -1,0 +1,168 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+ RUN  v4.1.11 /private/tmp/claude-501/-Users-pavelguseynov-paperclip-fork/28b5943e-7b11-4fdc-a43e-73c2578b2a8e/scratchpad/fix03
+
+ ❯ |@paperclipai/adapter-utils| src/server-utils.test.ts (121 tests | 5 failed) 4537ms
+     × keeps the internal callback URL distinct from the public dashboard URL 4ms
+     × uses a PAPERCLIP_API_URL override as the internal callback URL when no runtime URL is set 0ms
+     × keeps an empty PAPERCLIP_API_URL as the public URL, matching the nullish upstream chain 0ms
+     × falls back to the derived runtime URL when no explicit override is set 0ms
+     × derives a listen-host URL when neither override is set 0ms
+ ❯ |@paperclipai/adapter-utils| src/execution-target-sandbox.test.ts (146 tests | 2 failed) 60370ms
+     × starts a localhost Paperclip bridge for sandbox targets in bridge mode 416ms
+     × test_daytona_selects_http2_v1 110ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/execution-target-sandbox.test.ts > sandbox adapter execution targets > starts a localhost Paperclip bridge for sandbox targets in bridge mode
+AssertionError: expected undefined to be 'http://127.0.0.1:57884' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:57884"
+
++ Received:
+undefined
+
+ ❯ src/execution-target-sandbox.test.ts:2328:53
+    2326|       // actually dials it. The bridge owns that namespace, so it over…
+    2327|       // host-side origin the adapter exported with its own in-target …
+    2328|       expect(bridge?.env.PAPERCLIP_RUNTIME_API_URL).toBe(bridge?.env.P…
+       |                                                     ^
+    2329|
+    2330|       const response = await fetch(`${bridge!.env.PAPERCLIP_API_URL}/a…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/execution-target-sandbox.test.ts > sandbox adapter execution targets > test_daytona_selects_http2_v1
+AssertionError: expected undefined to be 'http://127.0.0.1:57957' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:57957"
+
++ Received:
+undefined
+
+ ❯ src/execution-target-sandbox.test.ts:3601:53
+    3599|       // Same in-sandbox origin for the internal runtime callback URL:…
+    3600|       // sandbox namespace cannot reach the host-side origin the adapt…
+    3601|       expect(bridge?.env.PAPERCLIP_RUNTIME_API_URL).toBe(bridge?.env.P…
+       |                                                     ^
+    3602|       expect(bridge?.env.PAPERCLIP_API_KEY).not.toBe("real-run-jwt");
+    3603|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > keeps the internal callback URL distinct from the public dashboard URL
+AssertionError: expected undefined to be 'http://127.0.0.1:3100' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3813:47
+    3811|         const env = buildPaperclipEnv({ id: "agent-1", companyId: "com…
+    3812|         expect(env.PAPERCLIP_API_URL).toBe("https://dashboard.example.…
+    3813|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:3…
+       |                                               ^
+    3814|       },
+    3815|     );
+ ❯ withEnv src/server-utils.test.ts:3774:7
+ ❯ src/server-utils.test.ts:3805:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > uses a PAPERCLIP_API_URL override as the internal callback URL when no runtime URL is set
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3827:47
+    3825|         const env = buildPaperclipEnv({ id: "agent-1", companyId: "com…
+    3826|         expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    3827|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:31…
+       |                                               ^
+    3828|       },
+    3829|     );
+ ❯ withEnv src/server-utils.test.ts:3774:7
+ ❯ src/server-utils.test.ts:3822:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > keeps an empty PAPERCLIP_API_URL as the public URL, matching the nullish upstream chain
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3840:47
+    3838|         const env = buildPaperclipEnv({ id: "agent-1", companyId: "com…
+    3839|         expect(env.PAPERCLIP_API_URL).toBe("");
+    3840|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:31…
+       |                                               ^
+    3841|       },
+    3842|     );
+ ❯ withEnv src/server-utils.test.ts:3774:7
+ ❯ src/server-utils.test.ts:3835:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > falls back to the derived runtime URL when no explicit override is set
+AssertionError: expected undefined to be 'http://203.0.113.7:3100' // Object.is equality
+
+- Expected:
+"http://203.0.113.7:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3849:45
+    3847|       const env = buildPaperclipEnv({ id: "agent-1", companyId: "compa…
+    3848|       expect(env.PAPERCLIP_API_URL).toBe("http://203.0.113.7:3100");
+    3849|       expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://203.0.113.7:3…
+       |                                             ^
+    3850|     });
+    3851|   });
+ ❯ withEnv src/server-utils.test.ts:3774:7
+ ❯ src/server-utils.test.ts:3846:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > derives a listen-host URL when neither override is set
+AssertionError: expected undefined to be 'http://localhost:3200' // Object.is equality
+
+- Expected:
+"http://localhost:3200"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3862:47
+    3860|         });
+    3861|         expect(env.PAPERCLIP_API_URL).toBe("http://localhost:3200");
+    3862|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://localhost:3…
+       |                                               ^
+    3863|       },
+    3864|     );
+ ❯ withEnv src/server-utils.test.ts:3774:7
+ ❯ src/server-utils.test.ts:3854:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  7 failed | 260 passed (267)
+   Start at  00:12:48
+   Duration  62.54s (transform 3.14s, setup 0ms, import 4.00s, tests 64.91s, environment 0ms)
+
