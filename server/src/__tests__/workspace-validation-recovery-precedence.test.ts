@@ -625,7 +625,7 @@ describe("workspace validation recovery precedence", () => {
         const laterFailure = await recoveryActionSvc.upsertSourceScoped({
           companyId,
           sourceIssueId: issueId,
-          kind: "configuration_incomplete",
+          kind: "configuration_validation",
           cause: "configuration_incomplete",
           fingerprint: `configuration_incomplete:${issueId}`,
           ownerType: "board",
@@ -636,7 +636,7 @@ describe("workspace validation recovery precedence", () => {
 
         expect(laterFailure.id).not.toBe(initial.id);
         expect(laterFailure.cause).toBe("configuration_incomplete");
-        expect(laterFailure.kind).toBe("configuration_incomplete");
+        expect(laterFailure.kind).toBe("configuration_validation");
         const active = await recoveryActionSvc.getActiveForIssue(
           companyId,
           issueId,
