@@ -291,6 +291,41 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     expect(event?.metadata).toMatchObject({ execution: { failureKind: "invocation_timeout" } });
   });
 
+  it("keeps serving a connection degraded only because its credential is due for rotation", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    const { connection } = await createRemoteMcpFixture(db, company.id);
+
+    // Exactly what minting a connection token writes when a credential falls
+    // inside its 14-day rotation window (tool-access.ts): a warning, with the
+    // connection left active, enabled and without a new observation time. The
+    // credential has not expired, so its tools must stay callable.
+    await db
+      .update(toolConnections)
+      .set({
+        healthStatus: "degraded",
+        healthMessage: "Rotate api_key before it expires.",
+        updatedAt: new Date(),
+      })
+      .where(eq(toolConnections.id, connection.id));
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) =>
+        jsonRpcResponse(init, { result: { content: [{ type: "text", text: "still works" }] } }),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const targetTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http");
+    expect(targetTool).toBeDefined();
+
+    const result = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: targetTool!.name,
+      parameters: {},
+      timeoutMs: 500,
+    });
+    expect(result.status).toBe("completed");
+  });
+
   it("restores ok health when a later exchange succeeds", async () => {
     const { company, agent, run } = await createRunFixture(db);
     const { connection } = await createRemoteMcpFixture(db, company.id);

@@ -1257,11 +1257,17 @@ export function createToolGatewayService(
           // catalog discoverable; execution resolves and validates that user's
           // grant, and a successful call restores the shared health indicator.
           //
-          // "degraded" means the last exchange was ambiguous (an abandoned
-          // tool call), not that the transport is dead, so the gateway keeps
-          // serving the entry and lets the next call settle the question. This
-          // is deliberately narrower than the native-runtime MCP server lists,
-          // which drop every attention state (see
+          // "degraded" is the non-terminal attention state: something wants the
+          // user's eye, but nothing has shown the connection to be unusable.
+          // It has more than one writer — an abandoned tool call here, and a
+          // credential inside its rotation window in tool-access — and neither
+          // is proof that the next call fails. Serving them keeps a working
+          // connection working and lets the next call settle the question;
+          // what genuinely cannot be used lands on "error" or "missing_secret",
+          // or is switched off through status/enabled, and stays excluded.
+          //
+          // This is deliberately wider than the native-runtime MCP server
+          // lists, which drop every attention state (see
           // TOOL_CONNECTION_ATTENTION_HEALTH_STATUSES and
           // native-runtime/runtime-context.ts): a runtime snapshot is pinned
           // for a whole run and cannot re-probe, while a gateway call can.
