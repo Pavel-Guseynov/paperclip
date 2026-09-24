@@ -498,6 +498,30 @@ function selectStageParticipant(
   return first ? { type: first.type, agentId: first.agentId ?? null, userId: first.userId ?? null } : null;
 }
 
+// The return assignee (the author the issue goes back to) is excluded from a
+// stage so nobody reviews their own work. An approval stage is a different
+// gate: it names exactly who may approve, so naming the author there is
+// deliberate and excluding them left the stage empty and returned 422 (#4912).
+// The exclusion still runs first, so an approval stage that also names a
+// separate approver keeps selecting that approver; the return assignee is
+// selected only when the exclusion would otherwise leave nobody. A review
+// stage keeps the exclusion unconditionally: an empty review stage is the
+// input `canAutoSkipPendingStage` is the authority over.
+function selectEligibleStageParticipant(
+  stage: IssueExecutionStage,
+  opts: {
+    preferred?: IssueExecutionStagePrincipal | null;
+    returnAssignee: IssueExecutionStagePrincipal | null;
+  },
+): IssueExecutionStagePrincipal | null {
+  const excluded = selectStageParticipant(stage, {
+    preferred: opts.preferred ?? null,
+    exclude: opts.returnAssignee,
+  });
+  if (excluded || stage.type === "review") return excluded;
+  return selectStageParticipant(stage, { preferred: opts.preferred ?? null });
+}
+
 function stageHasParticipant(stage: IssueExecutionStage, participant: IssueExecutionStagePrincipal | null): boolean {
   if (!participant) return false;
   return stage.participants.some((candidate) => principalsEqual(candidate, participant));
@@ -512,11 +536,7 @@ function patchForPrincipal(principal: IssueExecutionStagePrincipal | null) {
     : { assigneeAgentId: null, assigneeUserId: principal.userId ?? null };
 }
 
-function buildCompletedState(
-  previous: IssueExecutionState | null,
-  currentStage: IssueExecutionStage,
-  returnAssignee?: IssueExecutionStagePrincipal | null,
-): IssueExecutionState {
+function buildCompletedState(previous: IssueExecutionState | null, currentStage: IssueExecutionStage): IssueExecutionState {
   const completedStageIds = Array.from(new Set([...(previous?.completedStageIds ?? []), currentStage.id]));
   return {
     status: COMPLETED_STATUS,
@@ -524,7 +544,7 @@ function buildCompletedState(
     currentStageIndex: null,
     currentStageType: null,
     currentParticipant: null,
-    returnAssignee: returnAssignee ?? previous?.returnAssignee ?? null,
+    returnAssignee: previous?.returnAssignee ?? null,
     reviewRequest: null,
     completedStageIds,
     lastDecisionId: previous?.lastDecisionId ?? null,
@@ -663,6 +683,83 @@ function canAutoSkipPendingStage(input: {
     input.stage.participants.every((participant) => principalsEqual(participant, input.returnAssignee));
 }
 
+type StageAssignment =
+  | {
+    kind: "assigned";
+    stage: IssueExecutionStage;
+    participant: IssueExecutionStagePrincipal;
+    previous: IssueExecutionState | null;
+  }
+  | { kind: "exhausted"; state: IssueExecutionState }
+  | { kind: "unassignable"; stage: IssueExecutionStage };
+
+// Resolves the stage that actually receives the issue, traversing every
+// consecutive stage `canAutoSkipPendingStage` declares skippable so one
+// transition lands on one stage instead of leaving the issue parked on a
+// stage nobody can act on. `advance` is the caller's own pending-stage
+// authority: entering the workflow scans from the first pending stage, while
+// approving a stage scans only the stages after it (#7893).
+function resolveStageAssignment(input: {
+  previous: IssueExecutionState | null;
+  stage: IssueExecutionStage;
+  preferred: IssueExecutionStagePrincipal | null;
+  returnAssignee: IssueExecutionStagePrincipal | null;
+  requestedStatus?: string;
+  advance: (state: IssueExecutionState) => IssueExecutionStage | null;
+}): StageAssignment {
+  const previousCompletedCount = (input.previous?.completedStageIds ?? []).length;
+  const completedStageIds = [...(input.previous?.completedStageIds ?? [])];
+  let stage = input.stage;
+  let participant = selectEligibleStageParticipant(stage, {
+    preferred: input.preferred,
+    returnAssignee: input.returnAssignee,
+  });
+
+  while (
+    !participant &&
+    canAutoSkipPendingStage({ stage, returnAssignee: input.returnAssignee, requestedStatus: input.requestedStatus })
+  ) {
+    completedStageIds.push(stage.id);
+    const nextStage = input.advance(
+      buildStateWithCompletedStages({
+        previous: input.previous,
+        completedStageIds,
+        returnAssignee: input.returnAssignee,
+      }),
+    );
+    if (!nextStage) {
+      return {
+        kind: "exhausted",
+        state: buildSkippedStageCompletedState({
+          previous: input.previous,
+          completedStageIds,
+          returnAssignee: input.returnAssignee,
+        }),
+      };
+    }
+    stage = nextStage;
+    participant = selectEligibleStageParticipant(stage, {
+      preferred: input.preferred,
+      returnAssignee: input.returnAssignee,
+    });
+  }
+
+  if (!participant) return { kind: "unassignable", stage };
+  return {
+    kind: "assigned",
+    stage,
+    participant,
+    previous:
+      completedStageIds.length === previousCompletedCount
+        ? input.previous
+        : buildStateWithCompletedStages({
+          previous: input.previous,
+          completedStageIds,
+          returnAssignee: input.returnAssignee,
+        }),
+  };
+}
+
 function applyIssueExecutionStageTransition(input: TransitionInput): TransitionResult {
   const patch: Record<string, unknown> = {};
   const existingState = parseIssueExecutionState(input.issue.executionState);
@@ -712,8 +809,8 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
   if (activeStage) {
     const currentParticipant =
       existingState?.currentParticipant ??
-      selectStageParticipant(activeStage, {
-        exclude: activeStage.type === "review" ? existingState?.returnAssignee ?? null : null,
+      selectEligibleStageParticipant(activeStage, {
+        returnAssignee: existingState?.returnAssignee ?? null,
       });
     if (!currentParticipant) {
       throw unprocessable(`No eligible ${activeStage.type} participant is configured for this issue`);
@@ -758,9 +855,9 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
       return { patch };
     }
     if (!escalatedHold && !stageHasParticipant(activeStage, currentParticipant)) {
-      const participant = selectStageParticipant(activeStage, {
+      const participant = selectEligibleStageParticipant(activeStage, {
         preferred: explicitAssignee ?? existingState?.currentParticipant ?? null,
-        exclude: activeStage.type === "review" ? existingState?.returnAssignee ?? null : null,
+        returnAssignee: existingState?.returnAssignee ?? null,
       });
       if (!participant) {
         clearExecutionStatePatch({
@@ -792,14 +889,15 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
         if (!input.commentBody?.trim()) {
           throw unprocessable(`Approving a review or approval stage requires a comment. ${STAGE_DECISION_COMMENT_HINT}`);
         }
-        const returnAssignee = existingState?.returnAssignee ?? currentAssignee ?? actor;
-        const approvedState = buildCompletedState(existingState, activeStage, returnAssignee);
+        const policy = input.policy;
+        const stageReturnAssignee = existingState?.returnAssignee ?? null;
+        const approvedState = buildCompletedState(existingState, activeStage);
         // Only stages after the stage being approved are advance candidates.
         // Scanning the whole policy could wrap back to the first stage when
         // earlier completedStageIds no longer match the policy (e.g. stage ids
         // were regenerated by a mid-flow policy edit), turning a final-stage
         // approval into an endless re-review loop (#7893).
-        let nextStage = nextPendingStageAfter(input.policy, activeStage, approvedState);
+        const nextStage = nextPendingStageAfter(policy, activeStage, approvedState);
 
         if (!nextStage) {
           patch.executionState = approvedState;
@@ -814,60 +912,45 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
           };
         }
 
-        const skippedStageIds = [...approvedState.completedStageIds];
-        let participant = selectStageParticipant(nextStage, {
+        const assignment = resolveStageAssignment({
+          previous: approvedState,
+          stage: nextStage,
           preferred: explicitAssignee,
-          exclude: nextStage.type === "review" ? returnAssignee : null,
+          returnAssignee: stageReturnAssignee,
+          requestedStatus,
+          advance: (state) => nextPendingStageAfter(policy, activeStage, state),
         });
 
-        while (!participant && canAutoSkipPendingStage({ stage: nextStage, returnAssignee, requestedStatus })) {
-          skippedStageIds.push(nextStage.id);
-          const stateWithSkipped = buildStateWithCompletedStages({
-            previous: approvedState,
-            completedStageIds: skippedStageIds,
-            returnAssignee,
-          });
-          nextStage = nextPendingStageAfter(input.policy, activeStage, stateWithSkipped);
-          if (!nextStage) {
-            patch.executionState = buildSkippedStageCompletedState({
-              previous: approvedState,
-              completedStageIds: skippedStageIds,
-              returnAssignee,
-            });
-            return {
-              patch,
-              decision: {
-                stageId: activeStage.id,
-                stageType: activeStage.type,
-                outcome: "approved",
-                body: input.commentBody.trim(),
-              },
-            };
-          }
-          participant = selectStageParticipant(nextStage, {
-            preferred: explicitAssignee,
-            exclude: nextStage.type === "review" ? returnAssignee : null,
-          });
+        if (assignment.kind === "exhausted") {
+          patch.executionState = assignment.state;
+          return {
+            patch,
+            decision: {
+              stageId: activeStage.id,
+              stageType: activeStage.type,
+              outcome: "approved",
+              body: input.commentBody.trim(),
+            },
+          };
         }
 
-        if (!participant) {
-          throw unprocessable(`No eligible ${nextStage.type} participant is configured for this issue`);
+        if (assignment.kind === "unassignable") {
+          // Defensive: `normalizeIssueExecutionPolicy` drops a stage with no
+          // participant, and every remaining shape resolves above — an
+          // approval stage falls back to the return assignee, and a review
+          // stage left empty by the exclusion is auto-skipped because this
+          // branch only runs for `requestedStatus === "done"`. Only a policy
+          // that bypassed normalization can reach here.
+          throw unprocessable(`No eligible ${assignment.stage.type} participant is configured for this issue`);
         }
 
         buildPendingStagePatch({
           patch,
-          previous:
-            skippedStageIds.length === approvedState.completedStageIds.length
-              ? approvedState
-              : buildStateWithCompletedStages({
-                  previous: approvedState,
-                  completedStageIds: skippedStageIds,
-                  returnAssignee,
-                }),
-          policy: input.policy,
-          stage: nextStage,
-          participant,
-          returnAssignee,
+          previous: assignment.previous,
+          policy,
+          stage: assignment.stage,
+          participant: assignment.participant,
+          returnAssignee: existingState?.returnAssignee ?? currentAssignee ?? actor,
           reviewRequest: input.reviewRequest ?? null,
         });
         return {
@@ -1021,64 +1104,41 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
     return { patch };
   }
 
-  let pendingStage =
+  const policy = input.policy;
+  const pendingStage =
     existingState?.status === CHANGES_REQUESTED_STATUS && currentStage
       ? currentStage
-      : nextPendingStage(input.policy, existingState);
+      : nextPendingStage(policy, existingState);
   if (!pendingStage) return { patch };
 
-  const returnAssignee = existingState?.returnAssignee ?? currentAssignee ?? actor;
-  const skippedStageIds = [...(existingState?.completedStageIds ?? [])];
-  let participant = selectStageParticipant(pendingStage, {
+  const returnAssignee = existingState?.returnAssignee ?? currentAssignee;
+  const assignment = resolveStageAssignment({
+    previous: existingState,
+    stage: pendingStage,
     preferred:
       existingState?.status === CHANGES_REQUESTED_STATUS
         ? explicitAssignee ?? existingState.currentParticipant ?? null
         : explicitAssignee,
-    exclude: pendingStage.type === "review" ? returnAssignee : null,
+    returnAssignee,
+    requestedStatus,
+    advance: (state) => nextPendingStage(policy, state),
   });
-  while (!participant && canAutoSkipPendingStage({ stage: pendingStage, returnAssignee, requestedStatus })) {
-    skippedStageIds.push(pendingStage.id);
-    pendingStage = nextPendingStage(
-      input.policy,
-      buildStateWithCompletedStages({
-        previous: existingState,
-        completedStageIds: skippedStageIds,
-        returnAssignee,
-      }),
-    );
-    if (!pendingStage) {
-      patch.executionState = buildSkippedStageCompletedState({
-        previous: existingState,
-        completedStageIds: skippedStageIds,
-        returnAssignee,
-      });
-      return { patch };
-    }
-    participant = selectStageParticipant(pendingStage, {
-      preferred:
-        existingState?.status === CHANGES_REQUESTED_STATUS
-          ? explicitAssignee ?? existingState.currentParticipant ?? null
-          : explicitAssignee,
-      exclude: pendingStage.type === "review" ? returnAssignee : null,
-    });
+
+  if (assignment.kind === "exhausted") {
+    patch.executionState = assignment.state;
+    return { patch };
   }
-  if (!participant) {
-    throw unprocessable(`No eligible ${pendingStage.type} participant is configured for this issue`);
+
+  if (assignment.kind === "unassignable") {
+    throw unprocessable(`No eligible ${assignment.stage.type} participant is configured for this issue`);
   }
 
   buildPendingStagePatch({
     patch,
-    previous:
-      skippedStageIds.length === (existingState?.completedStageIds ?? []).length
-        ? existingState
-        : buildStateWithCompletedStages({
-            previous: existingState,
-            completedStageIds: skippedStageIds,
-            returnAssignee,
-          }),
-    policy: input.policy,
-    stage: pendingStage,
-    participant,
+    previous: assignment.previous,
+    policy,
+    stage: assignment.stage,
+    participant: assignment.participant,
     returnAssignee,
     reviewRequest: input.reviewRequest ?? null,
   });
