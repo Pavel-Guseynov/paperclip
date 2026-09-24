@@ -3,6 +3,7 @@ import type { Logger } from "pino";
 import { pinoHttp } from "pino-http";
 import {
   HTTP_LOG_REDACT_PATHS,
+  isHttpObject,
   redactSensitiveHeaders,
   sanitizeCredentialText,
   sanitizeErrorObject,
@@ -23,16 +24,81 @@ const sharedOpts = {
   singleLine: true,
 };
 
+const REDACTION_WRAPPED = Symbol.for("paperclip.redactionWrapped");
+
+function sanitizeChildBindings(bindings: unknown): unknown {
+  if (!bindings || typeof bindings !== "object" || isHttpObject(bindings)) {
+    return bindings;
+  }
+  if (Array.isArray(bindings)) {
+    return bindings.map((item) => sanitizeChildBindings(item));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(
+    bindings as Record<string, unknown>,
+  )) {
+    if (key === "req" || key === "res" || isHttpObject(value)) {
+      out[key] = value;
+    } else if (key === "err" || value instanceof Error) {
+      out[key] = sanitizeErrorObject(value);
+    } else {
+      out[key] = (
+        redactSensitive({ [key]: value }) as Record<string, unknown>
+      )[key];
+    }
+  }
+  return out;
+}
+
+function sanitizeLogArgument(arg: unknown): unknown {
+  if (arg instanceof Error) {
+    return sanitizeErrorObject(arg);
+  }
+  if (typeof arg === "string") {
+    return sanitizeCredentialText(arg);
+  }
+  if (!arg || typeof arg !== "object") {
+    return arg;
+  }
+  if (isHttpObject(arg)) {
+    return arg;
+  }
+  if (Array.isArray(arg)) {
+    return arg.map(sanitizeLogArgument);
+  }
+  const obj = arg as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "req" || key === "res" || isHttpObject(value)) {
+      out[key] = value;
+    } else if (key === "err" || value instanceof Error) {
+      out[key] = sanitizeErrorObject(value);
+    } else {
+      out[key] = (
+        redactSensitive({ [key]: value }) as Record<string, unknown>
+      )[key];
+    }
+  }
+  return out;
+}
+
 export function wrapLoggerWithRedaction(log: Logger): Logger {
-  const originalChild = log.child.bind(log);
-  (log as any).child = function (bindings: any, options?: any) {
-    const sanitizedBindings = redactSensitive(bindings) as Record<
+  if ((log as any)[REDACTION_WRAPPED]) {
+    return log;
+  }
+  const originalChild = log.child;
+  (log as any).child = function (
+    this: Logger,
+    bindings: Record<string, unknown>,
+    options?: any,
+  ) {
+    const sanitizedBindings = sanitizeChildBindings(bindings) as Record<
       string,
       unknown
     >;
-    const childLogger = originalChild(sanitizedBindings, options);
-    return wrapLoggerWithRedaction(childLogger);
+    return originalChild.call(this, sanitizedBindings, options);
   };
+  (log as any)[REDACTION_WRAPPED] = true;
   return log;
 }
 
@@ -47,18 +113,7 @@ const basePinoOptions = {
   },
   hooks: {
     logMethod(inputArgs: unknown[], method: any) {
-      const sanitizedArgs = inputArgs.map((arg) => {
-        if (arg instanceof Error) {
-          return sanitizeErrorObject(arg);
-        }
-        if (typeof arg === "string") {
-          return sanitizeCredentialText(arg);
-        }
-        if (arg && typeof arg === "object") {
-          return redactSensitive(arg);
-        }
-        return arg;
-      });
+      const sanitizedArgs = inputArgs.map(sanitizeLogArgument);
       return method.apply(this, sanitizedArgs);
     },
   },
