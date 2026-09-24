@@ -1255,7 +1255,7 @@ describe("issue execution policy routes", () => {
 
   function terminalApprovalIssue(
     evidenceRequired: boolean,
-    overrides: { status?: string } = {},
+    overrides: { status?: string; executionStatus?: "pending" | "completed" } = {},
   ) {
     const stageId = "44444444-4444-4444-8444-444444444444";
     const agentId = "33333333-3333-4333-8333-333333333333";
@@ -1269,18 +1269,32 @@ describe("issue execution policy routes", () => {
       ],
       evidenceRequired,
     };
-    const state = {
-      status: "pending" as const,
-      currentStageId: stageId,
-      currentStageIndex: 0,
-      currentStageType: "approval" as const,
-      currentParticipant: { type: "agent" as const, agentId },
-      completedStageIds: [],
-      returnAssignee: null,
-      reviewRequest: null,
-      lastDecisionId: null,
-      lastDecisionOutcome: null,
-    };
+    const completed = overrides.executionStatus === "completed";
+    const state = completed
+      ? {
+          status: "completed" as const,
+          currentStageId: null,
+          currentStageIndex: null,
+          currentStageType: null,
+          currentParticipant: null,
+          completedStageIds: [stageId],
+          returnAssignee: null,
+          reviewRequest: null,
+          lastDecisionId: null,
+          lastDecisionOutcome: "approved" as const,
+        }
+      : {
+          status: "pending" as const,
+          currentStageId: stageId,
+          currentStageIndex: 0,
+          currentStageType: "approval" as const,
+          currentParticipant: { type: "agent" as const, agentId },
+          completedStageIds: [],
+          returnAssignee: null,
+          reviewRequest: null,
+          lastDecisionId: null,
+          lastDecisionOutcome: null,
+        };
     const issue = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       companyId: "company-1",
@@ -1454,6 +1468,21 @@ describe("issue execution policy routes", () => {
     expect(mockIssueService.update).not.toHaveBeenCalled();
     expect(res.status).toBe(422);
     expect(res.body.code).toBe("delivery_evidence_missing");
+  });
+
+  it("accepts a retried close of an already-closed evidence-gated issue", async () => {
+    const issue = terminalApprovalIssue(true, { status: "done", executionStatus: "completed" });
+    mockIssueService.update.mockResolvedValue({ ...issue, changes: {} });
+    const outbound = vi.spyOn(globalThis, "fetch");
+
+    const res = await request(await createApp(agentActor))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "done" });
+
+    expect(res.status).not.toBe(422);
+    expect(res.body.code).toBeUndefined();
+    expect(outbound).not.toHaveBeenCalled();
+    outbound.mockRestore();
   });
 
   it("still lets a policy without evidenceRequired close through a stage replacement", async () => {
