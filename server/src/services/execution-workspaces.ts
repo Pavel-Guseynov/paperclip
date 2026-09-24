@@ -3649,6 +3649,10 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
               userId: input.actor.actorType === "user" ? input.actor.actorId : null,
             },
             commentBody: null,
+            // Paperclip's own reconcile. `quarantineRestoreRequestedSourceStatus` only ever
+            // asks for `todo`, so this never reaches a terminal approval; declaring the
+            // source keeps that true if the requested status ever widens.
+            evidenceSource: "system",
           });
           const { issueService } = await import("./issues.js");
           const updatedIssue = await issueService(db).update(

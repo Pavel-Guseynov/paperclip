@@ -1086,7 +1086,54 @@ Examples:
 
 In these cases Paperclip should leave a visible issue/comment trail instead of silently retrying.
 
-## 14. What This Does Not Mean
+## 14. Verified Delivery Evidence on Terminal Completion
+
+An execution policy may set `evidenceRequired: true`. It is opt-in and defaults to
+false; a policy that omits it closes exactly as before.
+
+When it is set, the transition that closes the final stage must carry
+`evidence: { pr, mergedSha, checkRun?, note? }`:
+
+- `pr` is a pull-request number.
+- `mergedSha` is a full 40-character git SHA. An abbreviation is refused, because
+  seven hex characters name more than one commit.
+- `checkRun` and `note` are optional and are recorded verbatim on the receipt.
+
+The evidence names nothing else. The repository, the live base branch, the pull
+request, and the reviewed head are **server-side bindings**, resolved for the issue
+and never read from the request:
+
+| Fact | Where the server reads it |
+| --- | --- |
+| repository remote | the issue's `execution_workspaces.repo_url`, else the project's primary `project_workspaces.repo_url` |
+| live base branch | that same row's `base_ref` / `default_ref` |
+| pull request | the issue's `pull_request` work product whose `url` is a `github.com` pull URL in that same repository |
+| reviewed head SHA | the issue's `commit` work product naming a full 40-character SHA |
+
+Only `github.com` is supported. A GitHub Enterprise, Gitea, or any other remote
+fails closed with `delivery_unverified_unsupported_provider` rather than being
+probed with a credential that was never scoped to it. The credential is resolved
+per company — the managed GitHub identity first, then a company secret named
+`GITHUB_TOKEN`, `GH_TOKEN`, or `PAPERCLIP_GITHUB_TOKEN`. The server process
+environment is not a source.
+
+Verification then requires all of: the pull request is merged; its base ref equals
+the configured live base branch; its head SHA equals the reviewed head exactly;
+the claimed `mergedSha` equals the head or the merge commit exactly; at least one
+check run or commit status exists and all of them passed; and the live base branch
+contains the merged commit (`ahead_by === 0` on `base...head`). An absence of
+checks is `delivery_unverified_checks_unverifiable`, never a pass.
+
+Every failure is a 409 carrying a stable `code`, and the terminal write does not
+happen. The server writes `verified` and `receipt` onto the stored decision; a
+caller may not supply either, and the request schema rejects both.
+
+A system-initiated transition (recovery-action resolution, execution-workspace
+reconcile) carries no approver and therefore no claim. Under `evidenceRequired` it
+is refused with `delivery_evidence_missing` rather than exempted, so the recovery
+path cannot become the way around the gate.
+
+## 15. What This Does Not Mean
 
 These semantics do not change V1 into an auto-reassignment system.
 
@@ -1103,7 +1150,7 @@ The recovery model is intentionally conservative:
 - open a board-owned recovery action when the original-owner bound is exhausted or unsafe
 - escalate visibly when the system cannot safely keep going
 
-## 15. Practical Interpretation
+## 16. Practical Interpretation
 
 For a board operator, the intended meaning is:
 

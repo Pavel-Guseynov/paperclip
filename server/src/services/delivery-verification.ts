@@ -1,24 +1,44 @@
+import { and, desc, eq } from "drizzle-orm";
+import {
+  executionWorkspaces,
+  issueWorkProducts,
+  projectWorkspaces,
+  type Db,
+} from "@paperclipai/db";
 import type {
-  IssueExecutionPolicy,
   IssueTerminalEvidence,
-  PRReadResult,
+  IssueTerminalEvidenceRecord,
   VerifiedDeliveryReceipt,
 } from "@paperclipai/shared";
 import { HttpError } from "../errors.js";
+import { DEFAULT_GITHUB_TOKEN_SECRET_NAMES, resolveManagedGitHubCredential } from "./git-credentials.js";
+import { ghFetch, gitHubApiBase, isGitHubDotCom } from "./github-fetch.js";
+import { secretService } from "./secrets.js";
+import { isLowTrustQuarantined } from "./source-trust.js";
 
+/**
+ * Stable codes a caller can branch on. Every one of them means "not verified"; the
+ * terminal write never happens on any of them.
+ */
 export const DELIVERY_ERROR_CODES = {
   EVIDENCE_MISSING: "delivery_evidence_missing",
+  SOURCE_QUARANTINED: "delivery_unverified_source_quarantined",
+  REPOSITORY_UNCONFIGURED: "delivery_unverified_repository_unconfigured",
   UNSUPPORTED_PROVIDER: "delivery_unverified_unsupported_provider",
+  BASE_UNCONFIGURED: "delivery_unverified_base_unconfigured",
+  PULL_REQUEST_UNRESOLVED: "delivery_unverified_pull_request_unresolved",
+  PULL_REQUEST_MISMATCH: "delivery_unverified_pull_request_mismatch",
+  REVIEWED_HEAD_UNRESOLVED: "delivery_unverified_reviewed_head_unresolved",
+  CREDENTIALS_UNAVAILABLE: "delivery_unverified_credentials_unavailable",
   NOT_MERGED: "delivery_unverified_not_merged",
   BASE_MISMATCH: "delivery_unverified_base_mismatch",
   HEAD_MISMATCH: "delivery_unverified_head_mismatch",
   CHECKS_FAILING: "delivery_unverified_checks_failing",
-  CHECKS_FAILED: "delivery_unverified_checks_failing",
   CHECKS_PENDING: "delivery_unverified_checks_pending",
+  CHECKS_UNVERIFIABLE: "delivery_unverified_checks_unverifiable",
   UNREACHABLE: "delivery_unverified_unreachable",
   REPOSITORY_UNAVAILABLE: "delivery_unverified_repository_unavailable",
-  DISPOSITION_INVALID: "delivery_unverified_disposition_invalid",
-  WORK_PRODUCTS_MISSING: "delivery_unverified_work_products_missing",
+  STALE: "delivery_verification_stale",
 } as const;
 
 export type DeliveryErrorCode = (typeof DELIVERY_ERROR_CODES)[keyof typeof DELIVERY_ERROR_CODES];
@@ -35,7 +55,15 @@ export class DeliveryVerificationError extends HttpError {
   }
 }
 
-export type DeliveryProvider = "github" | "gitea" | "generic";
+/**
+ * The only provider this service can verify at the current upstream tree: github.com.
+ * A GitHub Enterprise host, a Gitea host, or any other remote has no server-side
+ * credential path here, so it fails closed rather than being probed with a token that
+ * was never scoped to it.
+ */
+export const SUPPORTED_DELIVERY_HOST = "github.com";
+
+const FULL_SHA = /^[0-9a-f]{40}$/i;
 
 export interface DeliveryChecksSummary {
   status: "passed" | "pending" | "failed";
@@ -48,562 +76,466 @@ export interface DeliveryChecksSummary {
 export interface DeliveryPullRequestDetails {
   state: "open" | "closed";
   merged: boolean;
-  mergedAt?: string | null;
-  mergeCommitSha?: string | null;
+  mergedAt: string | null;
+  mergeCommitSha: string | null;
   headSha: string;
   baseRef: string;
-  baseSha?: string | null;
 }
 
 export interface DeliveryProviderClient {
-  provider: DeliveryProvider;
+  provider: "github";
   getPullRequest(params: {
     owner: string;
     repo: string;
     pullNumber: number;
   }): Promise<DeliveryPullRequestDetails>;
-  getChecks(params: {
-    owner: string;
-    repo: string;
-    ref: string;
-  }): Promise<DeliveryChecksSummary>;
+  getChecks(params: { owner: string; repo: string; ref: string }): Promise<DeliveryChecksSummary>;
   isReachableInBase(params: {
     owner: string;
     repo: string;
     baseRef: string;
     headSha: string;
-    mergeCommitSha?: string | null;
+    mergeCommitSha: string | null;
   }): Promise<boolean>;
-  getPullRequestFiles?(params: {
-    owner: string;
-    repo: string;
-    pullNumber: number;
-  }): Promise<Array<{ filename: string; status: string; additions: number; deletions: number }>>;
 }
 
-export function isOperationTask(issue: {
-  kind?: string | null;
-  labels?: Array<{ name?: string } | string> | null;
-  originKind?: string | null;
-}): boolean {
-  if (issue.kind === "operation") return true;
-  if (issue.originKind === "operation") return true;
-  if (Array.isArray(issue.labels)) {
-    for (const label of issue.labels) {
-      const name = typeof label === "string" ? label : label?.name;
-      if (typeof name === "string" && name.toLowerCase() === "operation") {
-        return true;
-      }
+/**
+ * Parse a repository remote that an operator configured on a workspace row.
+ *
+ * Only `github.com` over https or ssh resolves. Everything else — including a GitHub
+ * Enterprise hostname — returns null, because the credential this service can reach is
+ * scoped to github.com alone.
+ */
+export function parseConfiguredGitHubRepo(
+  remote: string | null | undefined,
+): { owner: string; repo: string } | null {
+  const raw = typeof remote === "string" ? remote.trim() : "";
+  if (!raw) return null;
+  let host: string;
+  let path: string;
+  const sshMatch = raw.match(/^(?:ssh:\/\/)?git@([^/:]+)[:/](.+)$/i);
+  if (sshMatch) {
+    host = sshMatch[1]!;
+    path = sshMatch[2]!;
+  } else {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return null;
     }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    host = url.hostname;
+    path = url.pathname;
   }
-  return false;
+  if (!isGitHubDotCom(host)) return null;
+  const parts = path.replace(/^\/+/, "").replace(/\.git$/i, "").split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return null;
+  if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) return null;
+  return { owner, repo };
 }
 
-export function parseRepoAndPr(input: {
-  pr?: string | number | null;
-  repo?: string | null;
-  repoUrl?: string | null;
-}): {
-  provider: DeliveryProvider;
+/** Parse a github.com pull-request URL recorded on a work product. */
+export function parseGitHubPullRequestUrl(
+  value: string | null | undefined,
+): { owner: string; repo: string; pullNumber: number } | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  if (!isGitHubDotCom(url.hostname)) return null;
+  const parts = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+  if (parts.length !== 4) return null;
+  const [owner, repo, kind, rawNumber] = parts;
+  if (!owner || !repo || kind !== "pull" || !rawNumber) return null;
+  if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) return null;
+  if (!/^[1-9][0-9]*$/.test(rawNumber)) return null;
+  return { owner, repo, pullNumber: Number(rawNumber) };
+}
+
+export type DeliveryTargetIssue = {
+  id: string;
+  companyId: string;
+  projectId?: string | null;
+  executionWorkspaceId?: string | null;
+  sourceTrust?: unknown;
+};
+
+export type DeliveryTarget = {
   owner: string;
   repo: string;
-  pullNumber?: number;
-  unsupported?: boolean;
-} | null {
-  const prStr = input.pr != null ? String(input.pr).trim() : "";
-  const rawRepo = input.repoUrl?.trim() || input.repo?.trim() || "";
+  pullNumber: number;
+  baseRef: string;
+  reviewedHeadSha: string;
+  repoSource: "execution_workspace" | "project_workspace";
+};
 
-  // Check for unsupported protocols like ftp://
-  if (rawRepo.startsWith("ftp://") || prStr.startsWith("ftp://")) {
-    return { provider: "generic", owner: "", repo: "", unsupported: true };
-  }
+export type DeliveryTargetResolution =
+  | { ok: true; target: DeliveryTarget }
+  | { ok: false; errorCode: DeliveryErrorCode; reason: string };
 
-  // 1. Full PR URL check: https://github.com/owner/repo/pull/123
-  const githubUrlMatch = prStr.match(
-    /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i,
-  );
-  if (githubUrlMatch) {
+function sha(value: unknown): string | null {
+  return typeof value === "string" && FULL_SHA.test(value.trim()) ? value.trim().toLowerCase() : null;
+}
+
+/**
+ * Resolve the verification target from server-held state only.
+ *
+ * Nothing on this path reads the request body. The repository and the base branch come
+ * from the workspace row an operator configured; the pull request and the reviewed head
+ * come from this issue's own work products, read under the issue's company. A caller can
+ * therefore not point verification at a host, repository, or credential of its choosing.
+ */
+export async function resolveDeliveryTarget(
+  db: Db,
+  issue: DeliveryTargetIssue,
+): Promise<DeliveryTargetResolution> {
+  if (isLowTrustQuarantined(issue.sourceTrust as never)) {
     return {
-      provider: "github",
-      owner: githubUrlMatch[1]!,
-      repo: githubUrlMatch[2]!.replace(/\.git$/i, ""),
-      pullNumber: parseInt(githubUrlMatch[3]!, 10),
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.SOURCE_QUARANTINED,
+      reason: "Delivery verification is not available to a quarantined low-trust issue.",
     };
   }
 
-  // Generic / Gitea URL check: https://hostname/owner/repo/pulls/123
-  const genericUrlMatch = prStr.match(
-    /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pulls?\/(\d+)/i,
-  );
-  if (genericUrlMatch) {
-    const host = genericUrlMatch[1]!.toLowerCase();
-    const provider: DeliveryProvider = host.includes("github")
-      ? "github"
-      : host.includes("gitea") || host.includes("git.")
-      ? "gitea"
-      : "generic";
-    return {
-      provider,
-      owner: genericUrlMatch[2]!,
-      repo: genericUrlMatch[3]!.replace(/\.git$/i, ""),
-      pullNumber: parseInt(genericUrlMatch[4]!, 10),
-    };
+  let configuredRemote: string | null = null;
+  let configuredBase: string | null = null;
+  let repoSource: DeliveryTarget["repoSource"] = "execution_workspace";
+
+  const executionWorkspaceRows = await db
+    .select({
+      repoUrl: executionWorkspaces.repoUrl,
+      baseRef: executionWorkspaces.baseRef,
+    })
+    .from(executionWorkspaces)
+    .where(
+      and(
+        eq(executionWorkspaces.companyId, issue.companyId),
+        eq(executionWorkspaces.sourceIssueId, issue.id),
+      ),
+    )
+    .orderBy(desc(executionWorkspaces.lastUsedAt))
+    .limit(1);
+  const executionWorkspace = executionWorkspaceRows[0];
+  if (executionWorkspace?.repoUrl) {
+    configuredRemote = executionWorkspace.repoUrl;
+    configuredBase = executionWorkspace.baseRef ?? null;
   }
 
-  // 2. Parse repository from repo / repoUrl
-  let owner = "";
-  let repo = "";
-  let provider: DeliveryProvider = "github";
-
-  if (rawRepo) {
-    const httpMatch = rawRepo.match(/^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)/i);
-    if (httpMatch) {
-      const host = httpMatch[1]!.toLowerCase();
-      provider = host.includes("github")
-        ? "github"
-        : host.includes("gitea") || host.includes("git.")
-        ? "gitea"
-        : "generic";
-      owner = httpMatch[2]!;
-      repo = httpMatch[3]!.replace(/\.git$/i, "");
-    } else {
-      const parts = rawRepo.replace(/^git@[^:]+:/, "").replace(/\.git$/i, "").split("/");
-      if (parts.length === 2 && parts[0] && parts[1]) {
-        owner = parts[0];
-        repo = parts[1];
-        provider = "github";
-      }
+  if (!configuredRemote && issue.projectId) {
+    const projectWorkspaceRows = await db
+      .select({
+        repoUrl: projectWorkspaces.repoUrl,
+        defaultRef: projectWorkspaces.defaultRef,
+        isPrimary: projectWorkspaces.isPrimary,
+      })
+      .from(projectWorkspaces)
+      .where(
+        and(
+          eq(projectWorkspaces.companyId, issue.companyId),
+          eq(projectWorkspaces.projectId, issue.projectId),
+        ),
+      )
+      .orderBy(desc(projectWorkspaces.isPrimary), desc(projectWorkspaces.updatedAt))
+      .limit(1);
+    const projectWorkspace = projectWorkspaceRows[0];
+    if (projectWorkspace?.repoUrl) {
+      configuredRemote = projectWorkspace.repoUrl;
+      configuredBase = projectWorkspace.defaultRef ?? null;
+      repoSource = "project_workspace";
     }
   }
 
-  const pullNum = prStr ? parseInt(prStr.replace(/^#/, ""), 10) : undefined;
-  const validPullNum = pullNum && !isNaN(pullNum) && pullNum > 0 ? pullNum : undefined;
-
-  if (owner && repo) {
+  if (!configuredRemote) {
     return {
-      provider,
-      owner,
-      repo,
-      pullNumber: validPullNum,
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNCONFIGURED,
+      reason:
+        "No execution or project workspace for this issue records a repository remote, so there is nothing to verify against.",
     };
   }
 
-  return null;
-}
+  const repository = parseConfiguredGitHubRepo(configuredRemote);
+  if (!repository) {
+    return {
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.UNSUPPORTED_PROVIDER,
+      reason: `Delivery verification supports ${SUPPORTED_DELIVERY_HOST} remotes only; this issue's configured remote is not one.`,
+    };
+  }
 
-export function createGitHubDeliveryClient(options?: {
-  apiBase?: string;
-  token?: string | null;
-  fetchFn?: typeof fetch;
-}): DeliveryProviderClient {
-  const apiBase = (options?.apiBase ?? "https://api.github.com").replace(/\/+$/, "");
-  const token =
-    options?.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? null;
+  const baseRef = typeof configuredBase === "string" ? configuredBase.trim() : "";
+  if (!baseRef) {
+    return {
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.BASE_UNCONFIGURED,
+      reason:
+        "The configured workspace does not name a live base branch, so a merge into it cannot be verified.",
+    };
+  }
 
-  const getFetch = () => options?.fetchFn ?? globalThis.fetch;
+  const workProducts = await db
+    .select({
+      type: issueWorkProducts.type,
+      provider: issueWorkProducts.provider,
+      externalId: issueWorkProducts.externalId,
+      url: issueWorkProducts.url,
+      isPrimary: issueWorkProducts.isPrimary,
+      metadata: issueWorkProducts.metadata,
+    })
+    .from(issueWorkProducts)
+    .where(
+      and(
+        eq(issueWorkProducts.companyId, issue.companyId),
+        eq(issueWorkProducts.issueId, issue.id),
+      ),
+    )
+    .orderBy(desc(issueWorkProducts.isPrimary), desc(issueWorkProducts.updatedAt));
+
+  const pullRequestProduct = workProducts.find(
+    (row) => row.type === "pull_request" && row.provider === "github",
+  );
+  const pullRequest = parseGitHubPullRequestUrl(pullRequestProduct?.url ?? null);
+  if (!pullRequest) {
+    return {
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.PULL_REQUEST_UNRESOLVED,
+      reason:
+        "This issue records no GitHub pull-request work product with a github.com pull URL, so there is no reviewed delivery to verify.",
+    };
+  }
+  if (
+    pullRequest.owner.toLowerCase() !== repository.owner.toLowerCase() ||
+    pullRequest.repo.toLowerCase() !== repository.repo.toLowerCase()
+  ) {
+    return {
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.PULL_REQUEST_MISMATCH,
+      reason: `The recorded pull request belongs to ${pullRequest.owner}/${pullRequest.repo}, not to the configured repository ${repository.owner}/${repository.repo}.`,
+    };
+  }
+
+  const commitProduct = workProducts.find(
+    (row) => row.type === "commit" && row.provider === "github",
+  );
+  const reviewedHeadSha =
+    sha(commitProduct?.externalId) ??
+    sha((commitProduct?.metadata as Record<string, unknown> | null)?.sha);
+  if (!reviewedHeadSha) {
+    return {
+      ok: false,
+      errorCode: DELIVERY_ERROR_CODES.REVIEWED_HEAD_UNRESOLVED,
+      reason:
+        "This issue records no GitHub commit work product naming a full 40-character reviewed head SHA.",
+    };
+  }
 
   return {
-    provider: "github",
-    async getPullRequest({ owner, repo, pullNumber }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Paperclip-Delivery-Verification",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const url = `${apiBase}/repos/${owner}/${repo}/pulls/${pullNumber}`;
-      const res = await getFetch()(url, { headers: authHeaders });
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new DeliveryVerificationError(
-            DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-            `Pull request #${pullNumber} not found in repository ${owner}/${repo}`,
-          );
-        }
-        throw new DeliveryVerificationError(
-          DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-          `GitHub API error fetching PR #${pullNumber}: ${res.statusText}`,
-        );
-      }
-      const data = (await res.json()) as any;
-      return {
-        state: data.state === "closed" ? "closed" : "open",
-        merged: Boolean(data.merged),
-        mergedAt: data.merged_at ?? null,
-        mergeCommitSha: data.merge_commit_sha ?? null,
-        headSha: data.head?.sha ?? "",
-        baseRef: data.base?.ref ?? "",
-        baseSha: data.base?.sha ?? null,
-      };
-    },
-    async getPullRequestFiles({ owner, repo, pullNumber }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Paperclip-Delivery-Verification",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const url = `${apiBase}/repos/${owner}/${repo}/pulls/${pullNumber}/files`;
-      const res = await getFetch()(url, { headers: authHeaders });
-      if (!res.ok) return [];
-      const files = (await res.json()) as any[];
-      return Array.isArray(files)
-        ? files.map((f: any) => ({
-            filename: String(f.filename ?? ""),
-            status: String(f.status ?? "modified"),
-            additions: Number(f.additions ?? 0),
-            deletions: Number(f.deletions ?? 0),
-          }))
-        : [];
-    },
-    async getChecks({ owner, repo, ref }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Paperclip-Delivery-Verification",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const checkRunsUrl = `${apiBase}/repos/${owner}/${repo}/commits/${ref}/check-runs`;
-      const checkRunsRes = await getFetch()(checkRunsUrl, { headers: authHeaders });
-      let checkRuns: any[] = [];
-      if (checkRunsRes.ok) {
-        const body = (await checkRunsRes.json()) as any;
-        checkRuns = Array.isArray(body.check_runs) ? body.check_runs : [];
-      }
-
-      const statusUrl = `${apiBase}/repos/${owner}/${repo}/commits/${ref}/status`;
-      const statusRes = await getFetch()(statusUrl, { headers: authHeaders });
-      let statuses: any[] = [];
-      if (statusRes.ok) {
-        const body = (await statusRes.json()) as any;
-        statuses = Array.isArray(body.statuses) ? body.statuses : [];
-      }
-
-      let passed = 0;
-      let failed = 0;
-      let pending = 0;
-
-      for (const run of checkRuns) {
-        if (run.status === "in_progress" || run.status === "queued" || !run.conclusion) {
-          pending++;
-        } else if (
-          [
-            "failure",
-            "timed_out",
-            "action_required",
-            "cancelled",
-            "startup_failure",
-          ].includes(run.conclusion)
-        ) {
-          failed++;
-        } else if (["success", "neutral", "skipped"].includes(run.conclusion)) {
-          passed++;
-        } else {
-          failed++;
-        }
-      }
-
-      for (const s of statuses) {
-        if (s.state === "pending") {
-          pending++;
-        } else if (s.state === "failure" || s.state === "error") {
-          failed++;
-        } else if (s.state === "success") {
-          passed++;
-        }
-      }
-
-      const total = checkRuns.length + statuses.length;
-      let status: "passed" | "pending" | "failed" = "passed";
-      if (failed > 0) {
-        status = "failed";
-      } else if (pending > 0) {
-        status = "pending";
-      }
-
-      return { status, total, passed, failed, pending };
-    },
-    async isReachableInBase({ owner, repo, baseRef, headSha, mergeCommitSha }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Paperclip-Delivery-Verification",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-      const compareHeadUrl = `${apiBase}/repos/${owner}/${repo}/compare/${encodeURIComponent(
-        baseRef,
-      )}...${encodeURIComponent(headSha)}`;
-      const res = await getFetch()(compareHeadUrl, { headers: authHeaders });
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        if (data.status === "diverged") {
-          return false;
-        }
-        if (
-          data.status === "identical" ||
-          data.status === "behind" ||
-          data.status === "ahead" ||
-          data.behind_by === 0
-        ) {
-          return true;
-        }
-      }
-      if (mergeCommitSha) {
-        const compareMergeUrl = `${apiBase}/repos/${owner}/${repo}/compare/${encodeURIComponent(
-          baseRef,
-        )}...${encodeURIComponent(mergeCommitSha)}`;
-        const mergeRes = await getFetch()(compareMergeUrl, { headers: authHeaders });
-        if (mergeRes.ok) {
-          const data = (await mergeRes.json()) as any;
-          if (data.status === "diverged") {
-            return false;
-          }
-          if (
-            data.status === "identical" ||
-            data.status === "behind" ||
-            data.status === "ahead" ||
-            data.behind_by === 0
-          ) {
-            return true;
-          }
-        }
-      }
-      return false;
+    ok: true,
+    target: {
+      owner: repository.owner,
+      repo: repository.repo,
+      pullNumber: pullRequest.pullNumber,
+      baseRef,
+      reviewedHeadSha,
+      repoSource,
     },
   };
 }
 
-export function createGiteaDeliveryClient(options?: {
-  apiBase?: string;
-  token?: string | null;
-  fetchFn?: typeof fetch;
-}): DeliveryProviderClient {
-  const apiBase = (
-    options?.apiBase ??
-    process.env.GITEA_API_URL ??
-    "https://gitea.example.com/api/v1"
-  ).replace(/\/+$/, "");
-  const token = options?.token ?? process.env.GITEA_TOKEN ?? null;
+/**
+ * Company-scoped credential resolution, in the order upstream already declares for GitHub
+ * remotes: the managed GitHub identity first, then a company secret held by a well-known
+ * name. A configured managed identity that cannot produce a credential fails closed
+ * instead of falling through. The server process environment is deliberately not a source
+ * here: an operator's ambient token is not scoped to this company.
+ */
+export async function resolveDeliveryCredentialToken(
+  db: Db,
+  input: { companyId: string; issueId: string },
+): Promise<string | null> {
+  const secrets = secretService(db);
+  const managed = await resolveManagedGitHubCredential(db, secrets, input.companyId, {
+    issueId: input.issueId,
+    allowStandingDelegation: false,
+  });
+  if (managed.configured) {
+    return managed.credential?.token?.trim() || null;
+  }
+  for (const secretName of DEFAULT_GITHUB_TOKEN_SECRET_NAMES) {
+    const secret = await Promise.resolve(secrets.getByName(input.companyId, secretName)).catch(
+      () => null,
+    );
+    if (!secret) continue;
+    const token = await secrets
+      .resolveSecretValue(input.companyId, secret.id, "latest", {
+        accessContext: {
+          consumerType: "system",
+          consumerId: "delivery-verification",
+          actorType: "system",
+          issueId: input.issueId,
+          heartbeatRunId: null,
+          responsibleUserId: null,
+        },
+      })
+      .then((value) => value.trim())
+      .catch(() => "");
+    if (token) return token;
+  }
+  return null;
+}
 
-  const getFetch = () => options?.fetchFn ?? globalThis.fetch;
+function githubHeaders(token: string): Record<string, string> {
+  return {
+    accept: "application/vnd.github+json",
+    "user-agent": "paperclip-delivery-verification",
+    "x-github-api-version": "2022-11-28",
+    authorization: `Bearer ${token}`,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * `base...head` containment. GitHub reports `ahead_by` as the number of commits `head`
+ * carries that `base` does not; containment is exactly `ahead_by === 0`. The `status`
+ * field is only consulted when the count is absent: `ahead` means the head is NOT in the
+ * base, which is the opposite of what this predicate is looking for.
+ */
+export function comparisonContainsHead(body: Record<string, unknown> | null): boolean {
+  if (!body) return false;
+  const aheadBy = body.ahead_by;
+  if (typeof aheadBy === "number" && Number.isFinite(aheadBy)) return aheadBy === 0;
+  const status = typeof body.status === "string" ? body.status : "";
+  return status === "identical" || status === "behind";
+}
+
+export function createGitHubDeliveryClient(options: {
+  token: string;
+  fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
+}): DeliveryProviderClient {
+  const apiBase = gitHubApiBase(SUPPORTED_DELIVERY_HOST);
+  const doFetch = options.fetchFn ?? ghFetch;
+  const headers = githubHeaders(options.token);
+
+  const compare = async (owner: string, repo: string, base: string, head: string) => {
+    const url = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
+    const res = await doFetch(url, { headers });
+    if (!res.ok) return false;
+    return comparisonContainsHead(asRecord(await res.json().catch(() => null)));
+  };
 
   return {
-    provider: "gitea",
+    provider: "github",
     async getPullRequest({ owner, repo, pullNumber }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/json",
-        ...(token ? { Authorization: `token ${token}` } : {}),
-      };
-      const url = `${apiBase}/repos/${owner}/${repo}/pulls/${pullNumber}`;
-      const res = await getFetch()(url, { headers: authHeaders });
+      const url = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${pullNumber}`;
+      const res = await doFetch(url, { headers });
       if (!res.ok) {
-        if (res.status === 404) {
-          throw new DeliveryVerificationError(
-            DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-            `Pull request #${pullNumber} not found in repository ${owner}/${repo}`,
-          );
-        }
         throw new DeliveryVerificationError(
           DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-          `Gitea API error fetching PR #${pullNumber}: ${res.statusText}`,
+          `GitHub returned HTTP ${res.status} for pull request #${pullNumber} in ${owner}/${repo}.`,
         );
       }
-      const data = (await res.json()) as any;
-      const isMerged = Boolean(data.has_merged ?? data.merged);
+      const body = asRecord(await res.json().catch(() => null));
+      if (!body) {
+        throw new DeliveryVerificationError(
+          DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+          `GitHub returned an unreadable pull-request response for #${pullNumber} in ${owner}/${repo}.`,
+        );
+      }
+      const head = asRecord(body.head);
+      const base = asRecord(body.base);
       return {
-        state: data.state === "closed" ? "closed" : "open",
-        merged: isMerged,
-        mergedAt: data.merged_at ?? null,
-        mergeCommitSha: data.merged_commit_id ?? data.merge_commit_sha ?? null,
-        headSha: data.head?.sha ?? "",
-        baseRef: data.base?.ref ?? "",
-        baseSha: data.base?.sha ?? null,
+        state: body.state === "closed" ? "closed" : "open",
+        merged: body.merged === true,
+        mergedAt: typeof body.merged_at === "string" ? body.merged_at : null,
+        mergeCommitSha: sha(body.merge_commit_sha),
+        headSha: sha(head?.sha) ?? "",
+        baseRef: typeof base?.ref === "string" ? base.ref : "",
       };
-    },
-    async getPullRequestFiles({ owner, repo, pullNumber }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/json",
-        ...(token ? { Authorization: `token ${token}` } : {}),
-      };
-      const url = `${apiBase}/repos/${owner}/${repo}/pulls/${pullNumber}/files`;
-      const res = await getFetch()(url, { headers: authHeaders });
-      if (!res.ok) return [];
-      const files = (await res.json()) as any[];
-      return Array.isArray(files)
-        ? files.map((f: any) => ({
-            filename: String(f.filename ?? ""),
-            status: String(f.status ?? "modified"),
-            additions: Number(f.additions ?? 0),
-            deletions: Number(f.deletions ?? 0),
-          }))
-        : [];
     },
     async getChecks({ owner, repo, ref }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/json",
-        ...(token ? { Authorization: `token ${token}` } : {}),
-      };
-      const statusUrl = `${apiBase}/repos/${owner}/${repo}/commits/${ref}/statuses`;
-      const statusRes = await getFetch()(statusUrl, { headers: authHeaders });
-      let statuses: any[] = [];
-      if (statusRes.ok) {
-        const body = (await statusRes.json()) as any;
-        statuses = Array.isArray(body) ? body : [];
+      const prefix = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
+      const checkRunsRes = await doFetch(`${prefix}/check-runs`, { headers });
+      if (!checkRunsRes.ok) {
+        throw new DeliveryVerificationError(
+          DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+          `GitHub returned HTTP ${checkRunsRes.status} for the check runs on ${ref}.`,
+        );
       }
+      const checkRunsBody = asRecord(await checkRunsRes.json().catch(() => null));
+      const checkRuns = Array.isArray(checkRunsBody?.check_runs) ? checkRunsBody.check_runs : [];
+
+      const statusRes = await doFetch(`${prefix}/status`, { headers });
+      if (!statusRes.ok) {
+        throw new DeliveryVerificationError(
+          DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+          `GitHub returned HTTP ${statusRes.status} for the commit statuses on ${ref}.`,
+        );
+      }
+      const statusBody = asRecord(await statusRes.json().catch(() => null));
+      const statuses = Array.isArray(statusBody?.statuses) ? statusBody.statuses : [];
 
       let passed = 0;
       let failed = 0;
       let pending = 0;
-
-      for (const s of statuses) {
-        const st = String(s.status ?? s.state).toLowerCase();
-        if (st === "pending") {
-          pending++;
-        } else if (st === "failure" || st === "error" || st === "warning") {
-          failed++;
-        } else if (st === "success") {
-          passed++;
-        }
+      for (const entry of checkRuns) {
+        const run = asRecord(entry);
+        const conclusion = typeof run?.conclusion === "string" ? run.conclusion : "";
+        if (run?.status !== "completed" || !conclusion) pending++;
+        else if (conclusion === "success" || conclusion === "neutral" || conclusion === "skipped") passed++;
+        else failed++;
+      }
+      for (const entry of statuses) {
+        const status = asRecord(entry);
+        const state = typeof status?.state === "string" ? status.state : "";
+        if (state === "success") passed++;
+        else if (state === "pending") pending++;
+        else failed++;
       }
 
-      const total = statuses.length;
-      let status: "passed" | "pending" | "failed" = "passed";
-      if (failed > 0) {
-        status = "failed";
-      } else if (pending > 0) {
-        status = "pending";
-      }
-
-      return { status, total, passed, failed, pending };
+      const total = checkRuns.length + statuses.length;
+      return {
+        status: failed > 0 ? "failed" : pending > 0 ? "pending" : "passed",
+        total,
+        passed,
+        failed,
+        pending,
+      };
     },
     async isReachableInBase({ owner, repo, baseRef, headSha, mergeCommitSha }) {
-      const authHeaders: Record<string, string> = {
-        Accept: "application/json",
-        ...(token ? { Authorization: `token ${token}` } : {}),
-      };
-
-      // 1. First check branch tip directly: /branches/${baseRef}
-      const branchUrl = `${apiBase}/repos/${owner}/${repo}/branches/${encodeURIComponent(baseRef)}`;
-      const branchRes = await getFetch()(branchUrl, { headers: authHeaders });
-      if (branchRes.ok) {
-        const branchData = (await branchRes.json()) as any;
-        const branchCommitId = branchData.commit?.id ?? branchData.commit?.sha;
-        if (
-          branchCommitId &&
-          (branchCommitId === headSha || branchCommitId === mergeCommitSha)
-        ) {
-          return true;
-        }
-      }
-
-      // 2. Check compare API
-      const compareUrl = `${apiBase}/repos/${owner}/${repo}/compare/${encodeURIComponent(
-        baseRef,
-      )}...${encodeURIComponent(headSha)}`;
-      const res = await getFetch()(compareUrl, { headers: authHeaders });
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        if (
-          data.identical ||
-          data.status === "identical" ||
-          data.status === "behind" ||
-          data.status === "ahead" ||
-          data.behind_by === 0 ||
-          (Array.isArray(data.commits) &&
-            data.commits.some((c: any) => c.id === headSha || c.sha === headSha))
-        ) {
-          return true;
-        }
-      }
-      if (mergeCommitSha) {
-        const compareMergeUrl = `${apiBase}/repos/${owner}/${repo}/compare/${encodeURIComponent(
-          baseRef,
-        )}...${encodeURIComponent(mergeCommitSha)}`;
-        const mergeRes = await getFetch()(compareMergeUrl, { headers: authHeaders });
-        if (mergeRes.ok) {
-          const data = (await mergeRes.json()) as any;
-          if (
-            data.identical ||
-            data.status === "identical" ||
-            data.status === "behind" ||
-            data.status === "ahead" ||
-            data.behind_by === 0
-          ) {
-            return true;
-          }
-        }
-      }
+      if (await compare(owner, repo, baseRef, headSha)) return true;
+      if (mergeCommitSha && (await compare(owner, repo, baseRef, mergeCommitSha))) return true;
       return false;
     },
   };
 }
 
 export interface VerifyTerminalDeliveryInput {
-  issue: {
-    id?: string;
-    companyId?: string;
-    kind?: string | null;
-    labels?: Array<{ name?: string } | string> | null;
-    originKind?: string | null;
-  };
+  db: Db;
+  issue: DeliveryTargetIssue;
   evidence?: IssueTerminalEvidence | null;
-  repoUrl?: string | null;
-  baseRef?: string | null;
-  reviewedHeadSha?: string | null;
-  policy?: IssueExecutionPolicy | null;
+  /** Test seam for the provider HTTP boundary only; production resolves it per company. */
   client?: DeliveryProviderClient;
 }
 
-export interface VerifyTerminalDeliveryResult {
-  verified: boolean;
-  receipt?: VerifiedDeliveryReceipt | null;
-  errorCode?: DeliveryErrorCode;
-  reason?: string;
-  exempt?: boolean;
-}
-
-export interface PreflightReviewDeliveryInput {
-  issue: {
-    id: string;
-    title: string;
-    status: string;
-    kind?: string | null;
-    labels?: Array<{ name?: string } | string> | null;
-    originKind?: string | null;
-  };
-  sourceSha: string;
-  evidence?: {
-    pr?: string | number | null;
-    repo?: string | null;
-    repoUrl?: string | null;
-    headSha?: string | null;
-    mergedSha?: string | null;
-    baseBranch?: string | null;
-    checkRun?: string | number | null;
-    note?: string | null;
-  } | null;
-  repoUrl?: string | null;
-  baseRef?: string | null;
-  workProducts?: Array<{
-    kind?: string;
-    title?: string;
-    location?: string;
-    [key: string]: unknown;
-  }> | null;
-  client?: DeliveryProviderClient;
-}
-
-export interface PreflightReviewDeliveryResult {
-  verified: boolean;
-  errorCode?: DeliveryErrorCode;
-  reason?: string;
-  exempt?: boolean;
-  pr?: DeliveryPullRequestDetails;
-  checksSummary?: DeliveryChecksSummary;
-  provider?: DeliveryProvider;
-  repo?: string;
-  pullNumber?: number;
-  preflightEvidence?: Record<string, unknown>;
-}
+export type VerifyTerminalDeliveryResult =
+  | { verified: true; receipt: VerifiedDeliveryReceipt; target: DeliveryTarget }
+  | { verified: false; errorCode: DeliveryErrorCode; reason: string };
 
 export class DeliveryVerificationService {
-  private clientOverride?: DeliveryProviderClient;
+  private readonly clientOverride?: DeliveryProviderClient;
 
   constructor(options?: { client?: DeliveryProviderClient }) {
     this.clientOverride = options?.client;
@@ -612,82 +544,71 @@ export class DeliveryVerificationService {
   async verifyTerminalDelivery(
     input: VerifyTerminalDeliveryInput,
   ): Promise<VerifyTerminalDeliveryResult> {
-    // 1. Operation task exemption
-    if (isOperationTask(input.issue)) {
-      return {
-        verified: true,
-        receipt: null,
-        exempt: true,
-        reason: "operation_task",
-      };
-    }
-
-    // 2. Validate evidence
-    if (!input.evidence || !input.evidence.pr || !input.evidence.mergedSha) {
+    const claimedPr = input.evidence?.pr;
+    const claimedMergedSha = sha(input.evidence?.mergedSha);
+    if (claimedPr == null || !claimedMergedSha) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.EVIDENCE_MISSING,
-        reason: "A code task requires verified delivery evidence (`pr` and `mergedSha`) before terminal completion.",
+        reason:
+          "A code task requires delivery evidence naming the pull request and the full 40-character merged SHA before terminal completion.",
       };
     }
-
-    // 3. Resolve target repo, PR and provider
-    const target = parseRepoAndPr({
-      pr: input.evidence.pr,
-      repo: input.evidence.repo,
-      repoUrl: input.repoUrl || input.evidence.repoUrl,
-    });
-
-    if (!target || target.unsupported || !target.owner || !target.repo) {
+    const claimedPullNumber = Number(String(claimedPr).replace(/^#/, "").trim());
+    if (!Number.isSafeInteger(claimedPullNumber) || claimedPullNumber <= 0) {
       return {
         verified: false,
-        errorCode: DELIVERY_ERROR_CODES.UNSUPPORTED_PROVIDER,
-        reason: "Missing, unsupported, or invalid repository URL or provider.",
+        errorCode: DELIVERY_ERROR_CODES.EVIDENCE_MISSING,
+        reason: "evidence.pr must name a positive pull-request number.",
       };
     }
 
-    const pullNumber = target.pullNumber;
-    if (!pullNumber) {
+    const resolution = await resolveDeliveryTarget(input.db, input.issue);
+    if (!resolution.ok) {
+      return { verified: false, errorCode: resolution.errorCode, reason: resolution.reason };
+    }
+    const target = resolution.target;
+
+    if (claimedPullNumber !== target.pullNumber) {
       return {
         verified: false,
-        errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        reason: "Cannot determine pull request number from delivery evidence.",
+        errorCode: DELIVERY_ERROR_CODES.PULL_REQUEST_MISMATCH,
+        reason: `evidence.pr names #${claimedPullNumber}, but this issue's recorded pull request is #${target.pullNumber}.`,
       };
     }
 
-    const client =
-      input.client ??
-      this.clientOverride ??
-      (target.provider === "gitea"
-        ? createGiteaDeliveryClient({
-            apiBase: input.repoUrl
-              ? input.repoUrl.replace(/\/[^/]+\/[^/]+(?:\.git)?$/, "")
-              : undefined,
-          })
-        : createGitHubDeliveryClient({
-            apiBase: input.repoUrl?.includes("api.github.com")
-              ? "https://api.github.com"
-              : undefined,
-          }));
+    let client = input.client ?? this.clientOverride;
+    if (!client) {
+      const token = await resolveDeliveryCredentialToken(input.db, {
+        companyId: input.issue.companyId,
+        issueId: input.issue.id,
+      });
+      if (!token) {
+        return {
+          verified: false,
+          errorCode: DELIVERY_ERROR_CODES.CREDENTIALS_UNAVAILABLE,
+          reason:
+            "No company-scoped GitHub credential is available, so delivery cannot be verified against the repository.",
+        };
+      }
+      client = createGitHubDeliveryClient({ token });
+    }
 
-    const expectedBase =
-      input.baseRef?.trim() ||
-      input.evidence.baseBranch?.trim() ||
-      "master";
-
-    // 4. Fetch PR details and check merged state
     let pr: DeliveryPullRequestDetails;
     try {
       pr = await client.getPullRequest({
         owner: target.owner,
         repo: target.repo,
-        pullNumber,
+        pullNumber: target.pullNumber,
       });
-    } catch (err: any) {
+    } catch (err) {
       return {
         verified: false,
-        errorCode: err.code || DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        reason: err.message || "Failed to fetch pull request",
+        errorCode:
+          err instanceof DeliveryVerificationError
+            ? err.code
+            : DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+        reason: err instanceof Error ? err.message : "Failed to read the pull request.",
       };
     }
 
@@ -695,127 +616,106 @@ export class DeliveryVerificationService {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.NOT_MERGED,
-        reason: `Pull request #${pullNumber} in ${target.owner}/${target.repo} is ${
-          pr.state === "open" ? "open; not merged" : "closed but not merged"
-        }.`,
+        reason: `Pull request #${target.pullNumber} in ${target.owner}/${target.repo} is not merged.`,
       };
     }
 
-    // 5. Verify base branch match
-    if (pr.baseRef !== expectedBase) {
+    if (pr.baseRef !== target.baseRef) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.BASE_MISMATCH,
-        reason: `Base branch mismatch: expected "${expectedBase}", but PR merged into "${pr.baseRef}".`,
+        reason: `Base branch mismatch: the configured live base branch is "${target.baseRef}", but the pull request merged into "${pr.baseRef}".`,
       };
     }
 
-    // 6. Verify reviewed head & merged sha
-    const expectedHeadSha = (input.reviewedHeadSha || input.evidence.headSha)?.trim().toLowerCase();
-    const actualHeadSha = pr.headSha.trim().toLowerCase();
-    const expectedMergedSha = input.evidence.mergedSha.trim().toLowerCase();
-    const actualMergeCommitSha = (pr.mergeCommitSha ?? "").trim().toLowerCase();
-
-    if (expectedHeadSha) {
-      if (
-        !actualHeadSha.startsWith(expectedHeadSha) &&
-        !expectedHeadSha.startsWith(actualHeadSha)
-      ) {
-        return {
-          verified: false,
-          errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
-          reason: `Head SHA mismatch: expected reviewed head "${expectedHeadSha}", but PR head commit is "${actualHeadSha}". Head movement detected.`,
-        };
-      }
-    }
-
-    const matchesMergeSha =
-      actualMergeCommitSha &&
-      (actualMergeCommitSha.startsWith(expectedMergedSha) ||
-        expectedMergedSha.startsWith(actualMergeCommitSha));
-    const matchesHeadSha =
-      actualHeadSha &&
-      (actualHeadSha.startsWith(expectedMergedSha) ||
-        expectedMergedSha.startsWith(actualHeadSha));
-
-    if (!matchesMergeSha && !matchesHeadSha) {
+    const providerHeadSha = sha(pr.headSha);
+    if (!providerHeadSha || providerHeadSha !== target.reviewedHeadSha) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
-        reason: `Claimed mergedSha "${expectedMergedSha}" matches neither PR head commit ("${actualHeadSha}") nor merge commit ("${actualMergeCommitSha}").`,
+        reason: `Head SHA mismatch: the reviewed head is "${target.reviewedHeadSha}", but the pull request head is "${providerHeadSha ?? "unknown"}".`,
       };
     }
 
-    // 7. Verify required checks
+    const providerMergeSha = sha(pr.mergeCommitSha);
+    if (claimedMergedSha !== providerHeadSha && claimedMergedSha !== providerMergeSha) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
+        reason: `Claimed mergedSha "${claimedMergedSha}" is neither the pull-request head "${providerHeadSha}" nor its merge commit "${providerMergeSha ?? "unknown"}".`,
+      };
+    }
+
     let checks: DeliveryChecksSummary;
     try {
       checks = await client.getChecks({
         owner: target.owner,
         repo: target.repo,
-        ref: pr.headSha,
+        ref: providerHeadSha,
       });
-    } catch (err: any) {
+    } catch (err) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        reason: `Failed to fetch checks: ${err.message}`,
+        reason: err instanceof Error ? err.message : "Failed to read the commit checks.",
       };
     }
 
-    if (checks.status === "pending" || checks.pending > 0) {
+    if (checks.total === 0) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.CHECKS_UNVERIFIABLE,
+        reason: `No check run or commit status is reported for "${providerHeadSha}", so "all required checks passed" cannot be established.`,
+      };
+    }
+    if (checks.pending > 0) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.CHECKS_PENDING,
-        reason: `Checks pending on commit "${pr.headSha}" (${checks.pending} pending).`,
+        reason: `${checks.pending} check(s) are still pending on "${providerHeadSha}".`,
       };
     }
-
-    if (checks.status === "failed" || checks.failed > 0) {
+    if (checks.failed > 0) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.CHECKS_FAILING,
-        reason: `Checks failing on commit "${pr.headSha}" (${checks.failed} failed).`,
+        reason: `${checks.failed} check(s) failed on "${providerHeadSha}".`,
       };
     }
 
-    // 8. Verify live base branch reachability
-    let reachable = false;
+    let reachable: boolean;
     try {
       reachable = await client.isReachableInBase({
         owner: target.owner,
         repo: target.repo,
-        baseRef: pr.baseRef,
-        headSha: pr.headSha,
-        mergeCommitSha: pr.mergeCommitSha,
+        baseRef: target.baseRef,
+        headSha: providerHeadSha,
+        mergeCommitSha: providerMergeSha,
       });
-    } catch (err: any) {
+    } catch (err) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.UNREACHABLE,
-        reason: `Failed to verify reachability: ${err.message}`,
+        reason: err instanceof Error ? err.message : "Failed to compare against the live base branch.",
       };
     }
-
     if (!reachable) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.UNREACHABLE,
-        reason: `Live base branch does not reach merged commit "${pr.headSha}".`,
+        reason: `The live base branch "${target.baseRef}" does not contain "${providerHeadSha}".`,
       };
     }
 
-    // 9. Construct secret-safe receipt (zero tokens, passwords, authorization headers)
     const receipt: VerifiedDeliveryReceipt = {
       verifiedAt: new Date().toISOString(),
-      provider: client.provider,
-      repo: `${target.owner}/${target.repo}`,
+      provider: "github",
       repository: `${target.owner}/${target.repo}`,
-      pr: pullNumber,
-      pullRequestNumber: pullNumber,
-      headSha: pr.headSha,
-      mergedSha: pr.mergeCommitSha || input.evidence.mergedSha,
-      baseBranch: pr.baseRef,
-      checksPassed: true,
+      pullRequestNumber: target.pullNumber,
+      headSha: providerHeadSha,
+      mergedSha: providerMergeSha ?? providerHeadSha,
+      baseBranch: target.baseRef,
+      repositorySource: target.repoSource,
       checksSummary: {
         total: checks.total,
         passed: checks.passed,
@@ -823,291 +723,11 @@ export class DeliveryVerificationService {
         pending: 0,
       },
       reachable: true,
-      checkRun: input.evidence.checkRun != null ? String(input.evidence.checkRun) : null,
-      note: input.evidence.note != null ? String(input.evidence.note) : null,
+      checkRun: input.evidence?.checkRun != null ? String(input.evidence.checkRun) : null,
+      note: input.evidence?.note != null ? String(input.evidence.note) : null,
     };
 
-    return {
-      verified: true,
-      receipt,
-    };
-  }
-
-  async preflightReviewDelivery(
-    input: PreflightReviewDeliveryInput,
-  ): Promise<PreflightReviewDeliveryResult> {
-    // 1. Operation task exemption
-    if (isOperationTask(input.issue)) {
-      return {
-        verified: true,
-        exempt: true,
-        reason: "operation_task",
-      };
-    }
-
-    // 2. Disposition check: cannot admit review for an issue that is already terminal
-    if (input.issue.status === "done" || input.issue.status === "cancelled") {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.DISPOSITION_INVALID,
-        reason: "Cannot admit review for an issue that is already terminal.",
-      };
-    }
-
-    // 3. Work products check: code tasks require deliverables/work products
-    if (input.workProducts !== undefined && (!input.workProducts || input.workProducts.length === 0)) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.WORK_PRODUCTS_MISSING,
-        reason: "A code task requires recorded work products or deliverables before review admission.",
-      };
-    }
-
-    // 4. PR Identity check
-    if (!input.evidence || !input.evidence.pr) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.EVIDENCE_MISSING,
-        reason: "A code task requires PR identity before review admission.",
-      };
-    }
-
-    const target = parseRepoAndPr({
-      pr: input.evidence.pr,
-      repo: input.evidence.repo,
-      repoUrl: input.repoUrl || input.evidence.repoUrl,
-    });
-
-    if (!target || target.unsupported || !target.owner || !target.repo) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.UNSUPPORTED_PROVIDER,
-        reason: "Missing, unsupported, or invalid repository URL or provider.",
-      };
-    }
-
-    const pullNumber = target.pullNumber;
-    if (!pullNumber) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        reason: "Cannot determine pull request number from delivery evidence.",
-      };
-    }
-
-    const client =
-      input.client ??
-      this.clientOverride ??
-      (target.provider === "gitea"
-        ? createGiteaDeliveryClient({
-            apiBase: input.repoUrl
-              ? input.repoUrl.replace(/\/[^/]+\/[^/]+(?:\.git)?$/, "")
-              : undefined,
-          })
-        : createGitHubDeliveryClient({
-            apiBase: input.repoUrl?.includes("api.github.com")
-              ? "https://api.github.com"
-              : undefined,
-          }));
-
-    // 5. Fetch PR details
-    let pr: DeliveryPullRequestDetails;
-    try {
-      pr = await client.getPullRequest({
-        owner: target.owner,
-        repo: target.repo,
-        pullNumber,
-      });
-    } catch (err: any) {
-      return {
-        verified: false,
-        errorCode: err.code || DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        reason: err.message || "Failed to fetch pull request",
-      };
-    }
-
-    // 6. Verify exact head commit SHA match against input.sourceSha
-    const expectedHeadSha = input.sourceSha.trim().toLowerCase();
-    const actualHeadSha = pr.headSha.trim().toLowerCase();
-    if (
-      !actualHeadSha.startsWith(expectedHeadSha) &&
-      !expectedHeadSha.startsWith(actualHeadSha)
-    ) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
-        reason: `Head SHA mismatch: expected reviewed head "${expectedHeadSha}", but PR head commit is "${actualHeadSha}". Head movement detected.`,
-      };
-    }
-
-    if (input.evidence.headSha) {
-      const evidenceHeadSha = input.evidence.headSha.trim().toLowerCase();
-      if (
-        !actualHeadSha.startsWith(evidenceHeadSha) &&
-        !evidenceHeadSha.startsWith(actualHeadSha)
-      ) {
-        return {
-          verified: false,
-          errorCode: DELIVERY_ERROR_CODES.HEAD_MISMATCH,
-          reason: `Head SHA mismatch: delivery evidence head "${evidenceHeadSha}" does not match PR head "${actualHeadSha}".`,
-        };
-      }
-    }
-
-    // 7. Base branch check if specified
-    const expectedBase = input.baseRef?.trim() || input.evidence?.baseBranch?.trim();
-    if (expectedBase && pr.baseRef && pr.baseRef !== expectedBase) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.BASE_MISMATCH,
-        reason: `Base branch mismatch: expected "${expectedBase}", but PR targets "${pr.baseRef}".`,
-      };
-    }
-
-    // 8. Fetch and verify PR checks
-    let checks: DeliveryChecksSummary;
-    try {
-      checks = await client.getChecks({
-        owner: target.owner,
-        repo: target.repo,
-        ref: pr.headSha,
-      });
-    } catch (err: any) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        reason: `Failed to fetch checks: ${err.message}`,
-      };
-    }
-
-    if (checks.status === "failed" || checks.failed > 0) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.CHECKS_FAILING,
-        reason: `Checks failing on commit "${pr.headSha}" (${checks.failed} failed).`,
-      };
-    }
-
-    if (checks.status === "pending" || checks.pending > 0) {
-      return {
-        verified: false,
-        errorCode: DELIVERY_ERROR_CODES.CHECKS_PENDING,
-        reason: `Checks pending on commit "${pr.headSha}" (${checks.pending} pending).`,
-      };
-    }
-
-    // 9. Structured preflight evidence
-    const preflightEvidence: Record<string, unknown> = {
-      verifiedAt: new Date().toISOString(),
-      provider: client.provider,
-      repo: `${target.owner}/${target.repo}`,
-      pullNumber,
-      headSha: pr.headSha,
-      baseRef: pr.baseRef,
-      checksSummary: {
-        status: checks.status,
-        total: checks.total,
-        passed: checks.passed,
-        failed: checks.failed,
-        pending: checks.pending,
-      },
-      workProductsCount: input.workProducts?.length ?? 0,
-    };
-
-    return {
-      verified: true,
-      pr,
-      checksSummary: checks,
-      provider: client.provider,
-      repo: `${target.owner}/${target.repo}`,
-      pullNumber,
-      preflightEvidence,
-    };
-  }
-
-  async readPullRequest(input: {
-    pr: string | number;
-    repo?: string | null;
-    repoUrl?: string | null;
-    includeDiff?: boolean;
-    client?: DeliveryProviderClient;
-  }): Promise<PRReadResult> {
-    const target = parseRepoAndPr({
-      pr: input.pr,
-      repo: input.repo,
-      repoUrl: input.repoUrl,
-    });
-    if (!target || !target.owner || !target.repo || !target.pullNumber) {
-      throw new DeliveryVerificationError(
-        DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-        "Cannot parse pull request reference",
-      );
-    }
-    const client =
-      input.client ??
-      this.clientOverride ??
-      (target.provider === "gitea"
-        ? createGiteaDeliveryClient({
-            apiBase: input.repoUrl
-              ? input.repoUrl.replace(/\/[^/]+\/[^/]+(?:\.git)?$/, "")
-              : undefined,
-          })
-        : createGitHubDeliveryClient({
-            apiBase: input.repoUrl?.includes("api.github.com")
-              ? "https://api.github.com"
-              : undefined,
-          }));
-
-    const pr = await client.getPullRequest({
-      owner: target.owner,
-      repo: target.repo,
-      pullNumber: target.pullNumber,
-    });
-
-    let checks: DeliveryChecksSummary | undefined;
-    try {
-      checks = await client.getChecks({
-        owner: target.owner,
-        repo: target.repo,
-        ref: pr.headSha,
-      });
-    } catch {
-      // Non-fatal for read
-    }
-
-    let files: Array<{ filename: string; status: string; additions: number; deletions: number }> = [];
-    if (input.includeDiff && client.getPullRequestFiles) {
-      try {
-        files = await client.getPullRequestFiles({
-          owner: target.owner,
-          repo: target.repo,
-          pullNumber: target.pullNumber,
-        });
-      } catch {
-        // Non-fatal
-      }
-    }
-
-    const totalAdditions = files.reduce((acc, f) => acc + f.additions, 0);
-    const totalDeletions = files.reduce((acc, f) => acc + f.deletions, 0);
-    const diffSummary = files.length > 0
-      ? files.map((f) => `${f.status === "added" ? "A" : f.status === "deleted" ? "D" : "M"} ${f.filename} (+${f.additions}, -${f.deletions})`).join("\n")
-      : undefined;
-
-    return {
-      pullNumber: target.pullNumber,
-      provider: client.provider,
-      repo: `${target.owner}/${target.repo}`,
-      title: `PR #${target.pullNumber} in ${target.owner}/${target.repo}`,
-      state: pr.state,
-      headSha: pr.headSha,
-      baseRef: pr.baseRef,
-      changedFiles: files.length > 0 ? files.length : undefined,
-      additions: files.length > 0 ? totalAdditions : undefined,
-      deletions: files.length > 0 ? totalDeletions : undefined,
-      diffSummary,
-      checksSummary: checks,
-    };
+    return { verified: true, receipt, target };
   }
 }
 
@@ -1117,17 +737,74 @@ export function createDeliveryVerificationService(options?: {
   return new DeliveryVerificationService(options);
 }
 
-// Convenience function matching verifyTerminalDelivery
-export async function verifyTerminalDelivery(
-  input: VerifyTerminalDeliveryInput,
-): Promise<VerifyTerminalDeliveryResult> {
-  const service = createDeliveryVerificationService();
-  return service.verifyTerminalDelivery(input);
+/**
+ * Re-assert, under the issue row lock, that the server-side binding verification observed
+ * is still the binding that is about to be written. Verification itself runs on a pre-lock
+ * snapshot; this closes the window in which the recorded pull request, reviewed head, or
+ * configured repository changes between the two.
+ */
+export async function assertDeliveryTargetUnchanged(
+  db: Db,
+  issue: DeliveryTargetIssue,
+  verified: DeliveryTarget,
+): Promise<void> {
+  const resolution = await resolveDeliveryTarget(db, issue);
+  if (!resolution.ok) {
+    throw new DeliveryVerificationError(DELIVERY_ERROR_CODES.STALE, resolution.reason);
+  }
+  const current = resolution.target;
+  if (
+    current.owner !== verified.owner ||
+    current.repo !== verified.repo ||
+    current.pullNumber !== verified.pullNumber ||
+    current.baseRef !== verified.baseRef ||
+    current.reviewedHeadSha !== verified.reviewedHeadSha
+  ) {
+    throw new DeliveryVerificationError(
+      DELIVERY_ERROR_CODES.STALE,
+      "The delivery binding changed while this completion was being verified; re-submit the terminal transition.",
+    );
+  }
 }
 
-export async function preflightReviewDelivery(
-  input: PreflightReviewDeliveryInput,
-): Promise<PreflightReviewDeliveryResult> {
-  const service = createDeliveryVerificationService();
-  return service.preflightReviewDelivery(input);
+/**
+ * The single entry the transition routes use.
+ *
+ * Without `evidenceRequired` the claim is persisted exactly as the caller made it, marked
+ * unverified — nothing checked it, so nothing may say otherwise. With `evidenceRequired`
+ * the claim is checked against the repository the server bound for this issue, and any
+ * failure throws with its stable code so the terminal write never happens.
+ */
+export async function verifyTerminalDecisionEvidence(input: {
+  db: Db;
+  issue: DeliveryTargetIssue;
+  policy?: { evidenceRequired?: boolean } | null;
+  evidence: IssueTerminalEvidence | null | undefined;
+  client?: DeliveryProviderClient;
+}): Promise<{ record: IssueTerminalEvidenceRecord | null; target: DeliveryTarget | null }> {
+  // A decision without evidence is either a non-terminal decision or an approval on a
+  // policy that does not require evidence. `applyIssueExecutionPolicyTransition` is the
+  // single place that decides whether the terminal approval needed a claim; duplicating
+  // that decision here would give the rule two authorities.
+  if (!input.evidence) return { record: null, target: null };
+
+  const claim: IssueTerminalEvidence = {
+    pr: input.evidence.pr,
+    mergedSha: input.evidence.mergedSha,
+    checkRun: input.evidence.checkRun ?? null,
+    note: input.evidence.note ?? null,
+  };
+
+  if (!input.policy?.evidenceRequired) {
+    return { record: { ...claim, verified: false, receipt: null }, target: null };
+  }
+
+  const result = await createDeliveryVerificationService({
+    client: input.client,
+  }).verifyTerminalDelivery({ db: input.db, issue: input.issue, evidence: claim });
+
+  if (!result.verified) {
+    throw new DeliveryVerificationError(result.errorCode, result.reason);
+  }
+  return { record: { ...claim, verified: true, receipt: result.receipt }, target: result.target };
 }

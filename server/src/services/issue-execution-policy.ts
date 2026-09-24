@@ -10,15 +10,10 @@ import type {
   IssueExecutionState,
   IssueMonitorScheduledBy,
   IssueTerminalEvidence,
-  VerifiedDeliveryReceipt,
 } from "@paperclipai/shared";
 import { issueExecutionPolicySchema, issueExecutionStateSchema } from "@paperclipai/shared";
-import { conflict, unprocessable } from "../errors.js";
-import {
-  isOperationTask,
-  DELIVERY_ERROR_CODES,
-  createDeliveryVerificationService,
-} from "./delivery-verification.js";
+import { unprocessable } from "../errors.js";
+import { DELIVERY_ERROR_CODES } from "./delivery-verification.js";
 
 type AssigneeLike = {
   assigneeAgentId?: string | null;
@@ -58,30 +53,33 @@ type TransitionInput = {
   actor: ActorLike;
   allowBoardOverride?: boolean;
   commentBody?: string | null;
-  /** Structured proof of delivery, required when `policy.evidenceRequired` is set. */
-  evidence?: { pr?: unknown; mergedSha?: unknown; checkRun?: unknown; note?: unknown } | null;
+  /** The approver's delivery claim, required when `policy.evidenceRequired` is set. */
+  evidence?: unknown;
+  /**
+   * Who drives this transition. `"system"` marks a transition Paperclip itself issues
+   * (recovery resolution, workspace reconcile): it carries no approver, so it can never
+   * satisfy an evidence requirement and is refused rather than silently exempted.
+   */
+  evidenceSource?: "request" | "system";
   reviewRequest?: IssueExecutionState["reviewRequest"] | null;
   monitorExplicitlyUpdated?: boolean;
 };
 
-type NormalizedEvidence = {
+export type NormalizedTerminalEvidence = {
   pr: string;
   mergedSha: string;
-  headSha?: string | null;
-  baseBranch?: string | null;
-  repo?: string | null;
-  repoUrl?: string | null;
   checkRun: string | null;
   note: string | null;
-  verified?: boolean;
-  receipt?: VerifiedDeliveryReceipt | Record<string, unknown> | null;
 };
 
 type TransitionResult = {
   patch: Record<string, unknown>;
   decision?: Pick<IssueExecutionDecision, "stageId" | "stageType" | "outcome" | "body"> & {
-    /** Structured delivery proof — persisted with the decision, null when not provided. */
-    evidence?: NormalizedEvidence | null;
+    /**
+     * The approver's delivery claim. The server attaches its own verdict (`verified`,
+     * `receipt`) before persisting; a caller can never supply either.
+     */
+    evidence?: NormalizedTerminalEvidence | null;
   };
   workflowControlledAssignment?: boolean;
 };
@@ -508,147 +506,76 @@ function nextPendingStageAfter(
 }
 
 /**
- * Enforces the delivery evidence a terminal approval must carry.
+ * Enforce the shape of the delivery claim a terminal approval must carry.
  *
- * The server cannot reach GitHub, so it does not attempt to verify that the SHA was really
- * merged — it enforces that the claim is *typed and complete* rather than narrative. That is
- * already the difference between a statement an auditor can check and one they cannot: the
- * fields end up on the decision record, where a downstream checker can confront them with
- * the repository.
+ * This is validation only: it decides whether the claim is complete enough to be checked
+ * against the provider. It never decides that the claim is true — that is
+ * `verifyTerminalDelivery`, which reaches the repository the server bound for the issue.
  *
- * Errors say what is missing, never just "rejected": an approver who is refused at 3am must
- * be able to act on the message without reading this file.
+ * Errors say what is missing, never just "rejected": an approver who is refused at 3am
+ * must be able to act on the message without reading this file.
  */
-function assertTerminalEvidence(evidence: TransitionInput["evidence"]): NormalizedEvidence {
-  if (!evidence || typeof evidence !== "object") {
+export function assertTerminalEvidence(evidence: unknown): NormalizedTerminalEvidence {
+  const raw = evidence && typeof evidence === "object" ? (evidence as Record<string, unknown>) : null;
+  if (!raw) {
     throw unprocessable(
       "This issue's policy sets evidenceRequired: closing the final stage needs `evidence` "
-      + "with `pr` and `mergedSha` (and optionally `checkRun`).",
-      { code: "delivery_evidence_missing" },
+        + "with `pr` and `mergedSha` (and optionally `checkRun`).",
+      { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
     );
   }
-  const missing: string[] = [];
-  const rawObj = evidence as Record<string, unknown>;
-  const pr = rawObj.pr;
-  if (pr == null || (typeof pr !== "number" && String(pr).trim() === "")) missing.push("pr");
 
-  const sha = rawObj.mergedSha;
-  const shaText = typeof sha === "string" ? sha.trim() : "";
-  if (!shaText) missing.push("mergedSha");
-  else if (!/^[0-9a-f]{7,40}$/i.test(shaText)) {
-    throw unprocessable(`evidence.mergedSha must be a git SHA (7-40 hex chars), received "${shaText}".`);
+  const missing: string[] = [];
+  const pr = raw.pr;
+  const prText = pr == null ? "" : String(pr).trim().replace(/^#/, "");
+  if (!prText) missing.push("pr");
+  else if (!/^[1-9][0-9]*$/.test(prText)) {
+    throw unprocessable(
+      `evidence.pr must be a pull request number, received "${String(pr)}".`,
+      { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
+    );
   }
 
-  const headSha = typeof rawObj.headSha === "string" ? rawObj.headSha.trim() : null;
-  if (headSha && !/^[0-9a-f]{7,40}$/i.test(headSha)) {
-    throw unprocessable(`evidence.headSha must be a git SHA (7-40 hex chars), received "${headSha}".`);
+  const shaText = typeof raw.mergedSha === "string" ? raw.mergedSha.trim() : "";
+  if (!shaText) missing.push("mergedSha");
+  else if (!/^[0-9a-f]{40}$/i.test(shaText)) {
+    throw unprocessable(
+      `evidence.mergedSha must be a full 40-character git SHA, received "${shaText}". `
+        + "An abbreviated SHA cannot identify a commit unambiguously.",
+      { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
+    );
   }
 
   if (missing.length > 0) {
     throw unprocessable(
       `evidence is missing ${missing.join(" and ")}. A terminal approval must name the pull request `
-      + "and the SHA that actually landed.",
-      { code: "delivery_evidence_missing" },
+        + "and the SHA that actually landed.",
+      { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
     );
   }
-  const checkRun = rawObj.checkRun;
-  const note = rawObj.note;
-  const baseBranch = typeof rawObj.baseBranch === "string" && rawObj.baseBranch.trim() ? rawObj.baseBranch.trim() : null;
-  const repo = typeof rawObj.repo === "string" && rawObj.repo.trim() ? rawObj.repo.trim() : null;
-  const repoUrl = typeof rawObj.repoUrl === "string" && rawObj.repoUrl.trim() ? rawObj.repoUrl.trim() : null;
-  const verified = typeof rawObj.verified === "boolean" ? rawObj.verified : undefined;
-  const receipt = rawObj.receipt && typeof rawObj.receipt === "object" ? (rawObj.receipt as Record<string, unknown>) : undefined;
 
-  const normalized: NormalizedEvidence = {
-    pr: String(pr).trim(),
-    mergedSha: shaText,
+  const checkRun = raw.checkRun;
+  const note = raw.note;
+  return {
+    pr: prText,
+    mergedSha: shaText.toLowerCase(),
     checkRun: checkRun == null || String(checkRun).trim() === "" ? null : String(checkRun).trim(),
     note: typeof note === "string" && note.trim() !== "" ? note.trim().slice(0, 500) : null,
   };
-
-  if (headSha != null) normalized.headSha = headSha;
-  if (baseBranch != null) normalized.baseBranch = baseBranch;
-  if (repo != null) normalized.repo = repo;
-  if (repoUrl != null) normalized.repoUrl = repoUrl;
-  if (verified !== undefined) normalized.verified = verified;
-  if (receipt !== undefined) normalized.receipt = receipt;
-
-  return normalized;
 }
 
 /**
- * Best-effort normalization for the OPTIONAL path: when the policy does not require
- * evidence but the caller supplies a well-formed one anyway, it is still worth
- * persisting — never worth failing over.
+ * The OPTIONAL path: the policy does not require evidence, but the caller supplied a
+ * well-formed claim anyway. Persist it as an unverified claim — never fail over it, and
+ * never mark it verified, because nothing checked it.
  */
-function normalizeOptionalEvidence(evidence: TransitionInput["evidence"]): NormalizedEvidence | null {
+function normalizeOptionalEvidence(evidence: unknown): NormalizedTerminalEvidence | null {
   if (!evidence || typeof evidence !== "object") return null;
   try {
     return assertTerminalEvidence(evidence);
   } catch {
     return null;
   }
-}
-
-export async function verifyStageTerminalEvidence(
-  stage: { evidenceRequired?: boolean | null },
-  evidence: IssueTerminalEvidence | null | undefined,
-  context: {
-    issue: {
-      id: string;
-      companyId: string;
-      kind?: string | null;
-      labels?: Array<{ name?: string } | string> | null;
-      originKind?: string | null;
-    };
-    policy?: IssueExecutionPolicy | null;
-    repoUrl?: string | null;
-    baseRef?: string | null;
-    reviewedHeadSha?: string | null;
-    deliveryVerifier?: {
-      verifyTerminalDelivery: (input: any) => Promise<any>;
-    };
-  },
-): Promise<{ verifiedReceipt?: VerifiedDeliveryReceipt | null; evidence?: IssueTerminalEvidence | null } | null> {
-  if (isOperationTask(context.issue)) {
-    return { verifiedReceipt: null, evidence: null };
-  }
-
-  const verifier = context.deliveryVerifier ?? createDeliveryVerificationService();
-
-  if (stage.evidenceRequired || context.policy?.evidenceRequired) {
-    if (!evidence || !evidence.pr || !evidence.mergedSha) {
-      throw unprocessable(
-        "A terminal approval requires delivery evidence (`pr` and `mergedSha`).",
-        { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
-      );
-    }
-    const result = await verifier.verifyTerminalDelivery({
-      issue: context.issue,
-      evidence,
-      repoUrl: context.repoUrl ?? (typeof evidence.repoUrl === "string" ? evidence.repoUrl : (typeof evidence.repo === "string" ? evidence.repo : null)),
-      baseRef: context.baseRef ?? (typeof evidence.baseBranch === "string" ? evidence.baseBranch : null),
-      reviewedHeadSha: context.reviewedHeadSha ?? (typeof evidence.headSha === "string" ? evidence.headSha : null),
-      policy: context.policy,
-    });
-
-    if (!result.verified) {
-      throw conflict(result.reason || "Delivery verification failed", {
-        code: result.errorCode || DELIVERY_ERROR_CODES.NOT_MERGED,
-      });
-    }
-
-    return {
-      verifiedReceipt: result.receipt,
-      evidence: {
-        ...evidence,
-        verified: true,
-        receipt: result.receipt,
-      },
-    };
-  }
-
-  return { verifiedReceipt: null, evidence };
 }
 
 function selectStageParticipant(
@@ -978,9 +905,22 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
           // served version" is accepted today, and the issue closes on an event that has
           // not happened. Six such closures were observed on a single instance in one day,
           // each with a green review and an open pull request.
-          const evidence = input.policy?.evidenceRequired
-            ? assertTerminalEvidence(input.evidence)
-            : normalizeOptionalEvidence(input.evidence);
+          let evidence: NormalizedTerminalEvidence | null;
+          if (input.policy?.evidenceRequired) {
+            // A system-initiated transition has no approver and therefore no delivery
+            // claim. Exempting it would make every evidence gate bypassable through the
+            // recovery path, so it is refused with the path that can satisfy the gate.
+            if (input.evidenceSource === "system") {
+              throw unprocessable(
+                "This issue's policy sets evidenceRequired, so it cannot be completed through a "
+                  + "system-initiated transition. Complete it through the issue update with `evidence`.",
+                { code: DELIVERY_ERROR_CODES.EVIDENCE_MISSING },
+              );
+            }
+            evidence = assertTerminalEvidence(input.evidence);
+          } else {
+            evidence = normalizeOptionalEvidence(input.evidence);
+          }
           patch.executionState = approvedState;
           return {
             patch,

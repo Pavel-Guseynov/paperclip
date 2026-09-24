@@ -722,40 +722,51 @@ export interface IssueExecutionState {
   changesRequestedCount?: number;
 }
 
+/**
+ * Server-written proof that a reviewed head actually landed. Every field is taken from
+ * the provider response or from the server-side binding — nothing here originates in the
+ * request body, and the receipt is never accepted from a caller.
+ */
 export interface VerifiedDeliveryReceipt {
   verifiedAt: string;
-  provider: "github" | "gitea" | "generic";
-  repo?: string;
+  provider: "github";
+  /** `owner/repo`, taken from the workspace remote an operator configured. */
   repository: string;
-  pr?: number;
+  /** Which server-side row supplied that remote. */
+  repositorySource: "execution_workspace" | "project_workspace";
   pullRequestNumber: number;
   headSha: string;
   mergedSha: string;
   baseBranch: string;
-  checksPassed?: boolean;
   checksSummary: {
-    status?: "passed";
     total: number;
     passed: number;
-    failed: number;
-    pending: number;
+    failed: 0;
+    pending: 0;
   };
-  reachable: boolean;
+  reachable: true;
+  checkRun?: string | null;
+  note?: string | null;
+}
+
+/**
+ * The claim a terminal approval carries. It names only what the server cannot derive on
+ * its own: which pull request the approver believes landed, and the SHA they believe
+ * landed it. Repository, base branch, and reviewed head are server-side bindings and are
+ * deliberately absent — accepting them from the caller is what turns verification into a
+ * caller-chosen outbound request.
+ */
+export interface IssueTerminalEvidence {
+  pr: string | number;
+  mergedSha: string;
   checkRun?: string | number | null;
   note?: string | null;
 }
 
-export interface IssueTerminalEvidence {
-  pr: string | number;
-  mergedSha: string;
-  headSha?: string | null;
-  baseBranch?: string | null;
-  repo?: string | null;
-  repoUrl?: string | null;
-  checkRun?: string | number | null;
-  note?: string | null;
-  verified?: boolean;
-  receipt?: VerifiedDeliveryReceipt | null;
+/** What is persisted on the decision row: the caller's claim plus the server's verdict. */
+export interface IssueTerminalEvidenceRecord extends IssueTerminalEvidence {
+  verified: boolean;
+  receipt: VerifiedDeliveryReceipt | null;
 }
 
 export interface IssueExecutionDecision {
@@ -768,7 +779,7 @@ export interface IssueExecutionDecision {
   actorUserId: string | null;
   outcome: IssueExecutionDecisionOutcome;
   body: string;
-  evidence?: (IssueTerminalEvidence & { verified?: boolean; receipt?: VerifiedDeliveryReceipt | null }) | Record<string, unknown> | null;
+  evidence?: IssueTerminalEvidenceRecord | null;
   createdByRunId: string | null;
   createdAt: Date;
   updatedAt: Date;
