@@ -121,6 +121,7 @@ import {
   sandboxProviderPluginRemedy,
   buildExecutionReviewParticipantRecoveryNoticeSeed,
   buildExecutionReviewParticipantUnavailableNoticeSeed,
+  buildExecutionReviewParticipantWorkspaceValidationNoticeSeed,
   buildStrandedRecoveryEscalationNotice,
   type StrandedRecoveryNoticeSeed,
 } from "./stranded-notice.js";
@@ -128,6 +129,7 @@ import {
   RECOVERY_ORIGIN_KINDS,
   isStrandedIssueRecoveryOriginKind,
 } from "./origins.js";
+import { WORKSPACE_VALIDATION_FAILURE_CODE } from "../../modules/wake-queue/domain/values.js";
 import { withRecoveryContext } from "./status-only-context.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./pause-hold-guard.js";
 import {
@@ -395,10 +397,10 @@ function resolveStrandedRecoveryCause(
     return explicitCause;
   }
   if (
-    latestRun?.errorCode === "workspace_validation_failed" ||
+    latestRun?.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
     readWorkspaceValidationPayload(latestRun) !== null
   ) {
-    return "workspace_validation_failed";
+    return WORKSPACE_VALIDATION_FAILURE_CODE;
   }
   if (explicitCause) return explicitCause;
   if (isProviderQuotaRecovery(latestRun)) return "provider_quota";
@@ -3936,7 +3938,7 @@ export function recoveryService(
       agentId: null,
       runId: null,
       action:
-        recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+        input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
           ? "issue.successful_run_handoff_escalated"
           : "issue.updated",
       entityType: "issue",
@@ -3946,7 +3948,7 @@ export function recoveryService(
         status: "blocked",
         previousStatus: input.previousStatus,
         source:
-          recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+          input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
             ? "recovery.reconcile_successful_run_handoff_missing_state"
             : recoveryCause === "workspace_validation_failed"
               ? "recovery.reconcile_workspace_validation_failed"
@@ -4816,17 +4818,27 @@ export function recoveryService(
           }
           continue;
         }
+        const participantWorkspaceValidation = readWorkspaceValidationPayload(
+          participantLatestRun,
+        );
         if (
-          participantLatestRun?.errorCode === "workspace_validation_failed" ||
-          readWorkspaceValidationPayload(participantLatestRun) !== null
+          participantLatestRun?.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
+          participantWorkspaceValidation !== null
         ) {
+          // A failed workspace is a physical blocker that outranks the generic
+          // requeue path below. The notice still reports an unavailable
+          // participant, so neither blocker is lost when both hold.
           const updated = await escalateStrandedAssignedIssue({
             issue,
             previousStatus: "in_review",
             latestRun: participantLatestRun,
-            recoveryCause: "workspace_validation_failed",
-            comment:
-              "Workspace validation failed for the review participant's workspace.",
+            recoveryCause: WORKSPACE_VALIDATION_FAILURE_CODE,
+            notice: buildExecutionReviewParticipantWorkspaceValidationNoticeSeed({
+              participantInvokable: agentInvokable,
+              workspaceValidationReason: readNonEmptyString(
+                participantWorkspaceValidation?.reason,
+              ),
+            }),
           });
           if (updated) {
             result.escalated += 1;

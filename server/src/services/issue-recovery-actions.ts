@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { issueRecoveryActions } from "@paperclipai/db";
+import { WORKSPACE_VALIDATION_FAILURE_CODE } from "../modules/wake-queue/domain/values.js";
 import type {
   IssueRecoveryAction,
   IssueRecoveryActionKind,
@@ -11,7 +12,6 @@ import type {
 
 const ACTIVE_RECOVERY_ACTION_STATUSES = ["active", "escalated"] as const satisfies readonly IssueRecoveryActionStatus[];
 const MAX_UPSERT_RETRIES = 3;
-const WORKSPACE_VALIDATION_RECOVERY_CAUSE = "workspace_validation_failed";
 
 type IssueRecoveryActionRow = typeof issueRecoveryActions.$inferSelect;
 type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -31,29 +31,33 @@ function asEvidenceRecord(value: unknown): Record<string, unknown> | null {
  * Merge the evidence of a repeated upsert onto the active action.
  *
  * Every key keeps the established semantics: a `preserveExistingOwner` write
- * merges shallowly onto the recorded evidence, any other write replaces it.
- * `workspaceValidation` is the one exception. It holds the typed physical
- * diagnosis (expected/actual branch, HEAD provenance, safe-repair verdict) that
- * only the failing run can produce, so a later write that says nothing about
- * the workspace must not drop it. That key alone is deep-merged, incoming
- * fields winning, and survives a replacing write.
+ * merges shallowly onto the recorded evidence, any other write replaces it
+ * wholesale. Within a preserving write, `workspaceValidation` is the one key
+ * merged one level deeper. It holds the typed physical diagnosis (expected and
+ * actual branch, HEAD provenance, safe-repair verdict) that only the failing
+ * run can produce, and a later sweep rebuilds it from whatever the newest run
+ * still carries. A shallow merge would let that partial rebuild replace the
+ * complete diagnosis, so this key merges field by field instead.
+ *
+ * A replacing write is deliberately left alone: it declares a new evidence
+ * record for a new owner, and silently carrying the prior diagnosis into it
+ * would attach a stale workspace claim to an unrelated failure.
  */
 function mergeRecoveryActionEvidence(input: {
   existing: Record<string, unknown> | null | undefined;
   incoming: Record<string, unknown> | undefined;
   preserveExistingOwner: boolean;
 }): Record<string, unknown> {
-  const base = input.preserveExistingOwner
-    ? { ...(input.existing ?? {}), ...(input.incoming ?? {}) }
-    : input.incoming ?? input.existing ?? {};
+  if (!input.preserveExistingOwner) return input.incoming ?? input.existing ?? {};
+  const base = { ...(input.existing ?? {}), ...(input.incoming ?? {}) };
   const existingWorkspaceValidation = asEvidenceRecord(input.existing?.workspaceValidation);
   const incomingWorkspaceValidation = asEvidenceRecord(input.incoming?.workspaceValidation);
-  if (!existingWorkspaceValidation && !incomingWorkspaceValidation) return base;
+  if (!existingWorkspaceValidation || !incomingWorkspaceValidation) return base;
   return {
     ...base,
     workspaceValidation: {
-      ...(existingWorkspaceValidation ?? {}),
-      ...(incomingWorkspaceValidation ?? {}),
+      ...existingWorkspaceValidation,
+      ...incomingWorkspaceValidation,
     },
   };
 }
@@ -338,7 +342,7 @@ export function issueRecoveryActionService(db: Db) {
       // process, a legacy reconciliation) is a distinct identity and still
       // supersedes or updates the action through the branches below.
       const isExistingWorkspaceValidation =
-        existing.cause === WORKSPACE_VALIDATION_RECOVERY_CAUSE ||
+        existing.cause === WORKSPACE_VALIDATION_FAILURE_CODE ||
         existing.kind === "workspace_validation";
       const isIncomingGenericSweep =
         input.cause === "stranded_assigned_issue" ||

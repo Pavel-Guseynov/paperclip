@@ -5,6 +5,7 @@ import {
   buildConfigurationIncompleteRecoveryNoticeSeed,
   buildExecutionReviewParticipantRecoveryNoticeSeed,
   buildExecutionReviewParticipantUnavailableNoticeSeed,
+  buildExecutionReviewParticipantWorkspaceValidationNoticeSeed,
   buildImmediateExecutionPathRecoveryNoticeSeed,
   buildStrandedRecoveryEscalationNotice,
   buildWorkspaceValidationRecoveryNoticeSeed,
@@ -261,4 +262,37 @@ it("names the unavailable AI account instead of suggesting secret bindings", () 
   expect(notice.title).toBe("AI connection needs attention");
   expect(notice.body).toContain("Reconnect the account");
   expect(notice.body).not.toContain("secret/env");
+});
+
+describe("execution review participant workspace validation seed", () => {
+  it("names the typed diagnosis and the repair the board owns", () => {
+    const seed = buildExecutionReviewParticipantWorkspaceValidationNoticeSeed({
+      participantInvokable: true,
+      workspaceValidationReason: "git_worktree_branch_incoherence",
+    });
+    expect(seed.title).toBe("Workspace validation failed");
+    expect(seed.tone).toBe("danger");
+    expect(seed.body).toContain("git_worktree_branch_incoherence");
+    expect(seed.body).toContain("`blocked`");
+    expect(seed.body).not.toContain("not invokable");
+    expect(seed.nextAction).toContain("repair the review participant's execution workspace");
+  });
+
+  it("also reports an unavailable participant so neither blocker is lost", () => {
+    const seed = buildExecutionReviewParticipantWorkspaceValidationNoticeSeed({
+      participantInvokable: false,
+      workspaceValidationReason: "git_worktree_branch_incoherence",
+    });
+    expect(seed.body).toContain("git_worktree_branch_incoherence");
+    expect(seed.body).toContain("not invokable");
+  });
+
+  it("omits the diagnosis sentence when the run recorded no reason", () => {
+    const seed = buildExecutionReviewParticipantWorkspaceValidationNoticeSeed({
+      participantInvokable: true,
+      workspaceValidationReason: null,
+    });
+    expect(seed.body).not.toContain("recorded diagnosis");
+    expect(seed.body).toContain("failed validation. Moving the issue to");
+  });
 });
