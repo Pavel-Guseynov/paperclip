@@ -10,7 +10,6 @@ import type { CommandManagedRuntimeRunner } from "@paperclipai/adapter-utils/com
 import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { PaperclipRunnerToolAuthority } from "../services/native-runtime/paperclip-runner-tool-authority.js";
-import { decodeLsofPath } from "../services/native-runtime/native-runner-file-handoff.js";
 import { readVerifiedRemoteWorkspaceFile } from "../services/native-runtime/remote-deliverable-file.js";
 import { startFileDeliveryDaytona } from "./helpers/file-delivery-daytona.js";
 import { startRunnerApiTestServer } from "./helpers/runner-api-server.js";
@@ -174,12 +173,4 @@ describe(`durable file delivery (${liveDaytona ? "Daytona" : "local processes"})
     await server.db.update(issues).set({ executionRunId: null }).where(eq(issues.id, fixture.issueId));
     await expect(authority.execute({ tool: "register_deliverable", callId: "stale", arguments: {} })).rejects.toThrow();
   }, liveDaytona ? 240_000 : 15_000);
-
-  it("decodes lsof hex escape sequences without corrupting unescaped Unicode", () => {
-    expect(decodeLsofPath("/workspace/out/\\xe7\\x8c\\xab picture.png")).toBe("/workspace/out/猫 picture.png");
-    expect(decodeLsofPath("/workspace/out/猫 picture.png")).toBe("/workspace/out/猫 picture.png");
-    expect(decodeLsofPath("/workspace/out/r\\xc3\\xa9sum\\xc3\\xa9 report.pdf")).toBe("/workspace/out/résumé report.pdf");
-    expect(decodeLsofPath("/workspace/out/résumé report.pdf")).toBe("/workspace/out/résumé report.pdf");
-    expect(decodeLsofPath("/workspace/out/猫\\x20picture.png")).toBe("/workspace/out/猫 picture.png");
-  });
 });

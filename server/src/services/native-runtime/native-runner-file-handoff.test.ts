@@ -38,6 +38,7 @@ import type { StorageService } from "../../storage/types.js";
 import { issueService } from "../issues.js";
 import { findHeartbeatRunCompletionComment, resolveHeartbeatRunResponse } from "../heartbeat-run-summary.js";
 import {
+  decodeLsofPath,
   renderNativeRunnerStagedAttachmentPrompt,
   stageNativeRunnerWakeAttachments,
 } from "./native-runner-file-handoff.js";
@@ -1243,6 +1244,68 @@ describe("native runner file handoff", () => {
       await db.update(assets).set({ originalFilename: asset.originalFilename, byteSize: asset.byteSize, sha256: asset.sha256 }).where(eq(assets.id, asset.id));
       await db.update(issueAttachments).set({ originatingRunId: attachment.originatingRunId }).where(eq(issueAttachments.id, attachment.id));
       await db.update(heartbeatRuns).set({ resultJson: run.resultJson }).where(eq(heartbeatRuns.id, runId));
+    }
+  });
+
+  // Only Darwin resolves the opened descriptor through `/usr/sbin/lsof`; every
+  // other platform reads `/proc/self/fd` or `/dev/fd` and never sees an escape,
+  // so this cannot produce failing-before evidence on Linux CI.
+  const onDarwin = process.platform === "darwin" ? it : it.skip;
+
+  onDarwin("registers deliverables whose names lsof reports escaped, literal, and mixed", async () => {
+    const names = [
+      // Every byte of the Chinese characters comes back as a `\xNN` run.
+      "猫 picture.txt",
+      // Escaped runs interleaved with literal ASCII on both sides.
+      "résumé report.txt",
+      // Nothing to escape: the field is reported verbatim.
+      "plain report.txt",
+    ];
+    await mkdir(path.join(workspaceRoot, "unicode"), { recursive: true });
+    for (const [index, name] of names.entries()) {
+      const body = Buffer.from(`unicode deliverable ${index}\n`, "utf8");
+      await writeFile(path.join(workspaceRoot, "unicode", name), body);
+      const result = (await authority().execute({
+        tool: "register_deliverable",
+        callId: `call-unicode-${index}`,
+        arguments: {
+          idempotencyKey: `unicode-deliverable-${index}`,
+          filename: name,
+          contentType: "text/plain",
+          byteSize: body.length,
+          sha256: createHash("sha256").update(body).digest("hex"),
+          contentRef: `unicode/${name}`,
+          title: `Unicode deliverable ${index}`,
+        },
+      })) as { disposition: string; entityRefs: string[] };
+      expect(result.disposition).toBe("applied");
+      const [attachment] = await db
+        .select()
+        .from(issueAttachments)
+        .where(eq(issueAttachments.id, result.entityRefs[0]!));
+      await expect(
+        db.select().from(assets).where(eq(assets.id, attachment!.assetId)),
+      ).resolves.toEqual([
+        expect.objectContaining({ originalFilename: name, byteSize: body.length }),
+      ]);
+    }
+  });
+
+  it("decodes an lsof escape run that carries valid UTF-8", () => {
+    expect(decodeLsofPath("/workspace/out/r\\xc3\\xa9sum\\xc3\\xa9 report.pdf"))
+      .toBe("/workspace/out/résumé report.pdf");
+  });
+
+  // APFS refuses a filename that is not valid UTF-8 with EILSEQ, so no real
+  // file on Darwin can drive this branch through the handoff above.
+  it("fails closed on an lsof escape run whose bytes are not valid UTF-8", () => {
+    for (const raw of [
+      "/workspace/out/\\x80 broken.png",
+      "/workspace/out/caf\\xc3.txt",
+      "/workspace/out/\\xe7\\x8c.txt",
+    ]) {
+      expect(() => decodeLsofPath(raw))
+        .toThrow("paperclip_runner_file_handoff_descriptor_unverifiable");
     }
   });
 });
