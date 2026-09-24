@@ -129,7 +129,6 @@ import {
   RECOVERY_ORIGIN_KINDS,
   isStrandedIssueRecoveryOriginKind,
 } from "./origins.js";
-import { WORKSPACE_VALIDATION_FAILURE_CODE } from "../../modules/wake-queue/domain/values.js";
 import { withRecoveryContext } from "./status-only-context.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./pause-hold-guard.js";
 import {
@@ -397,10 +396,10 @@ function resolveStrandedRecoveryCause(
     return explicitCause;
   }
   if (
-    latestRun?.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
+    latestRun?.errorCode === "workspace_validation_failed" ||
     readWorkspaceValidationPayload(latestRun) !== null
   ) {
-    return WORKSPACE_VALIDATION_FAILURE_CODE;
+    return "workspace_validation_failed";
   }
   if (explicitCause) return explicitCause;
   if (isProviderQuotaRecovery(latestRun)) return "provider_quota";
@@ -4826,7 +4825,7 @@ export function recoveryService(
         );
         if (
           isUnsuccessfulTerminalIssueRun(participantLatestRun) &&
-          (participantLatestRun?.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
+          (participantLatestRun?.errorCode === "workspace_validation_failed" ||
             participantWorkspaceValidation !== null)
         ) {
           // A failed workspace is a physical blocker that outranks the generic
@@ -4836,7 +4835,7 @@ export function recoveryService(
             issue,
             previousStatus: "in_review",
             latestRun: participantLatestRun,
-            recoveryCause: WORKSPACE_VALIDATION_FAILURE_CODE,
+            recoveryCause: "workspace_validation_failed",
             notice: buildExecutionReviewParticipantWorkspaceValidationNoticeSeed({
               participantInvokable: agentInvokable,
               workspaceValidationReason: readNonEmptyString(

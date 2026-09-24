@@ -1,7 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { issueRecoveryActions } from "@paperclipai/db";
-import { WORKSPACE_VALIDATION_FAILURE_CODE } from "../modules/wake-queue/domain/values.js";
 import type {
   IssueRecoveryAction,
   IssueRecoveryActionKind,
@@ -342,7 +341,7 @@ export function issueRecoveryActionService(db: Db) {
       // process, a legacy reconciliation) is a distinct identity and still
       // supersedes or updates the action through the branches below.
       const isExistingWorkspaceValidation =
-        existing.cause === WORKSPACE_VALIDATION_FAILURE_CODE ||
+        existing.cause === "workspace_validation_failed" ||
         existing.kind === "workspace_validation";
       const isIncomingGenericSweep =
         input.cause === "stranded_assigned_issue" ||
