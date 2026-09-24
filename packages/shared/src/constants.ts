@@ -1062,6 +1062,28 @@ export function isToolConnectionAttentionHealth(status: ToolConnectionHealthStat
   return TOOL_CONNECTION_ATTENTION_HEALTH_STATUSES.includes(status);
 }
 
+/**
+ * Health states that record no completed observation: nothing has been checked
+ * yet (`unknown`, `unchecked`), or the last exchange was abandoned before it
+ * proved anything about the connection (`degraded`).
+ */
+export const TOOL_CONNECTION_UNSETTLED_HEALTH_STATUSES: readonly ToolConnectionHealthStatus[] = [
+  "unknown",
+  "unchecked",
+  "degraded",
+];
+
+/**
+ * Every other state: a completed exchange settled it, either proving the
+ * connection usable or proving it needs attention. Single source of truth for
+ * writers that must not overwrite a settled state with an older or ambiguous
+ * observation.
+ */
+export const TOOL_CONNECTION_SETTLED_HEALTH_STATUSES: readonly ToolConnectionHealthStatus[] =
+  TOOL_CONNECTION_HEALTH_STATUSES.filter(
+    (status) => !TOOL_CONNECTION_UNSETTLED_HEALTH_STATUSES.includes(status),
+  );
+
 export const TOOL_CATALOG_ENTRY_KINDS = ["tool", "resource", "prompt"] as const;
 export type ToolCatalogEntryKind = (typeof TOOL_CATALOG_ENTRY_KINDS)[number];
 

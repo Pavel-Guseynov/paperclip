@@ -21,6 +21,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -89,6 +90,7 @@ import type {
 import {
   isGitHubConnectorProfileId,
   isGoogleWorkspaceConnectorProfileId,
+  TOOL_CONNECTION_SETTLED_HEALTH_STATUSES,
   type GitHubConnectorProfileId,
   type GoogleWorkspaceConnectorProfileId,
 } from "@paperclipai/shared";
@@ -161,21 +163,6 @@ import {
   verifyToolArgumentsSignature,
 } from "./tool-content-guards.js";
 import { extendApprovedExecutionWaitDeadline } from "./approved-execution-wait.js";
-
-/**
- * Health states that a completed observation already settled: a success proved
- * the connection usable, and an error state proved it needs attention before it
- * is served again. An older, ambiguous observation must not overwrite either of
- * them — that would hide a working connection or hand a dead one back to the
- * catalog.
- */
-const SETTLED_CONNECTION_HEALTH_STATUSES = [
-  "ok",
-  "healthy",
-  "error",
-  "failed",
-  "missing_secret",
-] as const;
 
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 60 * 60 * 1000;
@@ -3543,13 +3530,16 @@ export function createToolGatewayService(
     options?: { observedAt?: Date },
   ) {
     const now = new Date();
-    // A failure observed by one tool call is evidence about the connection as
-    // it was when that call was dispatched, not as it is now. A concurrent
-    // refresh or a later call can have settled the question in between, so the
-    // write is conditional on no settled observation being newer than this
-    // one. It is a single statement: a read-then-write could interleave with
-    // that refresh and publish the two halves of contradictory state.
-    const orderedObservation = status !== "ok" ? options?.observedAt : undefined;
+    // `observedAt` marks an *ambiguous* observation: the call was abandoned, so
+    // what it reports is only true of the connection as it was when the call
+    // started. Anything the connection has settled since then is better
+    // evidence and must survive. A conclusive outcome passes no `observedAt`
+    // and always records, so a genuine failure still fails closed.
+    //
+    // The guard is one statement: a read-then-write could interleave with the
+    // refresh it is guarding against and publish two halves of contradictory
+    // state.
+    const orderedObservation = options?.observedAt;
     await db
       .update(toolConnections)
       .set({
@@ -3565,11 +3555,19 @@ export function createToolGatewayService(
           ? and(
               eq(toolConnections.id, connection.id),
               or(
-                isNull(toolConnections.lastHealthAt),
-                lt(toolConnections.lastHealthAt, orderedObservation),
-                notInArray(toolConnections.healthStatus, [
-                  ...SETTLED_CONNECTION_HEALTH_STATUSES,
-                ]),
+                // A recorded observation time decides it outright.
+                and(
+                  isNotNull(toolConnections.lastHealthAt),
+                  lt(toolConnections.lastHealthAt, orderedObservation),
+                ),
+                // Without one there is nothing to compare, so an ambiguous
+                // observation may only replace a state that settled nothing.
+                and(
+                  isNull(toolConnections.lastHealthAt),
+                  notInArray(toolConnections.healthStatus, [
+                    ...TOOL_CONNECTION_SETTLED_HEALTH_STATUSES,
+                  ]),
+                ),
               ),
             )
           : eq(toolConnections.id, connection.id),
@@ -5594,19 +5592,23 @@ export function createToolGatewayService(
   }
 
   /**
-   * Single classification point for a failed remote MCP call. The reason code
-   * already names the exact failure, so the audit kind is derived from it
-   * instead of being restated at every throw site. Session expiry is
-   * deliberately unclassified: it is recoverable by retrying, not a fault of
-   * the remote server.
+   * Single classification point for a remote MCP call that failed with a
+   * complete answer in hand. The reason code already names the exact failure,
+   * so the audit kind is derived from it instead of being restated at every
+   * throw site. Session expiry is deliberately unclassified: it is recoverable
+   * by retrying, not a fault of the remote server.
+   *
+   * `mcp_remote_status` covers every non-2xx answer, a credential rejection as
+   * much as an upstream fault: the kind records that the exchange failed
+   * conclusively rather than being abandoned or never delivered, and the exact
+   * status stays in the audit's `response.httpStatus` for anyone separating a
+   * 401 from a 502. Both must fail closed, so they need no separate kind here.
    */
   function remoteFailureKind(
     error: ToolGatewayHttpError,
   ): RemoteHttpFailureKind | undefined {
     if (error.details.sessionExpired === true) return undefined;
     switch (error.reasonCode) {
-      case "tool_timeout":
-        return "invocation_timeout";
       case "mcp_remote_status":
       case "mcp_remote_invalid_json":
       case "mcp_remote_response_too_large":
@@ -6187,7 +6189,6 @@ export function createToolGatewayService(
             connection,
             "error",
             "Remote MCP server returned an HTTP error.",
-            { observedAt: invocationStartedAt },
           );
         }
         throw new ToolGatewayHttpError(
@@ -6245,7 +6246,6 @@ export function createToolGatewayService(
           connection,
           "error",
           "Remote MCP server returned a JSON-RPC error.",
-          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           502,
@@ -6296,7 +6296,7 @@ export function createToolGatewayService(
           : error.reason === "malformed_response" ? malformedRemoteMcpResponse()
           : new ToolGatewayHttpError(502, "Remote MCP server returned invalid JSON", "mcp_remote_invalid_json");
         const failureKind = remoteFailureKind(failure);
-        await markRemoteConnectionHealth(connection, "error", failure.message, { observedAt: invocationStartedAt });
+        await markRemoteConnectionHealth(connection, "error", failure.message);
         throw new ToolGatewayHttpError(failure.status, failure.message, failure.reasonCode, {
           connectionId: connection.id, catalogEntryId: entry.id,
           execution: withFailureKind(execution, failureKind),
@@ -6353,7 +6353,6 @@ export function createToolGatewayService(
         connection,
         "error",
         "Remote MCP tool call failed.",
-        { observedAt: invocationStartedAt },
       );
       throw new ToolGatewayHttpError(
         502,

@@ -47,6 +47,11 @@ function createTestToolGatewayService(db: ReturnType<typeof createDb>, options: 
   });
 }
 
+/** An observation recorded long before any call in this suite starts. */
+const EARLIER_HEALTH_CHECK_AT = new Date("2000-01-01T00:00:00.000Z");
+/** An observation recorded long after every call in this suite starts. */
+const LATER_HEALTH_CHECK_AT = new Date("2100-01-01T00:00:00.000Z");
+
 function requestBody(init: RequestInit | undefined): Record<string, unknown> {
   return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
 }
@@ -125,7 +130,7 @@ async function createRemoteMcpFixture(
   options?: {
     toolName?: string;
     isReadOnly?: boolean;
-    riskLevel?: "read" | "write";
+    riskLevel?: "read" | "low" | "write";
     config?: Record<string, unknown>;
   },
 ) {
@@ -136,7 +141,7 @@ async function createRemoteMcpFixture(
   const application = await db.insert(toolApplications).values({
     companyId,
     applicationKey: `remote-${randomUUID().slice(0, 8)}`,
-    name: "Remote MCP Service",
+    name: `Remote MCP Service ${toolName}`,
     type: "mcp_http",
     status: "active",
   }).returning().then((rows) => rows[0]!);
@@ -150,6 +155,10 @@ async function createRemoteMcpFixture(
     status: "active",
     enabled: true,
     healthStatus: "ok",
+    // A connection whose health was checked before this call started: the
+    // ordering guard has a timestamp to compare against.
+    healthCheckedAt: EARLIER_HEALTH_CHECK_AT,
+    lastHealthAt: EARLIER_HEALTH_CHECK_AT,
     credentialPolicy: "shared",
     config: { url: "https://8.8.8.8/mcp", ...options?.config },
   }).returning().then((rows) => rows[0]!);
@@ -413,9 +422,125 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     expect(dispatchCount).toBe(1);
   });
 
+  it("refuses an abandoned write's key even when the replay names a read tool", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, {
+      toolName: "charge_payment",
+      isReadOnly: false,
+      riskLevel: "write",
+    });
+    await createRemoteMcpFixture(db, company.id, { toolName: "query_data", isReadOnly: true, riskLevel: "read" });
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => abandonedRequest(init),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tools = await gateway.listToolsForSession(session.token);
+    const writeTool = tools.find((tool) => tool.upstreamToolName === "charge_payment")!;
+    const readTool = tools.find((tool) => tool.upstreamToolName === "query_data")!;
+    expect(writeTool).toBeDefined();
+    expect(readTool).toBeDefined();
+
+    const idempotencyKey = `shared-key-${randomUUID()}`;
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: writeTool.name,
+        parameters: { amount: 5000 },
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+
+    // The key is unique per company, not per tool: what the abandoned call
+    // could have done is decided by that call, not by the tool named now.
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: readTool.name,
+        parameters: { q: "test" },
+        timeoutMs: 500,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "ambiguous_invocation_timeout" } });
+  });
+
+  it("still replays an abandoned low-risk call under its original idempotency key", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, { toolName: "list_items", isReadOnly: true, riskLevel: "low" });
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => abandonedRequest(init),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tool = (await gateway.listToolsForSession(session.token))
+      .find((candidate) => candidate.providerType === "mcp_remote_http")!;
+    const idempotencyKey = `low-risk-${randomUUID()}`;
+
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: tool.name,
+        parameters: {},
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+
+    // "low" is not write-capable in this service's risk taxonomy.
+    const replay = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: tool.name,
+      parameters: {},
+      timeoutMs: 500,
+      idempotencyKey,
+    });
+    expect(replay.status).toBe("replayed");
+  });
+
+  it("refuses to replay an abandoned call that recorded no risk level", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, { toolName: "query_data", isReadOnly: true, riskLevel: "read" });
+
+    const idempotencyKey = `unknown-risk-${randomUUID()}`;
+    await db.insert(toolInvocations).values({
+      companyId: company.id,
+      idempotencyKey,
+      toolName: "some_uncatalogued_tool",
+      riskLevel: null,
+      status: "timed_out",
+    });
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) =>
+        jsonRpcResponse(init, { result: { content: [{ type: "text", text: "data" }] } }),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tool = (await gateway.listToolsForSession(session.token))
+      .find((candidate) => candidate.providerType === "mcp_remote_http")!;
+
+    // An invocation that recorded no risk level could have done anything.
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: tool.name,
+        parameters: {},
+        timeoutMs: 500,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "ambiguous_invocation_timeout" } });
+  });
+
   it("fails closed and withdraws the catalog when the transport never answers", async () => {
     const { company, agent, run } = await createRunFixture(db);
     const { connection } = await createRemoteMcpFixture(db, company.id);
+
+    // A health check recorded after this call starts: a connection that never
+    // answered is a conclusive outcome and must be recorded regardless.
+    await db
+      .update(toolConnections)
+      .set({ healthCheckedAt: LATER_HEALTH_CHECK_AT, lastHealthAt: LATER_HEALTH_CHECK_AT })
+      .where(eq(toolConnections.id, connection.id));
 
     const gateway = createTestToolGatewayService(db, {
       remoteHttpRequest: async () => {
@@ -489,9 +614,17 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     ];
 
     for (const testCase of cases) {
+      // A health check recorded after this call starts. A conclusive failure
+      // is not an ambiguous observation, so it must still be recorded.
       await db
         .update(toolConnections)
-        .set({ healthStatus: "ok", healthMessage: null, lastHealthAt: null, lastError: null })
+        .set({
+          healthStatus: "ok",
+          healthMessage: null,
+          healthCheckedAt: LATER_HEALTH_CHECK_AT,
+          lastHealthAt: LATER_HEALTH_CHECK_AT,
+          lastError: null,
+        })
         .where(eq(toolConnections.id, connection.id));
 
       const gateway = createTestToolGatewayService(db, {
@@ -674,6 +807,54 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
       const stored = await connectionRow(connection.id);
       expect(stored.healthStatus).toBe("healthy");
       expect(stored.healthMessage).toBe("Connection probe succeeded.");
+    });
+
+    async function abandonOneCallAgainst(health: {
+      healthStatus: "ok" | "degraded";
+      healthMessage: string | null;
+    }) {
+      const { company, agent, run } = await createRunFixture(db);
+      const { connection } = await createRemoteMcpFixture(db, company.id);
+      // A health state recorded without an observation time, the way the agent
+      // adoption route writes one.
+      await db
+        .update(toolConnections)
+        .set({ ...health, healthCheckedAt: null, lastHealthAt: null })
+        .where(eq(toolConnections.id, connection.id));
+
+      const gateway = createTestToolGatewayService(db, {
+        remoteHttpRequest: async (_url, init) => abandonedRequest(init),
+      });
+      const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      const targetTool = (await gateway.listToolsForSession(session.token))
+        .find((tool) => tool.providerType === "mcp_remote_http")!;
+      await expect(
+        gateway.executeTool({
+          sessionToken: session.token,
+          tool: targetTool.name,
+          parameters: {},
+          timeoutMs: 20,
+        }),
+      ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+      return connectionRow(connection.id);
+    }
+
+    it("keeps a settled health state that recorded no observation time", async () => {
+      const stored = await abandonOneCallAgainst({
+        healthStatus: "ok",
+        healthMessage: "Adopted without a health check.",
+      });
+      expect(stored.healthStatus).toBe("ok");
+      expect(stored.healthMessage).toBe("Adopted without a health check.");
+    });
+
+    it("records the ambiguous outcome over an unsettled state with no observation time", async () => {
+      const stored = await abandonOneCallAgainst({
+        healthStatus: "degraded",
+        healthMessage: "An earlier call was abandoned too.",
+      });
+      expect(stored.healthStatus).toBe("degraded");
+      expect(stored.healthMessage).toBe("Remote MCP tool call timed out; transport remains viable.");
     });
 
     it("does not return a newly failed connection to the catalog", async () => {

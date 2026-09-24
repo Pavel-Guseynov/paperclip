@@ -377,6 +377,23 @@ function argumentConditionMatches(condition: Record<string, unknown>, ctx: ToolA
   return argumentFiltersMatch(filters, ctx);
 }
 
+/**
+ * The risk levels this service treats as able to change something upstream.
+ * `read` and `low` are not among them, and an unknown level is not a claim
+ * either way — every caller decides for itself what to do with `null`.
+ */
+const WRITE_CAPABLE_RISK_LEVELS: readonly ToolRiskLevel[] = [
+  "write",
+  "destructive",
+  "medium",
+  "high",
+  "critical",
+];
+
+function isWriteCapableRiskLevel(value: ToolRiskLevel | null): boolean {
+  return value !== null && WRITE_CAPABLE_RISK_LEVELS.includes(value);
+}
+
 function riskRank(value: ToolRiskLevel | null): number {
   if (value === "read" || value === "low") return 1;
   if (value === "write" || value === "medium") return 2;
@@ -478,7 +495,7 @@ function evaluatePolicyConditions(
     if (max && riskRank(ctx.riskLevel) > riskRank(max)) {
       return conditionGroupFail("risk", "Tool risk level is above the policy condition limit.");
     }
-    if (isWrite !== null && ((ctx.riskLevel === "write" || ctx.riskLevel === "destructive" || ctx.riskLevel === "medium" || ctx.riskLevel === "high" || ctx.riskLevel === "critical") !== isWrite)) {
+    if (isWrite !== null && (isWriteCapableRiskLevel(ctx.riskLevel) !== isWrite)) {
       return conditionGroupFail("risk", "Tool write capability did not satisfy the policy condition.");
     }
     if (isDestructive !== null && ((ctx.riskLevel === "destructive" || ctx.riskLevel === "high" || ctx.riskLevel === "critical") !== isDestructive)) {
@@ -1423,8 +1440,13 @@ export function toolAccessPolicyService(db: Db) {
         // state would risk doing the work twice, so the caller has to decide
         // under a new idempotency key. A read cannot have changed anything, so
         // it keeps the ordinary replay.
+        //
+        // The idempotency key is unique per company, not per tool, so what the
+        // abandoned call could have done is read from the stored invocation
+        // rather than from the tool this caller named. An invocation that
+        // recorded no risk level is unknown, and unknown fails closed.
         const mayHaveChangedState =
-          input.request.sideEffecting === true || ctx.riskLevel !== "read";
+          existing.riskLevel === null || isWriteCapableRiskLevel(existing.riskLevel);
         if (existing.status === "timed_out" && mayHaveChangedState) {
           throw conflict(
             "A previous write invocation timed out with an ambiguous outcome; it cannot be automatically replayed. Confirm the outcome upstream and retry with a new idempotency key.",
