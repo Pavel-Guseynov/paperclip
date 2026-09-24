@@ -26,6 +26,7 @@ import type { BetterAuthSessionResult } from "../auth/better-auth.js";
 import { logger } from "./logger.js";
 import { captureRunIdentity } from "../services/run-identity.js";
 import { boardAuthService } from "../services/board-auth.js";
+import { UUID_SOURCE } from "../lib/uuid.js";
 
 const CLOUD_TENANT_WRITE_DEBOUNCE_MS = 5_000;
 const CLOUD_TENANT_WRITE_DEBOUNCE_MAX = 1_000;
@@ -213,8 +214,10 @@ interface ActorMiddlewareOptions {
 }
 
 const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
-const managedMcpGatewayProtocolPath =
-  /^\/api\/tool-gateway\/gateways\/[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\/mcp\/?$/i;
+const managedMcpGatewayProtocolPath = new RegExp(
+  `^/api/tool-gateway/gateways/${UUID_SOURCE}/mcp/?$`,
+  "i",
+);
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
   const boardAuth = boardAuthService(db);
@@ -240,13 +243,23 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     // Public MCP gateway protocol requests carry a pcgw_* bearer that is
     // validated by the gateway service itself. Do not interpret that bearer as
     // a board key or agent JWT here: doing so rejects the MCP handshake before
-    // the protocol route can verify its run-scoped credential. The internal
-    // managed route gets the same handoff only for an actual pcgw_* bearer;
-    // every other /api request retains normal actor authentication below.
-    if (
-      (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path))
-      || (hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path))
-    ) {
+    // the protocol route can verify its run-scoped credential. The deployment
+    // default actor is preserved as-is on this unguessable public path.
+    if (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path)) {
+      if (runIdHeader) req.actor.runId = runIdHeader;
+      next();
+      return;
+    }
+
+    // The internal managed gateway route gets the same handoff, but only for an
+    // actual pcgw_* bearer. Unlike the public path this one lives under /api,
+    // where a local_trusted deployment would otherwise hand the request a
+    // full-control implicit board actor; a runtime that presents a gateway
+    // bearer must never be upgraded to board authority, so the actor is reset
+    // to none and the gateway service remains the only authority for this
+    // credential. Every other /api request retains normal actor authentication
+    // below.
+    if (hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path)) {
       req.actor = { type: "none", source: "none" };
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();

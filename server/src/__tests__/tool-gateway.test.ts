@@ -459,21 +459,16 @@ function createTestToolGatewayService(db: Db, options: ToolGatewayServiceOptions
 function createGatewayRouteApp(
   db: Db,
   gateway = createTestToolGatewayService(db),
-  actorOrOptions?: Express.Request["actor"] | {
-    actor?: Express.Request["actor"];
-    withActorMiddleware?: boolean;
-  },
+  actor?: Express.Request["actor"],
+  /**
+   * Mounts the real actor middleware ahead of the gateway routes, so a test
+   * exercises the same credential routing production does.
+   */
+  options: { withActorMiddleware?: boolean } = {},
 ) {
-  const options = actorOrOptions && ("actor" in actorOrOptions || "withActorMiddleware" in actorOrOptions)
-    ? actorOrOptions
-    : { actor: actorOrOptions };
-  if (options.actor && options.withActorMiddleware) {
-    throw new Error("createGatewayRouteApp accepts either an explicit actor or actorMiddleware, not both");
-  }
   const app = express();
   app.use(express.json());
   if (options.withActorMiddleware) app.use(actorMiddleware(db, { deploymentMode: "local_trusted" }));
-  const actor = options.actor;
   if (actor) {
     app.use((req, _res, next) => {
       req.actor = actor;
@@ -649,7 +644,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
       expect(token.ownerNote).toBe("QA fixture token");
       expect(token.tokenPrefix).toMatch(/^pcgw_[a-f0-9]{8}$/);
 
-      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+      const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
       const publicEndpoint = created.endpointPath;
       const queryOnly = await request(app)
         .post(`${publicEndpoint}?paperclip_capability=${encodeURIComponent(token.token)}`)
@@ -662,11 +657,12 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         .set("authorization", `Bearer ${tamperToken(token.token)}`)
         .send({ jsonrpc: "2.0", id: 0, method: "tools/list" })
         .expect(401);
-      await request(app)
+      const rejectedNotification = await request(app)
         .post(`/api/tool-gateway/gateways/${created.id}/mcp`)
         .set("authorization", `Bearer ${tamperToken(token.token)}`)
         .send({ jsonrpc: "2.0", method: "notifications/initialized" })
         .expect(401);
+      expect(rejectedNotification.text).toBe("");
 
       const initialized = await request(app)
         .post(`/api/tool-gateway/gateways/${created.id}/mcp`)
@@ -1314,6 +1310,77 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     } finally {
       await remote.close();
     }
+  });
+
+  it("answers an initialized notification without a JSON-RPC body or a session-setup charge", async () => {
+    const company = await createCompany(db);
+    const [profile] = await db.insert(toolProfiles).values({
+      companyId: company.id,
+      profileKey: `notification-limit-${randomUUID()}`,
+      name: `Notification limit ${randomUUID()}`,
+      defaultAction: "deny",
+    }).returning();
+    // Pin the clock so every request below shares one rate-limit window; the
+    // window boundary aligns to wall-clock time and would otherwise reset the
+    // counter between two paired requests.
+    const fixedNow = Date.now();
+    const gateway = createTestToolGatewayService(db, {
+      now: () => fixedNow,
+      mcpGatewayProtocolLimits: { sessionSetup: { max: 2, windowMs: 60_000 } },
+    });
+    const created = await gateway.createNamedGateway({
+      companyId: company.id,
+      body: { name: "Notification limits", profileId: profile!.id },
+    });
+    const token = await gateway.createNamedGatewayToken({
+      companyId: company.id,
+      gatewayId: created.id,
+      body: { name: "Runtime", clientLabel: "Runtime" },
+    });
+    const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
+    const endpoint = `/api/tool-gateway/gateways/${created.id}/mcp`;
+
+    // First handshake: spends session-setup budget 1 of 2.
+    await request(app)
+      .post(endpoint)
+      .set("authorization", `Bearer ${token.token}`)
+      .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+      .expect(200);
+
+    const notified = await request(app)
+      .post(endpoint)
+      .set("authorization", `Bearer ${token.token}`)
+      .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+      .expect(202);
+    expect(notified.text).toBe("");
+
+    // Second handshake: still budget 2 of 2, because the notification above is
+    // charged to no limiter. This is 429 when the notification spends a slot.
+    await request(app)
+      .post(endpoint)
+      .set("authorization", `Bearer ${token.token}`)
+      .send({ jsonrpc: "2.0", id: 2, method: "initialize" })
+      .expect(200);
+
+    // Budget exhausted: proves the limiter really is armed at max 2 here, so
+    // the 200 above is a spent-once budget rather than an absent limiter.
+    const limited = await request(app)
+      .post(endpoint)
+      .set("authorization", `Bearer ${token.token}`)
+      .send({ jsonrpc: "2.0", id: 3, method: "initialize" })
+      .expect(429);
+    expect(limited.body.error.data).toMatchObject({
+      reasonCode: "gateway_rate_limited",
+      protocolMethod: "initialize",
+    });
+
+    // A rejected notification is still a notification: transport status only.
+    const rejected = await request(app)
+      .post(endpoint)
+      .set("authorization", `Bearer ${tamperToken(token.token)}`)
+      .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+      .expect(401);
+    expect(rejected.text).toBe("");
   });
 
   it("hides and denies every external tool when an agent has no gateway profile", async () => {
