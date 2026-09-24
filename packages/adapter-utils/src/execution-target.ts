@@ -4390,16 +4390,7 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
       if (value.trim().length === 0) continue;
       headers.set(key, value);
     }
-    const incomingAuth = request.headers["authorization"];
-    const hasCustomAuth =
-      typeof incomingAuth === "string" &&
-      incomingAuth.trim().length > 0 &&
-      incomingAuth.trim() !== `Bearer ${bridgeToken}`;
-    if (hasCustomAuth) {
-      headers.set("authorization", incomingAuth.trim());
-    } else {
-      headers.set("authorization", `Bearer ${hostApiToken}`);
-    }
+    headers.set("authorization", `Bearer ${hostApiToken}`);
     headers.set("x-paperclip-run-id", input.runId);
     // Abort the forward when the caller aborts the request (its per-iteration
     // timeout or watchdog fired, or the broker's forward budget ended), or after

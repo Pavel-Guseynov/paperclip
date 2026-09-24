@@ -124,14 +124,6 @@ export interface SandboxCallbackBridgeRouteRule {
 export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCallbackBridgeRouteRule[] = [
   // Runtime capability authentication is independently checked by the controller.
   { method: "POST", path: /^\/runtime-tools\/github\/credentials$/ },
-  { method: "POST", path: /^\/runtime-tools\/connections\/(?:search|request)$/ },
-  { method: "GET", path: /^\/(?:api\/)?mcp\/(?:runtime-tools|project-tools|gateways\/[^/]+)$/ },
-  { method: "POST", path: /^\/(?:api\/)?mcp\/(?:runtime-tools|project-tools|gateways\/[^/]+)$/ },
-  { method: "GET", path: /^\/api\/tool-gateway\/gateways\/[^/]+\/mcp$/ },
-  { method: "POST", path: /^\/api\/tool-gateway\/gateways\/[^/]+\/mcp$/ },
-  { method: "POST", path: /^\/api\/tool-gateway\/sessions(?:\/[^/]+\/revoke)?$/ },
-  { method: "GET", path: /^\/api\/tool-gateway\/tools$/ },
-  { method: "POST", path: /^\/api\/tool-gateway\/tools\/call$/ },
   // Identity, inbox, agent self-management
   { method: "GET", path: /^\/api\/agents\/me$/ },
   { method: "GET", path: /^\/api\/agents\/me\/inbox-lite$/ },
@@ -235,11 +227,9 @@ export const HTTP2_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST = DEFAULT_SANDBOX_CAL
 
 export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_HEADER_ALLOWLIST = [
   "accept",
-  "authorization",
   "content-type",
   "if-match",
   "if-none-match",
-  "mcp-session-id",
   "x-paperclip-github-capability",
 ] as const;
 
@@ -454,19 +444,10 @@ export function authorizeSandboxCallbackBridgeRequestWithRoutes(
 export function sanitizeSandboxCallbackBridgeHeaders(
   headers: Record<string, string>,
   allowlist: readonly string[] = DEFAULT_SANDBOX_CALLBACK_BRIDGE_HEADER_ALLOWLIST,
-  bridgeToken?: string,
 ): Record<string, string> {
   const allowed = new Set(allowlist.map((header) => header.toLowerCase()));
   return Object.fromEntries(
-    Object.entries(headers).filter(([key, value]) => {
-      const lower = key.toLowerCase();
-      if (!allowed.has(lower)) return false;
-      if (lower === "authorization" && bridgeToken) {
-        const token = value.startsWith("Bearer ") ? value.slice("Bearer ".length) : value;
-        if (compareBridgeTokensConstantTime(bridgeToken, token)) return false;
-      }
-      return true;
-    }),
+    Object.entries(headers).filter(([key]) => allowed.has(key.toLowerCase())),
   );
 }
 
@@ -2047,7 +2028,6 @@ function forwardOneHttp2Request(
     const requestHeaders: http2.OutgoingHttpHeaders = {
       ":method": request.method,
       ":path": pathWithQuery,
-      "x-paperclip-bridge-token": request.bridgeToken,
       authorization: `Bearer ${request.bridgeToken}`,
       ...request.headers,
     };
@@ -2119,11 +2099,7 @@ export function createSandboxHttp2BridgeGateway(
       // The gateway check (accepted security fix 4 keeps this as well as the
       // independent host-side check): a request whose token does not match
       // the per-run bridge token never opens a stream.
-      const isMcpOrGateway = request.path.startsWith("/api/tool-gateway/") || request.path.startsWith("/tool-gateway/") || request.path.startsWith("/mcp/") || request.path.startsWith("/api/mcp/") || request.path.startsWith("/runtime-tools/");
-      if (
-        !compareBridgeTokensConstantTime(options.bridgeToken, request.receivedToken) &&
-        !(isMcpOrGateway && typeof request.receivedToken === "string" && request.receivedToken.length > 0)
-      ) {
+      if (!compareBridgeTokensConstantTime(options.bridgeToken, request.receivedToken)) {
         return Promise.reject(new Error("Invalid bridge token."));
       }
       return forwardOneHttp2Request(session, {
@@ -2342,13 +2318,6 @@ function normalizeHeaders(headers) {
     if (!allowedHeaders.has(normalizedKey)) {
       continue;
     }
-    if (normalizedKey === "authorization") {
-      const rawVal = Array.isArray(value) ? value[0] : value;
-      const token = typeof rawVal === "string" && rawVal.startsWith("Bearer ") ? rawVal.slice(7) : String(rawVal);
-      if (tokensMatch(token)) {
-        continue;
-      }
-    }
     out[normalizedKey] = Array.isArray(value) ? value.join(", ") : String(value);
   }
   return out;
@@ -2480,9 +2449,7 @@ async function runFileGateway() {
     try {
       const auth = req.headers.authorization || "";
       const receivedToken = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-      const url = new URL(req.url || "/", "http://127.0.0.1");
-      const isMcpOrGateway = url.pathname.startsWith("/api/tool-gateway/") || url.pathname.startsWith("/tool-gateway/") || url.pathname.startsWith("/mcp/") || url.pathname.startsWith("/api/mcp/") || url.pathname.startsWith("/runtime-tools/");
-      if (!tokensMatch(receivedToken) && !(isMcpOrGateway && receivedToken.length > 0)) {
+      if (!tokensMatch(receivedToken)) {
         writeJsonResponse(res, 401, { error: "Invalid bridge token." });
         return;
       }
@@ -2497,6 +2464,7 @@ async function runFileGateway() {
         }
       }
 
+      const url = new URL(req.url || "/", "http://127.0.0.1");
       const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : "";
       const multipartAttachment = req.method === "POST"
         && /^\\/api\\/companies\\/[^/]+\\/issues\\/[^/]+\\/attachments$/.test(url.pathname)
@@ -2710,7 +2678,6 @@ function runHttp2Gateway() {
         {
           ":method": request.method,
           ":path": pathWithQuery,
-          "x-paperclip-bridge-token": bridgeToken,
           authorization: "Bearer " + bridgeToken,
         },
         request.headers,
@@ -2766,9 +2733,7 @@ function runHttp2Gateway() {
     try {
       const auth = req.headers.authorization || "";
       const receivedToken = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-      const url = new URL(req.url || "/", "http://127.0.0.1");
-      const isMcpOrGateway = url.pathname.startsWith("/api/tool-gateway/") || url.pathname.startsWith("/tool-gateway/") || url.pathname.startsWith("/mcp/") || url.pathname.startsWith("/api/mcp/") || url.pathname.startsWith("/runtime-tools/");
-      if (!tokensMatch(receivedToken) && !(isMcpOrGateway && receivedToken.length > 0)) {
+      if (!tokensMatch(receivedToken)) {
         writeJsonResponse(res, 401, { error: "Invalid bridge token." });
         return;
       }
@@ -2776,6 +2741,7 @@ function runHttp2Gateway() {
         writeJsonResponse(res, 503, { error: "bridge_unavailable" });
         return;
       }
+      const url = new URL(req.url || "/", "http://127.0.0.1");
       const { body: requestBodyBuffer, release } = await readBodyBytes(req);
       releaseBodyReservation = release;
       let response;

@@ -847,8 +847,6 @@ function normalizeStreamMethod(value: string | string[] | undefined): string {
 }
 
 function readBridgeTokenHeader(headers: http2.IncomingHttpHeaders): string | undefined {
-  const bridgeHeader = headers["x-paperclip-bridge-token"];
-  if (typeof bridgeHeader === "string" && bridgeHeader.length > 0) return bridgeHeader;
   const raw = headers.authorization;
   if (typeof raw !== "string" || !raw.startsWith("Bearer ")) return undefined;
   return raw.slice("Bearer ".length);
@@ -1217,7 +1215,6 @@ export function createHttp2BridgeServer(options: CreateHttp2BridgeServerOptions)
       const sanitizedHeaders = sanitizeSandboxCallbackBridgeHeaders(
         toOutboundHeaderRecord(headers),
         headerAllowlist,
-        options.bridgeToken,
       );
 
       let body: Buffer;
