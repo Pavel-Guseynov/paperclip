@@ -640,6 +640,20 @@ export async function reconcileReviewHandoffAfterBlockerClear(
     if (isReviewHandoffRetryIdempotencyConflict(error)) {
       return { action: "skipped", reason: REVIEW_HANDOFF_COALESCED_REASON };
     }
+    // The wake target rejected this handoff outright — an agent that is no
+    // longer invokable raises here after its own receipt is written. Record
+    // the consumed attempt before the failure propagates, so a permanently
+    // refusing target reaches the board escalation instead of being retried
+    // under attempt 1 forever. Recording is best effort: a wake row cannot
+    // reference an agent that no longer exists, and the rejection itself is
+    // the error the caller must see.
+    await recordRefusedReviewHandoffAttempt(db, {
+      companyId: issue.companyId,
+      agentId: decision.targetAgentId,
+      idempotencyKey: decision.idempotencyKey,
+      reason: decision.reason,
+      payload: decision.payload,
+    }).catch(() => undefined);
     throw error;
   }
 

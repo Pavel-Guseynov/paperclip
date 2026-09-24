@@ -904,11 +904,218 @@ describeEmbeddedPostgres("review handoff retry after stale blocker clears", () =
         .from(agentWakeupRequests)
         .where(eq(agentWakeupRequests.companyId, healthy.companyId)),
     ).toHaveLength(1);
+    // The failing issue has no handoff, only the receipt that records the
+    // attempt its rejection consumed.
+    const failedCompanyWakes = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.companyId, failing.companyId));
+    expect(failedCompanyWakes).toHaveLength(1);
+    expect(failedCompanyWakes[0].status).toBe("skipped");
+  });
+
+  it("consumes an attempt when the wake target rejects the handoff and escalates in the end", async () => {
+    const { companyId, issueId, reviewerAgentId, stageId } = await seedFixture();
+    // A paused reviewer is a permanently refusing target: the wake path raises
+    // instead of returning, so the rejection must still consume an attempt.
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, reviewerAgentId));
+    const heartbeat = heartbeatService(db);
+
+    const rejections: string[] = [];
+    for (let pass = 0; pass < 3; pass += 1) {
+      await reconcileReviewHandoffAfterBlockerClear(db, {
+        issueId,
+        companyId,
+        enqueueWakeup: (agentId, req) => heartbeat.wakeup(agentId, req),
+      }).then(
+        () => {
+          throw new Error("expected the rejected wake to propagate");
+        },
+        (error: Error) => {
+          rejections.push(error.message);
+        },
+      );
+    }
+    expect(rejections).toHaveLength(3);
+
+    // Each rejection consumed one attempt of the declared budget.
+    const recorded = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.companyId, companyId));
+    expect(
+      recorded
+        .map((wake) => wake.idempotencyKey)
+        .filter((key) => key?.startsWith("review-handoff:"))
+        .sort(),
+    ).toEqual(
+      [1, 2, 3].map((attempt) =>
+        buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attempt }),
+      ),
+    );
+
+    // The budget is exhausted, so the next pass escalates instead of raising.
+    const exhausted = await reconcileReviewHandoffAfterBlockerClear(db, {
+      issueId,
+      companyId,
+      enqueueWakeup: (agentId, req) => heartbeat.wakeup(agentId, req),
+    });
+    expect(exhausted.action).toBe("exhausted");
+    const recoveryActions = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.companyId, companyId));
+    expect(recoveryActions).toHaveLength(1);
+    expect(recoveryActions[0]).toMatchObject({
+      cause: "execution_recovery_budget_exhausted",
+      ownerType: "board",
+      attemptCount: 3,
+      maxAttempts: 3,
+    });
+    await heartbeat.drainActiveRunExecutions();
+  });
+
+  it("propagates the rejection when the consumed attempt cannot be recorded", async () => {
+    const { companyId, issueId, reviewerAgentId } = await seedFixture();
+    // A wake row must reference an existing agent, so a reviewer that no longer
+    // exists cannot be given a receipt. The rejection is what the caller sees.
+    await db.delete(agents).where(eq(agents.id, reviewerAgentId));
+    const heartbeat = heartbeatService(db);
+
+    await expect(
+      reconcileReviewHandoffAfterBlockerClear(db, {
+        issueId,
+        companyId,
+        enqueueWakeup: (agentId, req) => heartbeat.wakeup(agentId, req),
+      }),
+    ).rejects.toThrow("Agent not found");
+
     expect(
       await db
         .select()
         .from(agentWakeupRequests)
-        .where(eq(agentWakeupRequests.companyId, failing.companyId)),
+        .where(eq(agentWakeupRequests.companyId, companyId)),
     ).toHaveLength(0);
+    await heartbeat.drainActiveRunExecutions();
+  });
+
+  it("reconciles every in_review dependent of a cleared blocker even when one fails", async () => {
+    const companyId = randomUUID();
+    const workerAgentId = randomUUID();
+    const blockerIssueId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+    const [firstDependent, secondDependent] = [randomUUID(), randomUUID()].sort();
+    const reviewerByIssue = new Map<string, string>([
+      [firstDependent, randomUUID()],
+      [secondDependent, randomUUID()],
+    ]);
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip Test Co",
+      issuePrefix,
+      defaultResponsibleUserId: "responsible-user",
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values(
+      [workerAgentId, ...reviewerByIssue.values()].map((id) => ({
+        id,
+        companyId,
+        name: `Agent ${id.slice(0, 8)}`,
+        role: "engineer",
+        status: "idle",
+        adapterType: "codex_local",
+        adapterConfig: {},
+        runtimeConfig: {},
+        permissions: {},
+      })),
+    );
+    await db.insert(issues).values({
+      id: blockerIssueId,
+      companyId,
+      title: "Blocker issue",
+      status: "done",
+      priority: "high",
+      assigneeAgentId: workerAgentId,
+      responsibleUserId: "responsible-user",
+      issueNumber: 1,
+      identifier: `${issuePrefix}-1`,
+    });
+
+    let issueNumber = 2;
+    for (const [dependentId, reviewerId] of reviewerByIssue) {
+      const stageId = randomUUID();
+      await db.insert(issues).values({
+        id: dependentId,
+        companyId,
+        title: `Dependent ${issueNumber}`,
+        status: "in_review",
+        priority: "medium",
+        assigneeAgentId: workerAgentId,
+        responsibleUserId: "responsible-user",
+        issueNumber,
+        identifier: `${issuePrefix}-${issueNumber}`,
+        executionState: {
+          status: "pending",
+          currentStageId: stageId,
+          currentStageIndex: 0,
+          currentStageType: "review",
+          currentParticipant: { type: "agent", agentId: reviewerId, userId: null },
+          returnAssignee: { type: "agent", agentId: workerAgentId, userId: null },
+          reviewRequest: null,
+          completedStageIds: [],
+          lastDecisionId: null,
+          lastDecisionOutcome: null,
+          changesRequestedCount: 0,
+        },
+      });
+      await db.insert(issueRelations).values({
+        companyId,
+        issueId: blockerIssueId,
+        relatedIssueId: dependentId,
+        type: "blocks",
+      });
+      issueNumber += 1;
+    }
+
+    // The candidates are ordered by issue id, so the failing dependent is the
+    // one the pass reaches first.
+    const failingReviewerId = reviewerByIssue.get(firstDependent)!;
+    const healthyReviewerId = reviewerByIssue.get(secondDependent)!;
+    const recovery = recoveryService(db, {
+      enqueueWakeup: async (agentId, opts) => {
+        if (agentId === failingReviewerId) throw new Error("wake target rejected the handoff");
+        const [row] = await db
+          .insert(agentWakeupRequests)
+          .values({
+            id: randomUUID(),
+            companyId,
+            agentId,
+            source: "automation",
+            reason: opts?.reason ?? null,
+            status: "queued",
+            idempotencyKey: opts?.idempotencyKey ?? null,
+            payload: opts?.payload ?? null,
+          })
+          .returning();
+        return row as never;
+      },
+    });
+
+    await recovery.reconcileResolvedDependencyWakeBackstop({ companyId, blockerIssueId });
+
+    const wakes = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.companyId, companyId));
+    // The later dependent was still reconciled, and the failing one only
+    // carries the receipt that records its consumed attempt.
+    const healthyWakes = wakes.filter((wake) => wake.agentId === healthyReviewerId);
+    expect(healthyWakes).toHaveLength(1);
+    expect(healthyWakes[0].status).toBe("queued");
+    expect(healthyWakes[0].idempotencyKey).toContain(`review-handoff:${secondDependent}:`);
+    const failingWakes = wakes.filter((wake) => wake.agentId === failingReviewerId);
+    expect(failingWakes).toHaveLength(1);
+    expect(failingWakes[0].status).toBe("skipped");
   });
 });

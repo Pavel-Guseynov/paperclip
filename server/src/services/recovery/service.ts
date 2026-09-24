@@ -5346,12 +5346,13 @@ export function recoveryService(
     };
 
     if (opts?.blockerIssueId) {
+      // A relation row and its dependent must belong to the same company, and
+      // the sweep is bounded by the same candidate limit as the blocked-issue
+      // backstop below so one blocker with many dependents cannot make this
+      // pass unbounded.
+      let inReviewDependents: Array<{ id: string; companyId: string }> = [];
       try {
-        // A relation row and its dependent must belong to the same company, and
-        // the sweep is bounded by the same candidate limit as the blocked-issue
-        // backstop below so one blocker with many dependents cannot make this
-        // pass unbounded.
-        const inReviewDependents = await db
+        inReviewDependents = await db
           .select({ id: issues.id, companyId: issues.companyId })
           .from(issueRelations)
           .innerJoin(
@@ -5374,7 +5375,16 @@ export function recoveryService(
           )
           .orderBy(asc(issues.id))
           .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
-        for (const dep of inReviewDependents) {
+      } catch (err) {
+        logger.warn(
+          { err, blockerIssueId: opts.blockerIssueId },
+          "failed to list in_review dependents in resolved dependency backstop",
+        );
+      }
+      // The candidates are ordered by issue id, so a dependent that keeps
+      // failing would starve every later one if its failure ended the pass.
+      for (const dep of inReviewDependents) {
+        try {
           await reconcileReviewHandoffAfterBlockerClear(db, {
             issueId: dep.id,
             companyId: dep.companyId,
@@ -5382,12 +5392,12 @@ export function recoveryService(
             treeControlSvc,
             source: "reconcileResolvedDependencyWakeBackstop",
           });
+        } catch (err) {
+          logger.warn(
+            { err, blockerIssueId: opts.blockerIssueId, issueId: dep.id },
+            "failed to reconcile an in_review dependent in resolved dependency backstop",
+          );
         }
-      } catch (err) {
-        logger.warn(
-          { err, blockerIssueId: opts.blockerIssueId },
-          "failed to reconcile in_review dependents in resolved dependency backstop",
-        );
       }
     }
 
