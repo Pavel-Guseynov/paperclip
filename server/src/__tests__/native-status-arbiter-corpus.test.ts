@@ -1,5 +1,6 @@
 import { dismissAutomaticCompletionReviews } from "../services/native-runtime/automatic-completion-reviews.js";
 import { nativeCompletionFeedback } from "../services/native-runtime/native-completion-feedback.js";
+import * as reviewAdmissionService from "../services/review-admission.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -2124,6 +2125,50 @@ describe("P6-31 Section 18.13 executable status-authority corpus", () => {
     const { seeded, interaction } = await seedReviewBinding();
 
     expect(interaction).toMatchObject({ kind: "request_confirmation", status: "pending" });
+    expect(
+      await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, seeded.issueId)),
+    ).toEqual([]);
+  }, 30_000);
+
+  it("still binds a reviewer when recording the admission fails", async () => {
+    const template = corpus.fixtures.find((candidate) => candidate.mode === "native")!;
+    const seeded = await seedFixture({
+      ...template,
+      id: `review-admission-${randomUUID()}`,
+      given: { ...template.given, priorIssueStatus: "in_progress", completionState: "policy_review_cleanup" },
+    });
+    await db.insert(issueWorkProducts).values({
+      companyId, issueId: seeded.issueId, type: "commit", provider: "github",
+      externalId: REVIEWED_HEAD_SHA, title: "reviewed head", status: "active",
+    });
+    // A defect in the bookkeeping write, inside the launching transaction.
+    const brokenInsert = vi.spyOn(reviewAdmissionService, "createReviewAdmissionService")
+      .mockReturnValue({
+        admitReview: async () => {
+          throw new Error("injected admission failure");
+        },
+      } as never);
+
+    const committed = await commitNativeStatusDecision({
+      db, companyId, issueId: seeded.issueId, runId: seeded.runId,
+      assessmentId: seeded.assessmentId, priorStatus: "in_progress", priorStatusVersion: 0, priorDecisionId: null,
+      decision: {
+        policyVersion: NATIVE_STATUS_ARBITER_POLICY_VERSION,
+        statusAction: "in_review", toStatus: "in_review",
+        reasonCode: "completion_review_required", unblockDescriptor: null,
+        effects: [{ kind: "bind_reviewer", prompt: "Review the release before publishing.", ownerUserId: null }],
+      },
+    });
+    brokenInsert.mockRestore();
+
+    // The review launched: the card exists, the issue entered review, the decision applied.
+    const [interaction] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.issueId, seeded.issueId));
+    expect(interaction).toMatchObject({ kind: "request_confirmation", status: "pending" });
+    const [issue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
+    expect(issue!.status).toBe("in_review");
+    expect(committed.decision.applicationState).toBe("applied");
+    // Only the admission rolled back.
     expect(
       await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, seeded.issueId)),
     ).toEqual([]);

@@ -4,9 +4,10 @@
  * An admission is written in the same transaction that launches the review, so there is
  * no window in which a review exists without its admission or the reverse. Its identity
  * is (company, issue, exact source SHA, digest of the normalized acceptance contract and
- * review policy), and the database enforces that identity as unique: the same revision
- * reviewed against the same contract admits once, and a new head or a materially changed
- * contract admits a new review linked to the one it supersedes.
+ * review policy, round), and the database enforces that identity as unique: one round of
+ * one revision against one contract admits once. A new head or a materially changed
+ * contract starts a new revision; a further review of an already-decided revision starts
+ * a new round. Either way the new admission names the one it supersedes.
  */
 export const REVIEW_ADMISSION_STATUSES = [
   "in_review",
@@ -17,14 +18,11 @@ export const REVIEW_ADMISSION_STATUSES = [
 export type ReviewAdmissionStatus = (typeof REVIEW_ADMISSION_STATUSES)[number];
 
 /**
- * The outcome recorded on a completed admission. These are exactly the values written to
- * `review_admissions.decision`; there is no second vocabulary.
+ * The outcome recorded on a completed admission. These are exactly the values the
+ * service writes to `review_admissions.decision`; there is no second vocabulary, and no
+ * value here that nothing writes.
  */
-export const REVIEW_ADMISSION_DECISIONS = [
-  "approved",
-  "changes_requested",
-  "withdrawn",
-] as const;
+export const REVIEW_ADMISSION_DECISIONS = ["approved", "changes_requested"] as const;
 
 export type ReviewAdmissionDecision = (typeof REVIEW_ADMISSION_DECISIONS)[number];
 
@@ -34,6 +32,8 @@ export interface ReviewAdmission {
   issueId: string;
   sourceSha: string;
   policyDigest: string;
+  /** Which review of this revision against this contract: 1, then 2 for a further round. */
+  round: number;
   status: ReviewAdmissionStatus;
   acceptanceContract: Record<string, unknown>;
   reviewPolicy: string;

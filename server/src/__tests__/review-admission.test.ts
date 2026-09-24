@@ -11,12 +11,13 @@ import {
   projects,
   reviewAdmissions,
 } from "@paperclipai/db";
-import { reviewAdmissionSchema } from "@paperclipai/shared";
+import { REVIEW_ADMISSION_DECISIONS } from "@paperclipai/shared";
 import {
   startEmbeddedPostgresTestDatabase,
   getEmbeddedPostgresTestSupport,
 } from "./helpers/embedded-postgres.js";
 import {
+  acceptanceRelevantExecutionPolicy,
   computeReviewPolicyDigest,
   createReviewAdmissionService,
 } from "../services/review-admission.ts";
@@ -59,25 +60,68 @@ describe("computeReviewPolicyDigest", () => {
     );
   });
 
-  it("changes when the execution policy changes", () => {
+  it("changes when the execution policy's stages change", () => {
     expect(computeReviewPolicyDigest({ executionPolicy: { stages: [] } })).not.toBe(
       computeReviewPolicyDigest({ executionPolicy: { stages: [{ type: "review" }] } }),
+    );
+  });
+
+  it("changes when evidenceRequired changes", () => {
+    expect(computeReviewPolicyDigest({ executionPolicy: { stages: [] } })).not.toBe(
+      computeReviewPolicyDigest({ executionPolicy: { stages: [], evidenceRequired: true } }),
+    );
+  });
+
+  it("is unchanged by a monitor write, which asks the reviewer nothing new", () => {
+    const base = { mode: "normal", commentRequired: true, stages: [] };
+    expect(computeReviewPolicyDigest({ executionPolicy: base })).toBe(
+      computeReviewPolicyDigest({
+        executionPolicy: {
+          ...base,
+          monitor: {
+            nextCheckAt: "2026-09-24T10:00:00.000Z",
+            scheduledBy: "assignee",
+            timeoutAt: "2026-09-24T12:00:00.000Z",
+            maxAttempts: 3,
+          },
+        },
+      }),
     );
   });
 });
 
 describe("review admission contract", () => {
-  it("declares exactly the decision values the database stores", () => {
-    expect(reviewAdmissionSchema.shape.decision.safeParse("approved").success).toBe(true);
-    expect(reviewAdmissionSchema.shape.decision.safeParse("changes_requested").success).toBe(true);
-    expect(reviewAdmissionSchema.shape.decision.safeParse("withdrawn").success).toBe(true);
-    expect(reviewAdmissionSchema.shape.decision.safeParse("accept").success).toBe(false);
-    expect(reviewAdmissionSchema.shape.decision.safeParse("reject").success).toBe(false);
+  it("declares exactly the decision values the service writes", () => {
+    expect([...REVIEW_ADMISSION_DECISIONS]).toEqual(["approved", "changes_requested"]);
+  });
+});
+
+describe("acceptanceRelevantExecutionPolicy", () => {
+  it("keeps the fields that change what a reviewer is asked to accept", () => {
+    expect(
+      acceptanceRelevantExecutionPolicy({
+        mode: "normal",
+        commentRequired: true,
+        evidenceRequired: true,
+        maxReviewRounds: 3,
+        stages: [{ id: "s1", type: "review", approvalsNeeded: 1, participants: [] }],
+      }),
+    ).toMatchObject({
+      mode: "normal",
+      commentRequired: true,
+      evidenceRequired: true,
+      maxReviewRounds: 3,
+      stages: [{ id: "s1", type: "review", approvalsNeeded: 1, participants: [] }],
+    });
   });
 
-  it("requires a full 40-character source sha", () => {
-    expect(reviewAdmissionSchema.shape.sourceSha.safeParse(HEAD_SHA).success).toBe(true);
-    expect(reviewAdmissionSchema.shape.sourceSha.safeParse("1111111").success).toBe(false);
+  it("drops the operational monitor fields", () => {
+    expect(
+      acceptanceRelevantExecutionPolicy({
+        mode: "normal",
+        monitor: { nextCheckAt: "2026-09-24T00:00:00.000Z", scheduledBy: "assignee" },
+      }),
+    ).not.toHaveProperty("monitor");
   });
 });
 
@@ -103,6 +147,12 @@ describeEmbeddedPostgres("ReviewAdmissionService", () => {
     await db.delete(projects);
     await db.delete(companies);
   });
+
+  const BASE_EXECUTION_POLICY = {
+    mode: "normal",
+    commentRequired: true,
+    stages: [],
+  } as const;
 
   async function seedIssue(
     options: { reviewedHeadSha?: string | null; pullUrl?: string | null; companyId?: string } = {},
@@ -137,6 +187,7 @@ describeEmbeddedPostgres("ReviewAdmissionService", () => {
       status: "in_review",
       priority: "medium",
       reviewPolicy: "anyone",
+      executionPolicy: BASE_EXECUTION_POLICY as never,
     });
     const reviewedHeadSha =
       options.reviewedHeadSha === undefined ? HEAD_SHA : options.reviewedHeadSha;
@@ -246,6 +297,92 @@ describeEmbeddedPostgres("ReviewAdmissionService", () => {
     expect(second.created).toBe(false);
     expect(second.admission.id).toBe(first.admission.id);
     expect(await db.select().from(reviewAdmissions)).toHaveLength(1);
+  });
+
+  it("is unaffected by a monitor write on the issue", async () => {
+    const { issue, issueId } = await seedIssue();
+    const first = await admit(issue);
+    if (!first.admitted) throw new Error("unreachable");
+
+    await db
+      .update(issues)
+      .set({
+        executionPolicy: {
+          ...BASE_EXECUTION_POLICY,
+          monitor: {
+            nextCheckAt: "2026-09-24T10:00:00.000Z",
+            scheduledBy: "assignee",
+            notes: null,
+            kind: null,
+            serviceName: null,
+            externalRef: null,
+            timeoutAt: null,
+            maxAttempts: null,
+            recoveryPolicy: null,
+          },
+        } as never,
+      })
+      .where(eq(issues.id, issueId));
+    const [rescheduled] = await db.select().from(issues).where(eq(issues.id, issueId));
+
+    const second = await admit(rescheduled!);
+
+    if (!second.admitted) throw new Error("unreachable");
+    expect(second.created).toBe(false);
+    expect(second.admission.id).toBe(first.admission.id);
+    expect(await db.select().from(reviewAdmissions)).toHaveLength(1);
+  });
+
+  it("opens a new round when the same revision is reviewed again after a decision", async () => {
+    const { issue } = await seedIssue();
+    const first = await admit(issue);
+    if (!first.admitted) throw new Error("unreachable");
+    await createReviewAdmissionService(db).recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: first.admission.id,
+      decision: "changes_requested",
+      reason: "Name the failing case",
+    });
+
+    const second = await admit(issue);
+
+    if (!second.admitted) throw new Error("unreachable");
+    expect(second.created).toBe(true);
+    expect(second.admission.round).toBe(2);
+    expect(second.admission.sourceSha).toBe(first.admission.sourceSha);
+    expect(second.admission.policyDigest).toBe(first.admission.policyDigest);
+    expect(second.admission.supersedesAdmissionId).toBe(first.admission.id);
+    expect(second.admission.status).toBe("in_review");
+  });
+
+  it("keeps the earlier round's decision when a new round opens", async () => {
+    const { issue } = await seedIssue();
+    const first = await admit(issue);
+    if (!first.admitted) throw new Error("unreachable");
+    const service = createReviewAdmissionService(db);
+    await service.recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: first.admission.id,
+      decision: "changes_requested",
+      reason: "Name the failing case",
+    });
+    const second = await admit(issue);
+    if (!second.admitted) throw new Error("unreachable");
+
+    await service.recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: second.admission.id,
+      decision: "approved",
+    });
+
+    const rows = await db
+      .select()
+      .from(reviewAdmissions)
+      .orderBy(reviewAdmissions.round);
+    expect(rows.map((row) => [row.round, row.decision])).toEqual([
+      [1, "changes_requested"],
+      [2, "approved"],
+    ]);
   });
 
   it("admits a new linked review when the head moves", async () => {

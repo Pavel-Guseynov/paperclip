@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { reviewAdmissions } from "@paperclipai/db";
 import type { ReviewAdmissionDecision } from "@paperclipai/shared";
@@ -21,11 +21,45 @@ function canonicalJson(value: unknown): string {
 }
 
 /**
+ * The part of an execution policy that changes what a review is being asked to accept.
+ *
+ * `monitor` and the other operational fields move for reasons that have nothing to do
+ * with the reviewer's question — a wake time, a retry count, who scheduled a check. If
+ * the digest covered them, an unrelated monitor write would change the identity and admit
+ * a second review of the same commit against the same contract.
+ */
+export function acceptanceRelevantExecutionPolicy(policy: unknown): Record<string, unknown> | null {
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+  const record = policy as Record<string, unknown>;
+  const stages = Array.isArray(record.stages)
+    ? record.stages.map((stage) => {
+        const entry = (stage ?? {}) as Record<string, unknown>;
+        return {
+          id: entry.id ?? null,
+          type: entry.type ?? null,
+          approvalsNeeded: entry.approvalsNeeded ?? null,
+          participants: entry.participants ?? null,
+        };
+      })
+    : [];
+  return {
+    mode: record.mode ?? null,
+    commentRequired: record.commentRequired ?? null,
+    evidenceRequired: record.evidenceRequired ?? null,
+    maxReviewRounds: record.maxReviewRounds ?? null,
+    reviewPreset: record.reviewPreset ?? null,
+    authorizationPolicy: record.authorizationPolicy ?? null,
+    stages,
+  };
+}
+
+/**
  * The digest half of a review's identity.
  *
  * Two reviews of the same commit are the same review only if the acceptance contract,
- * the review policy, and the execution policy that govern them are the same. Key order
- * must not change the digest, so the input is canonicalized before hashing.
+ * the review policy, and the acceptance-relevant part of the execution policy that
+ * govern them are the same. Key order must not change the digest, so the input is
+ * canonicalized before hashing.
  */
 export function computeReviewPolicyDigest(input: {
   acceptanceContract?: unknown;
@@ -35,7 +69,7 @@ export function computeReviewPolicyDigest(input: {
   const normalized = {
     acceptanceContract: input.acceptanceContract ?? null,
     reviewPolicy: input.reviewPolicy?.trim() || "anyone",
-    executionPolicy: input.executionPolicy ?? null,
+    executionPolicy: acceptanceRelevantExecutionPolicy(input.executionPolicy),
   };
   return createHash("sha256").update(canonicalJson(normalized)).digest("hex");
 }
@@ -95,14 +129,12 @@ export class ReviewAdmissionService {
       executionPolicy: issue.executionPolicy ?? null,
     });
 
-    // Serialize admissions for this issue so the supersede-then-insert pair cannot
-    // interleave with a concurrent one. The unique index is the authority either way;
-    // the lock keeps the loser from having to be reconciled after the fact.
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`paperclip:review-admission:${companyId}:${issue.id}`}, 0))`,
-    );
-
-    const [existing] = await tx
+    // No application lock: `review_admissions_issue_revision_digest_uq` is the single
+    // authority on the identity. A racing pair either both find the active admission,
+    // or one wins the insert and the other re-reads it below. An advisory lock would be
+    // held for the rest of the launching transaction to decide nothing the index does
+    // not already decide.
+    const [latest] = await tx
       .select()
       .from(reviewAdmissions)
       .where(
@@ -113,22 +145,37 @@ export class ReviewAdmissionService {
           eq(reviewAdmissions.policyDigest, policyDigest),
         ),
       )
+      .orderBy(desc(reviewAdmissions.round))
       .limit(1);
-    if (existing) return { admitted: true, created: false, admission: existing };
 
-    const [priorActive] = await tx
-      .select()
-      .from(reviewAdmissions)
-      .where(
-        and(
-          eq(reviewAdmissions.companyId, companyId),
-          eq(reviewAdmissions.issueId, issue.id),
-          inArray(reviewAdmissions.status, ["in_review"]),
-        ),
-      )
-      .orderBy(desc(reviewAdmissions.createdAt))
-      .limit(1);
-    if (priorActive) {
+    // An active admission already carries this revision's review; the repeated launch
+    // returns it rather than opening a second one.
+    if (latest?.status === "in_review") {
+      return { admitted: true, created: false, admission: latest };
+    }
+
+    // `latest` decided or superseded: this is a further round of the same revision — a
+    // changes-requested round the author answered without a new commit. Its outcome must
+    // be recorded too, and the earlier decision is immutable, so it gets its own row.
+    const round = (latest?.round ?? 0) + 1;
+    const supersedes = latest ?? null;
+
+    let priorActive = supersedes;
+    if (!priorActive) {
+      [priorActive] = await tx
+        .select()
+        .from(reviewAdmissions)
+        .where(
+          and(
+            eq(reviewAdmissions.companyId, companyId),
+            eq(reviewAdmissions.issueId, issue.id),
+            inArray(reviewAdmissions.status, ["in_review"]),
+          ),
+        )
+        .orderBy(desc(reviewAdmissions.createdAt))
+        .limit(1);
+    }
+    if (priorActive?.status === "in_review") {
       await tx
         .update(reviewAdmissions)
         .set({ status: "superseded", updatedAt: new Date() })
@@ -154,6 +201,7 @@ export class ReviewAdmissionService {
         issueId: issue.id,
         sourceSha,
         policyDigest,
+        round,
         status: "in_review",
         acceptanceContract,
         reviewPolicy,
@@ -177,6 +225,7 @@ export class ReviewAdmissionService {
           reviewAdmissions.issueId,
           reviewAdmissions.sourceSha,
           reviewAdmissions.policyDigest,
+          reviewAdmissions.round,
         ],
       })
       .returning();
@@ -192,6 +241,7 @@ export class ReviewAdmissionService {
           eq(reviewAdmissions.issueId, issue.id),
           eq(reviewAdmissions.sourceSha, sourceSha),
           eq(reviewAdmissions.policyDigest, policyDigest),
+          eq(reviewAdmissions.round, round),
         ),
       )
       .limit(1);

@@ -1,6 +1,7 @@
 import {
   foreignKey,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -16,12 +17,15 @@ import { issueThreadInteractions } from "./issue_thread_interactions.js";
 import { statusDecisions } from "./status_decisions.js";
 
 /**
- * One row per admitted review of one issue revision.
+ * One row per admitted review of one issue revision, per review round.
  *
- * `(company_id, issue_id, source_sha, policy_digest)` is unique: the same revision
- * reviewed against the same normalized acceptance contract and review policy admits
- * exactly once, whatever concurrency the callers apply. A new head or a materially
- * changed contract inserts a new row that names the row it superseded.
+ * `(company_id, issue_id, source_sha, policy_digest, round)` is unique, and that index
+ * is the only authority on the identity: whatever concurrency the callers apply, one
+ * round of one revision against one acceptance contract admits exactly once. A new head
+ * or a materially changed contract starts a new revision at round 1; a further review of
+ * an already-decided revision — a changes-requested round the author answered without a
+ * new commit — starts round 2 rather than overwriting the immutable decision. Either way
+ * the new row names the row it supersedes.
  */
 export const reviewAdmissions = pgTable(
   "review_admissions",
@@ -31,6 +35,7 @@ export const reviewAdmissions = pgTable(
     issueId: uuid("issue_id").notNull(),
     sourceSha: varchar("source_sha", { length: 40 }).notNull(),
     policyDigest: varchar("policy_digest", { length: 64 }).notNull(),
+    round: integer("round").notNull().default(1),
     status: varchar("status", { length: 32 }).notNull().default("in_review"),
     acceptanceContract: jsonb("acceptance_contract").$type<Record<string, unknown>>().notNull(),
     reviewPolicy: varchar("review_policy", { length: 64 }).notNull().default("anyone"),
@@ -67,6 +72,7 @@ export const reviewAdmissions = pgTable(
       table.issueId,
       table.sourceSha,
       table.policyDigest,
+      table.round,
     ),
     companyInteractionIdx: index("review_admissions_company_interaction_idx").on(
       table.companyId,

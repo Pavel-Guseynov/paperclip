@@ -1,5 +1,5 @@
 {
-  "id": "520c2181-6b70-449a-a534-6dedea6ee6ee",
+  "id": "34f60c3a-28a9-4276-8a53-4a2b6aae0f40",
   "prevId": "082acb16-75ab-4edd-a0e4-c2c76130a363",
   "version": "7",
   "dialect": "postgresql",
@@ -37192,6 +37192,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "round": {
+          "name": "round",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
         "status": {
           "name": "status",
           "type": "varchar(32)",
@@ -37293,6 +37300,12 @@
             },
             {
               "expression": "policy_digest",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "round",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

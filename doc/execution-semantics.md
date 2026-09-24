@@ -1172,28 +1172,37 @@ When the native runtime binds a reviewer (`bind_reviewer`), Paperclip records a
 card, its admission and its next actor commit together, so there is no state in
 which a review exists without its identity, or the reverse.
 
-An admission's identity is `(company, issue, source SHA, policy digest)` and the
-database enforces it as unique. Everything in it is server-held:
+An admission's identity is `(company, issue, source SHA, policy digest, round)`
+and the unique index is the only authority on it — there is no application lock.
+Everything in it is server-held:
 
 | Field | Where the server reads it |
 | --- | --- |
 | `source_sha` | the issue's `commit` work product, as a full 40-character SHA |
 | `acceptance_contract` | the issue's own title and description |
 | `review_policy` | the issue's `review_policy`, else the interaction's effective resolver policy |
-| `policy_digest` | SHA-256 over the canonicalized acceptance contract, review policy and execution policy |
+| `policy_digest` | SHA-256 over the canonicalized acceptance contract, review policy, and the acceptance-relevant part of the execution policy — `mode`, `commentRequired`, `evidenceRequired`, `maxReviewRounds`, `reviewPreset`, `authorizationPolicy` and `stages`. Operational fields, `monitor` above all, are excluded: a rescheduled check asks the reviewer nothing new and must not admit a second review |
 | `pr_details` | the same repository binding delivery verification uses (§14); no outbound request is made |
 
 Consequences:
 
-- The same revision reviewed against the same contract admits once. A repeated
-  launch returns the existing admission rather than a second row, and a racing
-  insert is refused by `review_admissions_issue_revision_digest_uq`.
+- While a review of a revision is active, a repeated launch returns that
+  admission rather than opening a second one; a racing insert is refused by
+  `review_admissions_issue_revision_digest_uq`.
 - A new head, or a materially changed acceptance contract, review policy or
-  execution policy, admits a new review whose `supersedes_admission_id` names
-  the one it replaced; that prior admission becomes `superseded`.
+  acceptance-relevant execution policy, starts a new revision at round 1.
+- A further review of an **already-decided** revision — a changes-requested round
+  the author answered without a new commit — opens round 2 rather than
+  overwriting the earlier decision, which is immutable. Every round's outcome is
+  recorded, and each new row's `supersedes_admission_id` names the one before it.
 - An issue with no recorded reviewed head has no revision identity. Nothing is
   recorded and the review launches exactly as it did before — admission records,
   it does not gate.
+- Recording happens inside a savepoint. A defect in the bookkeeping rolls back
+  the admission alone and is reported to the log; it can never keep an issue out
+  of review.
+- Nothing reads `review_admissions` yet. It is the durable record of which
+  reviews were admitted and how they were decided; no behaviour depends on it.
 
 Resolving the review card records the decision through the admission service,
 under the card's own company: `approved` on accept, `changes_requested` on

@@ -41,6 +41,7 @@ import {
 import { issueService } from "../issues.js";
 import { issueThreadInteractionService } from "../issue-thread-interactions.js";
 import { createReviewAdmissionService } from "../review-admission.js";
+import { logger } from "../../middleware/logger.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { buildIssueBlockersResolvedWakeIdempotencyKey } from "../issue-dependency-wakeups.js";
 import {
@@ -613,21 +614,39 @@ async function materializeDecisionEffect(input: {
       reviewInput,
       { systemId: "native-status-committer", runId: input.runId },
     );
-    // Record the admission for this review in the same transaction that launches it.
-    // The card, its admission and its next actor commit together, so there is no window
-    // in which a review exists without its revision identity. An issue with no recorded
-    // reviewed head has no revision identity; the review still launches exactly as
-    // before and nothing is recorded.
-    await createReviewAdmissionService(input.tx as unknown as Db).admitReview(
-      {
-        companyId: input.companyId,
-        issue: input.issue,
-        reviewInteractionId: interaction.id,
-        decisionId: input.decisionId,
-        resolverPolicy: interaction.effectiveResolverPolicy,
-      },
-      input.tx as unknown as Db,
-    );
+    // Record the admission for this review in the same transaction that launches it, so
+    // the card, its admission and its next actor commit together and no review exists
+    // without its revision identity.
+    //
+    // Inside a savepoint, though: recording is bookkeeping, and a defect in it must not
+    // be able to keep an issue out of review. A failure rolls back the admission alone
+    // and is reported; the launch continues. An issue with no recorded reviewed head has
+    // no revision identity, so nothing is recorded and the review launches as before.
+    try {
+      await (input.tx as unknown as Db).transaction(async (savepoint) => {
+        await createReviewAdmissionService(savepoint as unknown as Db).admitReview(
+          {
+            companyId: input.companyId,
+            issue: input.issue,
+            reviewInteractionId: interaction.id,
+            decisionId: input.decisionId,
+            resolverPolicy: interaction.effectiveResolverPolicy,
+          },
+          savepoint as unknown as Db,
+        );
+      });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          companyId: input.companyId,
+          issueId: input.issue.id,
+          decisionId: input.decisionId,
+          interactionId: interaction.id,
+        },
+        "review admission was not recorded; the review launch continues",
+      );
+    }
     // The card and its next actor commit together. The post-commit dispatcher
     // revalidates this exact review before granting a scoped reviewer run.
     const reviewContext = {
