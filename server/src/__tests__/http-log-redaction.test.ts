@@ -1,4 +1,8 @@
-import { createServer, request as httpRequest } from "node:http";
+import {
+  createServer,
+  IncomingMessage,
+  request as httpRequest,
+} from "node:http";
 import { Writable } from "node:stream";
 import express from "express";
 import pino from "pino";
@@ -1147,6 +1151,22 @@ describe("HTTP logger redaction", () => {
     },
   ])("keeps safe diagnostic prose unchanged: $label", ({ input }) => {
     expect(sanitizeCredentialText(input)).toBe(input);
+  });
+
+  it("returns Node HTTP objects unchanged instead of walking their sockets", () => {
+    // Provider SDK errors attach the live ClientRequest/IncomingMessage, and
+    // the error handler copies such an error into the logged error context.
+    const incoming = new IncomingMessage(null as never);
+    incoming.headers = { authorization: `Bearer ${BEARER_SENTINEL}` };
+
+    expect(redactSensitive(incoming)).toBe(incoming);
+
+    const redacted = redactSensitive({
+      message: "provider call failed",
+      request: incoming,
+    }) as { message: string; request: unknown };
+    expect(redacted.request).toBe(incoming);
+    expect(redacted.message).toBe("provider call failed");
   });
 
   it("redacts credential-named fields without renaming ordinary diagnostic keys", () => {
