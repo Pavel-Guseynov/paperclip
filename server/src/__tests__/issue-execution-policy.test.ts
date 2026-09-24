@@ -2246,6 +2246,70 @@ describe("evidenceRequired on the terminal transition", () => {
   });
 });
 
+describe("an evidence-gated issue reaches done only through its final stage decision", () => {
+  function closeWithReplacedStages(
+    persisted: IssueExecutionPolicy,
+    replacement: IssueExecutionPolicy | null,
+  ) {
+    return applyIssueExecutionPolicyTransition({
+      issue: {
+        status: "in_review",
+        assigneeAgentId: null,
+        assigneeUserId: ctoUserId,
+        executionPolicy: persisted,
+        executionState: {
+          status: "pending",
+          currentStageId: persisted.stages[0]!.id!,
+          currentStageIndex: 0,
+          currentStageType: "approval",
+          currentParticipant: { type: "user", userId: ctoUserId, agentId: null },
+          returnAssignee: null,
+          completedStageIds: [],
+          lastDecisionId: null,
+          lastDecisionOutcome: null,
+          reviewRequest: null,
+          monitor: null,
+        } as unknown as IssueExecutionState,
+      },
+      policy: replacement,
+      previousPolicy: persisted,
+      requestedStatus: "done",
+      requestedAssigneePatch: {},
+      actor: { userId: ctoUserId },
+      commentBody: "Approved",
+      evidenceSource: "request",
+    });
+  }
+
+  function replacementPolicy(evidenceRequired = true) {
+    return normalizeIssueExecutionPolicy({
+      evidenceRequired,
+      stages: [{ type: "approval", participants: [{ type: "user", userId: ctoUserId }] }],
+    })!;
+  }
+
+  it("refuses a completion whose policy no longer holds the recorded stage", () => {
+    expect(() => closeWithReplacedStages(terminalApprovalPolicy(true), replacementPolicy()))
+      .toThrowError(/only by approving/);
+  });
+
+  it("refuses a completion that removes the policy outright", () => {
+    expect(() => closeWithReplacedStages(terminalApprovalPolicy(true), null))
+      .toThrowError(/only by approving/);
+  });
+
+  it("refuses when the closing request is the one that raises evidenceRequired", () => {
+    expect(() => closeWithReplacedStages(terminalApprovalPolicy(false), replacementPolicy(true)))
+      .toThrowError(/only by approving/);
+  });
+
+  it("leaves a policy without evidenceRequired free to close the same way", () => {
+    const result = closeWithReplacedStages(terminalApprovalPolicy(false), replacementPolicy(false));
+    expect(result.decision).toBeUndefined();
+    expect(result.patch.status).toBeUndefined();
+  });
+});
+
 describe("evidence flows through the request contracts", () => {
   it("updateIssueSchema accepts evidence — the production issue-update path can carry it", async () => {
     const { updateIssueSchema } = await import("@paperclipai/shared");

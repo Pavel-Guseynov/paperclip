@@ -1389,6 +1389,98 @@ describe("issue execution policy routes", () => {
     outbound.mockRestore();
   });
 
+  it("refuses to close an evidence-gated issue by replacing the policy's stages", async () => {
+    terminalApprovalIssue(true);
+    const outbound = vi.spyOn(globalThis, "fetch");
+
+    const res = await request(await createApp(agentActor))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        // Same shape, different stage id: the recorded currentStageId no longer resolves,
+        // so the transition used to return a patch with no decision and `done` intact.
+        executionPolicy: {
+          evidenceRequired: true,
+          stages: [
+            {
+              id: "99999999-9999-4999-8999-999999999999",
+              type: "approval",
+              participants: [{ type: "agent", agentId: agentActor.agentId }],
+            },
+          ],
+        },
+      });
+
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("delivery_evidence_missing");
+    expect(outbound).not.toHaveBeenCalled();
+    outbound.mockRestore();
+  });
+
+  it("refuses to close an evidence-gated issue by emptying the policy", async () => {
+    terminalApprovalIssue(true);
+
+    const res = await request(await createApp(agentActor))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({ status: "done", comment: "Looks good to land", executionPolicy: { stages: [] } });
+
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("delivery_evidence_missing");
+  });
+
+  it("refuses a board override that would close an evidence-gated issue", async () => {
+    terminalApprovalIssue(true);
+
+    const res = await request(await createApp())
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Closing this out",
+        executionPolicy: {
+          evidenceRequired: true,
+          stages: [
+            {
+              id: "99999999-9999-4999-8999-999999999999",
+              type: "approval",
+              participants: [{ type: "agent", agentId: agentActor.agentId }],
+            },
+          ],
+        },
+      });
+
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("delivery_evidence_missing");
+  });
+
+  it("still lets a policy without evidenceRequired close through a stage replacement", async () => {
+    const issue = terminalApprovalIssue(false);
+    mockIssueService.update.mockResolvedValue({ ...issue, status: "done", changes: {} });
+
+    const res = await request(await createApp(agentActor))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        executionPolicy: {
+          stages: [
+            {
+              id: "99999999-9999-4999-8999-999999999999",
+              type: "approval",
+              participants: [{ type: "agent", agentId: agentActor.agentId }],
+            },
+          ],
+        },
+      });
+
+    expect(res.status).not.toBe(422);
+    expect(mockIssueService.update).toHaveBeenCalledTimes(1);
+    expect(mockIssueService.update.mock.calls[0]![1]).toMatchObject({ status: "done" });
+  });
+
   it("closes the issue and persists the server-written receipt when delivery verifies", async () => {
     const issue = terminalApprovalIssue(true);
     bindDelivery();
