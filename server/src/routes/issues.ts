@@ -2983,6 +2983,7 @@ class AutoApprovalIssueMissingError extends Error {
 
 function toCompactIssue(issue: any): CompactIssue {
   return {
+    externalConversationState: issue.externalConversationState ?? null,
     id: issue.id,
     companyId: issue.companyId,
     projectId: issue.projectId,
@@ -14591,6 +14592,9 @@ export function issueRoutes(
           assigneeChanged &&
           issue.assigneeAgentId &&
           issue.status !== "backlog" &&
+          // Restoring an assignee on completed work is not a reopen request.
+          // Explicit reopen/resume transitions are already reflected in issue.status.
+          !isClosedIssueStatus(issue.status) &&
           deferWakeForGoal !== true
         ) {
           addWakeup(issue.assigneeAgentId, {

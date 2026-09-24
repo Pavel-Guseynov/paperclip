@@ -1965,8 +1965,22 @@
     {
       "idx": 282,
       "version": "7",
-      "when": 1789928559212,
-      "tag": "0282_wakeful_mister_sinister",
+      "when": 1790004509370,
+      "tag": "0282_colossal_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 283,
+      "version": "7",
+      "when": 1790018362070,
+      "tag": "0283_jittery_psynapse",
+      "breakpoints": true
+    },
+    {
+      "idx": 284,
+      "version": "7",
+      "when": 1790263779092,
+      "tag": "0284_keen_mac_gargan",
       "breakpoints": true
     }
   ]
