@@ -1397,6 +1397,10 @@ function assertEvidenceGatedCompletionCarriesDecision(
   input: TransitionInput,
   result: TransitionResult,
 ): void {
+  // A closed issue cannot be newly closed. Re-sending `status: "done"` after a
+  // successful close changes nothing, so refusing it would turn a harmless retry into
+  // an error the caller cannot act on.
+  if (input.issue.status === "done") return;
   const effectiveStatus =
     typeof result.patch.status === "string" ? result.patch.status : input.requestedStatus;
   if (effectiveStatus !== "done") return;

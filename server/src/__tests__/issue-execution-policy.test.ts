@@ -2303,6 +2303,40 @@ describe("an evidence-gated issue reaches done only through its final stage deci
       .toThrowError(/only by approving/);
   });
 
+  it("lets a retried close of an already-done issue through unchanged", () => {
+    const policy = terminalApprovalPolicy(true);
+    const result = applyIssueExecutionPolicyTransition({
+      issue: {
+        status: "done",
+        assigneeAgentId: null,
+        assigneeUserId: ctoUserId,
+        executionPolicy: policy,
+        executionState: {
+          status: "completed",
+          currentStageId: null,
+          currentStageIndex: null,
+          currentStageType: null,
+          currentParticipant: null,
+          returnAssignee: null,
+          completedStageIds: [policy.stages[0]!.id!],
+          lastDecisionId: null,
+          lastDecisionOutcome: "approved",
+          reviewRequest: null,
+          monitor: null,
+        } as unknown as IssueExecutionState,
+      },
+      policy,
+      previousPolicy: policy,
+      requestedStatus: "done",
+      requestedAssigneePatch: {},
+      actor: { userId: ctoUserId },
+      commentBody: null,
+      evidenceSource: "request",
+    });
+    expect(result.decision).toBeUndefined();
+    expect(result.patch.status).toBeUndefined();
+  });
+
   it("leaves a policy without evidenceRequired free to close the same way", () => {
     const result = closeWithReplacedStages(terminalApprovalPolicy(false), replacementPolicy(false));
     expect(result.decision).toBeUndefined();
