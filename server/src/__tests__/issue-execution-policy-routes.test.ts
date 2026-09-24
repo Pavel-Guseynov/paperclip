@@ -1381,9 +1381,10 @@ describe("issue execution policy routes", () => {
         },
       });
 
+    // Assert the write first: that is the defect, and the status code follows from it.
+    expect(mockIssueService.update).not.toHaveBeenCalled();
     expect(res.status).toBe(422);
     expect(res.body.code).toBe("delivery_evidence_missing");
-    expect(mockIssueService.update).not.toHaveBeenCalled();
     expect(outbound).not.toHaveBeenCalled();
     outbound.mockRestore();
   });
