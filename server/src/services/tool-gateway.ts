@@ -1259,12 +1259,18 @@ export function createToolGatewayService(
           //
           // "degraded" is the non-terminal attention state: something wants the
           // user's eye, but nothing has shown the connection to be unusable.
-          // It has more than one writer — an abandoned tool call here, and a
-          // credential inside its rotation window in tool-access — and neither
-          // is proof that the next call fails. Serving them keeps a working
-          // connection working and lets the next call settle the question;
-          // what genuinely cannot be used lands on "error" or "missing_secret",
-          // or is switched off through status/enabled, and stays excluded.
+          // More than one place writes it and the set is not fixed. Today:
+          // an abandoned tool call here; a credential due for rotation when a
+          // connection token is minted; and a health probe whose failure the
+          // classifier treats as recoverable rather than fatal — currently a
+          // Vercel Connect broker that is unavailable, unauthenticated or not
+          // installed (see sanitizeHttpFailure in tool-access). None of them
+          // proves that the next call fails, so the entry keeps being served
+          // and the next call settles the question: it either succeeds and
+          // clears the warning, or it is rejected and marks the connection
+          // "error", which withdraws the entry then. What is already known to
+          // be unusable carries "error" or "missing_secret", or is switched
+          // off through status/enabled, and stays excluded either way.
           //
           // This is deliberately wider than the native-runtime MCP server
           // lists, which drop every attention state (see

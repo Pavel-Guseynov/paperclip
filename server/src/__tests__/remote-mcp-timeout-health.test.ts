@@ -295,10 +295,12 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     const { company, agent, run } = await createRunFixture(db);
     const { connection } = await createRemoteMcpFixture(db, company.id);
 
-    // Exactly what minting a connection token writes when a credential falls
-    // inside its 14-day rotation window (tool-access.ts): a warning, with the
-    // connection left active, enabled and without a new observation time. The
-    // credential has not expired, so its tools must stay callable.
+    // Exactly what minting a connection token writes when a credential is due
+    // for rotation (tool-access.ts): a warning, with the connection left
+    // active, enabled and without a new observation time. The warning does not
+    // say whether the credential still works — a provider rejection would mark
+    // the connection "error" and withdraw the entry — so the entry stays
+    // served and callable until something proves otherwise.
     await db
       .update(toolConnections)
       .set({
