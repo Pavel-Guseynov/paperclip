@@ -836,11 +836,15 @@ describe("startServer PAPERCLIP_API_URL handling", () => {
 
     // The pinned runtime URL is honored as the primary env var ...
     expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:9999");
-    // ... and leads the candidates list, so agents iterating candidates don't
-    // fall back onto the public API URL the operator decoupled from.
-    expect(JSON.parse(process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON ?? "[]")[0]).toBe(
-      "http://127.0.0.1:9999",
-    );
+    // ... and it leads the candidate list, so an agent that iterates the
+    // candidates tries the pinned internal origin first ...
+    const candidates = JSON.parse(process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON ?? "[]") as string[];
+    expect(candidates[0]).toBe("http://127.0.0.1:9999");
+    // ... while the public API URL stays in the list behind it, so pinning the
+    // internal origin never removes a candidate that worked before.
+    expect(candidates[1]).toBe("http://custom-api:3100");
+    // The public API URL is untouched by the pin.
+    expect(process.env.PAPERCLIP_API_URL).toBe("http://custom-api:3100");
   });
 
   it("falls back to host-based URL when PAPERCLIP_API_URL is not set", async () => {

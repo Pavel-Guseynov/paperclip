@@ -38,18 +38,6 @@ describe("buildPaperclipEnv", () => {
     const env = buildPaperclipEnv({ id: "agent-1", companyId: "company-1" });
 
     expect(env.PAPERCLIP_API_URL).toBe("http://localhost:4100");
-    expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://203.0.113.42:3102");
-  });
-
-  it("keeps public dashboard URL and internal callback URL distinct", () => {
-    process.env.PAPERCLIP_RUNTIME_API_URL = "http://127.0.0.1:3100";
-    process.env.PAPERCLIP_API_URL = "https://public-dashboard.example.com";
-
-    const env = buildPaperclipEnv({ id: "agent-1", companyId: "company-1" });
-
-    expect(env.PAPERCLIP_API_URL).toBe("https://public-dashboard.example.com");
-    expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:3100");
-    expect(env.PAPERCLIP_API_URL).not.toBe(env.PAPERCLIP_RUNTIME_API_URL);
   });
 
   it("falls back to PAPERCLIP_RUNTIME_API_URL when no explicit override is set", () => {

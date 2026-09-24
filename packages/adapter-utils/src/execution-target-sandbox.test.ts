@@ -2322,6 +2322,10 @@ describe("sandbox adapter execution targets", () => {
       expect(bridge?.env.PAPERCLIP_API_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(bridge?.env.PAPERCLIP_API_KEY).not.toBe("real-run-jwt");
       expect(bridge?.env.PAPERCLIP_API_BRIDGE_MODE).toBe("queue_v1");
+      // The internal runtime callback URL must be resolved in the namespace that
+      // actually dials it. The bridge owns that namespace, so it overrides the
+      // host-side origin the adapter exported with its own in-target origin.
+      expect(bridge?.env.PAPERCLIP_RUNTIME_API_URL).toBe(bridge?.env.PAPERCLIP_API_URL);
 
       const response = await fetch(`${bridge!.env.PAPERCLIP_API_URL}/api/agents/me`, {
         headers: {
@@ -3592,6 +3596,9 @@ describe("sandbox adapter execution targets", () => {
       expect(bridge?.env.PAPERCLIP_API_BRIDGE_MODE).toBe("http2_v1");
       // The host builds the origin from the port it assigned, never from a frame.
       expect(bridge?.env.PAPERCLIP_API_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      // Same in-sandbox origin for the internal runtime callback URL: the
+      // sandbox namespace cannot reach the host-side origin the adapter exported.
+      expect(bridge?.env.PAPERCLIP_RUNTIME_API_URL).toBe(bridge?.env.PAPERCLIP_API_URL);
       expect(bridge?.env.PAPERCLIP_API_KEY).not.toBe("real-run-jwt");
 
       // The sandbox gateway forwards one agent request as one real HTTP/2

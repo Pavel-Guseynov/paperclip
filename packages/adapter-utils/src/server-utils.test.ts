@@ -3798,10 +3798,28 @@ describe("buildPaperclipEnv", () => {
     );
   });
 
+  it("keeps the internal callback URL distinct from the public dashboard URL", () => {
+    // The dashboard origin can be a tunnel or a tailnet-only hostname that the
+    // agent process cannot resolve. The internal callback URL it dials must stay
+    // the operator-pinned origin, and the public URL must stay the dashboard one.
+    withEnv(
+      {
+        PAPERCLIP_API_URL: "https://dashboard.example.test",
+        PAPERCLIP_RUNTIME_API_URL: "http://127.0.0.1:3100",
+      },
+      () => {
+        const env = buildPaperclipEnv({ id: "agent-1", companyId: "company-1" });
+        expect(env.PAPERCLIP_API_URL).toBe("https://dashboard.example.test");
+        expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:3100");
+      },
+    );
+  });
+
   it("falls back to the derived runtime URL when no explicit override is set", () => {
     withEnv({ PAPERCLIP_RUNTIME_API_URL: "http://203.0.113.7:3100" }, () => {
       const env = buildPaperclipEnv({ id: "agent-1", companyId: "company-1" });
       expect(env.PAPERCLIP_API_URL).toBe("http://203.0.113.7:3100");
+      expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://203.0.113.7:3100");
     });
   });
 
@@ -3814,6 +3832,7 @@ describe("buildPaperclipEnv", () => {
           companyId: "company-1",
         });
         expect(env.PAPERCLIP_API_URL).toBe("http://localhost:3200");
+        expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://localhost:3200");
       },
     );
   });

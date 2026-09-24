@@ -102,7 +102,7 @@ import {
   reconcileAdapterAvailability,
 } from "./services/adapter-registry-bootstrap.js";
 import { createFeedbackTraceShareClientFromConfig } from "./services/feedback-share-client.js";
-import { buildRuntimeApiCandidateUrls, choosePrimaryRuntimeApiUrl, resolveRuntimeApiUrl } from "./runtime-api.js";
+import { buildRuntimeApiCandidateUrls, choosePrimaryRuntimeApiUrl } from "./runtime-api.js";
 import { isLoopbackHost, rewriteLoopbackUrlPort } from "./url-utils.js";
 import { createPluginWorkerManager } from "./services/plugin-worker-manager.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
@@ -940,19 +940,17 @@ async function startServerWithDatabaseTeardown(
     port: listenPort,
   });
   const configuredApiUrl = process.env.PAPERCLIP_API_URL?.trim() || runtimeApiUrl;
-  // A pre-set PAPERCLIP_RUNTIME_API_URL is the operator's deliberate runtime
-  // callback override (e.g. loopback behind a public tunnel). When present it
-  // wins both as the primary env var and as the leading candidate, so agents
-  // that iterate the candidates don't fall back onto the public hostname the
-  // operator decoupled from. When unset, candidates lead with the configured
-  // API URL exactly as before.
-  const presetRuntimeApiUrl = process.env.PAPERCLIP_RUNTIME_API_URL?.trim() ?? "";
-  const resolvedRuntimeApiUrl = resolveRuntimeApiUrl({
-    presetRuntimeApiUrl,
-    derivedRuntimeApiUrl: runtimeApiUrl,
-  });
+  // A pre-set PAPERCLIP_RUNTIME_API_URL is the operator's deliberate internal
+  // callback origin (e.g. loopback while the dashboard is served through a
+  // public tunnel). It wins as the primary runtime env var and leads the
+  // candidate list, so an agent that iterates the candidates tries it before
+  // the public hostname — but the public API URL stays in the list, so nothing
+  // that worked without the pin stops working. When unset, the candidates lead
+  // with the configured API URL exactly as before.
+  const pinnedRuntimeApiUrl = process.env.PAPERCLIP_RUNTIME_API_URL?.trim() ?? "";
   const runtimeApiCandidates = buildRuntimeApiCandidateUrls({
-    preferredApiUrl: presetRuntimeApiUrl || configuredApiUrl,
+    pinnedRuntimeApiUrl: pinnedRuntimeApiUrl || null,
+    preferredApiUrl: configuredApiUrl,
     authPublicBaseUrl: config.authPublicBaseUrl ?? null,
     allowedHostnames: config.allowedHostnames,
     bindHost: runtimeListenHost,
@@ -960,7 +958,7 @@ async function startServerWithDatabaseTeardown(
   });
   process.env.PAPERCLIP_LISTEN_HOST = runtimeListenHost;
   process.env.PAPERCLIP_LISTEN_PORT = String(listenPort);
-  process.env.PAPERCLIP_RUNTIME_API_URL = resolvedRuntimeApiUrl;
+  process.env.PAPERCLIP_RUNTIME_API_URL = pinnedRuntimeApiUrl || runtimeApiUrl;
   process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON = JSON.stringify(runtimeApiCandidates);
   process.env.PAPERCLIP_API_URL = configuredApiUrl;
 

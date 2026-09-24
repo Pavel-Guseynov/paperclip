@@ -80,20 +80,6 @@ export function choosePrimaryRuntimeApiUrl(input: {
   return formatOrigin("http:", "localhost", input.port);
 }
 
-/**
- * Resolve the runtime API URL that agents call back on. A pre-set, non-blank
- * `PAPERCLIP_RUNTIME_API_URL` wins over the derived value so operators can pin
- * internal agent traffic to loopback while the dashboard serves a public host
- * (e.g. behind a Cloudflare Tunnel). An unset or whitespace-only pre-set value
- * falls back to the derived URL, preserving prior behavior.
- */
-export function resolveRuntimeApiUrl(input: {
-  presetRuntimeApiUrl?: string | null;
-  derivedRuntimeApiUrl: string;
-}): string {
-  return input.presetRuntimeApiUrl?.trim() || input.derivedRuntimeApiUrl;
-}
-
 export function collectReachableInterfaceHosts(input: {
   networkInterfacesMap?: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 } = {}): string[] {
@@ -123,6 +109,13 @@ export function collectReachableInterfaceHosts(input: {
 }
 
 export function buildRuntimeApiCandidateUrls(input: {
+  /**
+   * An operator-pinned internal runtime callback origin
+   * (`PAPERCLIP_RUNTIME_API_URL`). It leads the list so an agent that iterates
+   * the candidates tries the pinned internal origin before the public
+   * dashboard origin, while the public origin stays in the list as a fallback.
+   */
+  pinnedRuntimeApiUrl?: string | null;
   preferredApiUrl?: string | null;
   authPublicBaseUrl?: string | null;
   allowedHostnames: string[];
@@ -143,6 +136,7 @@ export function buildRuntimeApiCandidateUrls(input: {
   })();
   const protocol = explicitOrigin ? new URL(explicitOrigin).protocol : "http:";
 
+  pushCandidate(candidates, seen, input.pinnedRuntimeApiUrl);
   pushCandidate(candidates, seen, input.preferredApiUrl);
   pushCandidate(candidates, seen, explicitOrigin);
 

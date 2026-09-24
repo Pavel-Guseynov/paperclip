@@ -335,10 +335,13 @@ Company-scoped commands also support `--company-id <id>`.
 API base resolution order:
 
 1. `--api-base <url>`
-2. `PAPERCLIP_API_URL`
-3. selected context profile `apiBase`
-4. local Paperclip config server port
-5. `http://localhost:3100`
+2. `PAPERCLIP_RUNTIME_API_URL` (the internal callback origin Paperclip exports to
+   agent processes; it is reachable from the process's own network namespace,
+   while `PAPERCLIP_API_URL` may be a public dashboard origin that is not)
+3. `PAPERCLIP_API_URL`
+4. selected context profile `apiBase`
+5. local Paperclip config server port
+6. `http://localhost:3100`
 
 Connection failures include the attempted URL and a `GET /api/health` check hint.
 

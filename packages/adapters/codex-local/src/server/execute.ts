@@ -1,14 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  inferOpenAiCompatibleBiller,
-  resolveRuntimeCallbackEndpoint,
-  validateRuntimeEndpointReachability,
-  formatReachabilityDiagnostic,
-  type AdapterExecutionContext,
-  type AdapterExecutionResult,
-} from "@paperclipai/adapter-utils";
+import { inferOpenAiCompatibleBiller, type AdapterExecutionContext, type AdapterExecutionResult } from "@paperclipai/adapter-utils";
 import { buildCodexAuthInboundProvision } from "./codex-auth-merge-scripts.js";
 import { copyBackCodexAuth } from "./codex-auth-copyback.js";
 import {
@@ -574,45 +567,7 @@ export async function ensureCodexSkillsInjected(
 }
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-  const executionTarget = readAdapterExecutionTarget({
-    executionTarget: ctx.executionTarget,
-    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
-  });
-  const envConfig = parseObject(parseObject(ctx.config).env);
-  const envConfigStrings = Object.fromEntries(
-    Object.entries(envConfig).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
-  );
   const engineSelection = await resolveCodexExecutionEngineForRun(ctx);
-  const executionMode = engineSelection.engine === "acp" ? "acp" : "cli";
-
-  const resolvedCallback = resolveRuntimeCallbackEndpoint({
-    target: executionTarget,
-    env: envConfigStrings,
-  });
-  const reachability = await validateRuntimeEndpointReachability({
-    endpoint: resolvedCallback,
-    executionMode,
-  });
-  if (!reachability.ok) {
-    const diagnosticMsg = formatReachabilityDiagnostic(reachability.diagnostic);
-    if (ctx.onLog) {
-      await ctx.onLog("stderr", `${diagnosticMsg}\n`);
-    }
-    return {
-      exitCode: 1,
-      signal: null,
-      timedOut: false,
-      errorCode: "runtime_api_unreachable",
-      errorMessage: reachability.diagnostic.message,
-      resultJson: {
-        executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
-        reachability: reachability.diagnostic,
-      },
-    };
-  }
-
   if (engineSelection.unavailableReason) {
     return {
       exitCode: 1,
@@ -666,6 +621,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       )
     : [];
   const runtimePrimaryUrl = asString(context.paperclipRuntimePrimaryUrl, "");
+  const executionTarget = readAdapterExecutionTarget({
+    executionTarget: ctx.executionTarget,
+    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
+  });
   const targetWorkspaceRealization = executionTarget?.workspaceRealization ?? null;
   const configuredCwd = asString(config.cwd, "");
   const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
@@ -673,6 +632,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     ? targetWorkspaceRealization.authoritativeRoot
     : useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
   const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
+  const envConfig = parseObject(config.env);
   const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);
   let configuredCodexHome =
     typeof envConfig.CODEX_HOME === "string" && envConfig.CODEX_HOME.trim().length > 0
@@ -774,6 +734,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // CODEX_HOME's config.toml BEFORE the home is shipped to a remote execution
   // target, so both local and sandboxed Codex processes pick up the routing.
   // An explicit env.CODEX_HOME override is treated as user-managed and skipped.
+  const envConfigStrings = Object.fromEntries(
+    Object.entries(envConfig).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
   const preparedRuntimeConfig = await prepareCodexRuntimeConfig({
     env: envConfigStrings,
     codexHome: configuredCodexHome ? null : effectiveCodexHome,
@@ -796,9 +761,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       runtimeMcpGateways,
       managedMcpGatewaysFromContext(context),
     );
+    // Managed MCP endpoints are dialed by the Codex process itself, so they must
+    // carry the INTERNAL runtime callback origin, never the public dashboard URL:
+    // when an operator serves the dashboard through a tunnel or a tailnet-only
+    // hostname, that hostname is not resolvable from the Codex process and every
+    // managed gateway call fails before the session starts.
     const managedMcp = await writeManagedCodexMcpConfig({
       codexHome: effectiveCodexHome,
-      apiBaseUrl: resolvedCallback.url,
+      apiBaseUrl: paperclipBaseEnv.PAPERCLIP_RUNTIME_API_URL,
       gateways: managedMcpGateways,
     });
     if (managedMcpGateways.length > 0) {
@@ -1001,7 +971,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       env.PAPERCLIP_RUNTIME_PRIMARY_URL = runtimePrimaryUrl;
     }
     env.CODEX_HOME = remoteCodexHome ?? effectiveCodexHome;
-    env.PAPERCLIP_RUNTIME_API_URL = resolvedCallback.url;
     if (authToken) {
       env.PAPERCLIP_API_KEY = authToken;
     }
@@ -1045,7 +1014,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             networkAllowlist: parseLocalProcessNetworkAllowlist(config.networkAllowlist),
             networkTrustedUrls: [
               paperclipBaseEnv.PAPERCLIP_API_URL,
-              resolvedCallback.url,
+              // The internal callback origin differs from the public dashboard
+              // origin whenever PAPERCLIP_RUNTIME_API_URL is set, and it is the
+              // one the confined Codex process actually dials.
+              paperclipBaseEnv.PAPERCLIP_RUNTIME_API_URL,
               ...runtimeMcpGateways.map((gateway) => gateway.endpointPath),
             ],
             command: asString(config.filesystemSandboxCommand, "bwrap"),

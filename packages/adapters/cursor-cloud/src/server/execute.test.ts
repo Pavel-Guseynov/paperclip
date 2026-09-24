@@ -224,6 +224,7 @@ describe("cursor_cloud execute", () => {
     // When a run JWT is present the callback URL is retained so the worker can
     // authenticate its Paperclip API calls.
     expect(createMock.mock.calls[0]?.[0]?.cloud?.envVars).toHaveProperty("PAPERCLIP_API_URL");
+    expect(createMock.mock.calls[0]?.[0]?.cloud?.envVars).toHaveProperty("PAPERCLIP_RUNTIME_API_URL");
     expect(createMock.mock.calls[0]?.[0]?.cloud?.envVars).not.toHaveProperty("CURSOR_API_KEY");
 
     expect(result).toMatchObject({
@@ -302,6 +303,10 @@ describe("cursor_cloud execute", () => {
     const envVars = (createMock.mock.calls[0]?.[0]?.cloud?.envVars ?? {}) as Record<string, string>;
     expect(envVars).not.toHaveProperty("PAPERCLIP_API_KEY");
     expect(envVars).not.toHaveProperty("PAPERCLIP_API_URL");
+    // The internal callback URL must go with the public one: the Paperclip CLI
+    // prefers PAPERCLIP_RUNTIME_API_URL over PAPERCLIP_API_URL, so leaving it
+    // behind would hand the cloud worker the unreachable local origin again.
+    expect(envVars).not.toHaveProperty("PAPERCLIP_RUNTIME_API_URL");
     expect(envVars).not.toHaveProperty("PAPERCLIP_API_BRIDGE_MODE");
     // Informational Paperclip env (non-credential) still flows through.
     expect(envVars).toMatchObject({
