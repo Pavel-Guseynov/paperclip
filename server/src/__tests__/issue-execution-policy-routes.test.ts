@@ -207,6 +207,13 @@ describe("issue execution policy routes", () => {
     vi.doUnmock("../middleware/index.js");
     registerModuleMocks();
     vi.clearAllMocks();
+    // `clearAllMocks` clears recorded calls but keeps implementations, so a
+    // case that stubs one of these would otherwise leak its issue or comment
+    // into every later case. Reset them to the bare mocks this suite declares,
+    // so the order of the cases cannot matter.
+    mockIssueService.addComment.mockReset();
+    mockIssueService.update.mockReset();
+    mockIssueService.getById.mockReset();
     mockIssueService.assertCheckoutOwner.mockResolvedValue({ adoptedFromRunId: null });
     mockIssueService.getByIdForUpdate.mockImplementation(async () => mockIssueService.getById());
     mockIssueService.findMentionedAgents.mockResolvedValue([]);
@@ -1215,7 +1222,8 @@ describe("issue execution policy routes", () => {
 
   // The stage decision comment is persisted through `issueService.addComment`,
   // whose return value the route reads, so these two cases give the shared mock
-  // a body. Everything else in the suite keeps the bare mock.
+  // a body. Everything else in the suite keeps the bare mock, which `beforeEach`
+  // restores, so the order of these cases cannot matter.
   function stubDecisionComment() {
     mockIssueService.addComment.mockImplementation(async (_issueId: string, body: string) => ({
       id: "comment-1",

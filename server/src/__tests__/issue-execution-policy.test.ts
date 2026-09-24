@@ -1455,6 +1455,7 @@ describe("issue execution policy transitions", () => {
           returnAssignee: { type: "agent", agentId: coderAgentId },
           completedStageIds: [policy.stages[0].id, policy.stages[1].id, policy.stages[2].id],
           lastDecisionOutcome: "approved",
+          changesRequestedCount: 0,
         },
       });
       expect(result.patch.status).toBeUndefined();
@@ -1464,6 +1465,69 @@ describe("issue execution policy transitions", () => {
         outcome: "approved",
         body: "QA approved",
       });
+    });
+
+    it("persists the same completed state whether the final stage was approved or skipped", () => {
+      // Approving the last stage and skipping the last stages are the same
+      // completion, so they must persist the same state. The transition
+      // re-parses every execution-state patch before returning it, so the
+      // round counter is normalized on both paths; this pins that invariant.
+      const approvedPolicy = reviewOnlyPolicy();
+      const approved = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_review",
+          assigneeAgentId: qaAgentId,
+          assigneeUserId: null,
+          executionPolicy: approvedPolicy,
+          executionState: {
+            status: "pending",
+            currentStageId: approvedPolicy.stages[0].id,
+            currentStageIndex: 0,
+            currentStageType: "review",
+            currentParticipant: { type: "agent", agentId: qaAgentId },
+            returnAssignee: { type: "agent", agentId: coderAgentId },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        },
+        policy: approvedPolicy,
+        requestedStatus: "done",
+        requestedAssigneePatch: {},
+        actor: { agentId: qaAgentId },
+        commentBody: "QA approved",
+      });
+
+      const skippedPolicy = makePolicy([
+        { type: "review", participants: [{ type: "agent", agentId: coderAgentId }] },
+      ]);
+      const skipped = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_progress",
+          assigneeAgentId: coderAgentId,
+          assigneeUserId: null,
+          executionPolicy: skippedPolicy,
+          executionState: null,
+        },
+        policy: skippedPolicy,
+        requestedStatus: "done",
+        requestedAssigneePatch: {},
+        actor: { agentId: coderAgentId },
+        commentBody: "Done",
+      });
+
+      expect(approved.patch.executionState).toMatchObject({
+        status: "completed",
+        changesRequestedCount: 0,
+      });
+      expect(skipped.patch.executionState).toMatchObject({
+        status: "completed",
+        completedStageIds: [skippedPolicy.stages[0].id],
+        changesRequestedCount: 0,
+      });
+      expect(Object.keys(skipped.patch.executionState as object).sort()).toEqual(
+        Object.keys(approved.patch.executionState as object).sort(),
+      );
     });
 
     it("selects the returnAssignee on initial entry into an approval stage", () => {
