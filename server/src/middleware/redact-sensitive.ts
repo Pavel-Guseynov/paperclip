@@ -12,9 +12,9 @@
 // the logger.
 
 import {
-  isCredentialBearingHeader,
   isHttpObject,
   sanitizeCredentialText,
+  VALUE_REDACTION_MARKER,
 } from "./http-log-redaction.js";
 
 const SENSITIVE_KEYS = new Set<string>([
@@ -108,7 +108,7 @@ const SENSITIVE_KEYS = new Set<string>([
 ]);
 
 const MAX_DEPTH = 6;
-const REDACTED = "[REDACTED]";
+const REDACTED = VALUE_REDACTION_MARKER;
 const URLISH_KEYS = new Set<string>([
   "href",
   "locator",
@@ -127,8 +127,7 @@ const URLISH_KEYS = new Set<string>([
 ]);
 
 function isSensitiveKey(key: string): boolean {
-  const normalized = key.toLowerCase();
-  return SENSITIVE_KEYS.has(normalized) || isCredentialBearingHeader(normalized);
+  return SENSITIVE_KEYS.has(key.toLowerCase());
 }
 
 function isUrlishKey(key: string): boolean {
@@ -167,7 +166,9 @@ export function redactSensitive(value: unknown, depth = 0): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "req" || key === "res" || isHttpObject(entry)) {
+    if (isHttpObject(entry)) {
+      // Node request/response objects are cyclic and carry the raw socket.
+      // Leave them to the dedicated HTTP serializers.
       out[key] = entry;
       continue;
     }
@@ -280,59 +281,4 @@ export function redactSensitiveValueOccurrences(
   };
 
   return visit(redacted, 0);
-}
-
-/** Collects all submitted credentials from headers, query parameters, and body. */
-export function collectRequestCredentials(req: {
-  headers?: Record<string, unknown> | unknown;
-  body?: unknown;
-  query?: Record<string, unknown> | unknown;
-}): string[] {
-  const creds = new Set<string>();
-  if (req.headers && typeof req.headers === "object") {
-    for (const [name, val] of Object.entries(
-      req.headers as Record<string, unknown>,
-    )) {
-      if (typeof val === "string" && isCredentialBearingHeader(name)) {
-        const trimmed = val.trim();
-        if (trimmed.length > 0) {
-          if (!/^(?:Bearer|Basic|Digest)$/i.test(trimmed)) {
-            creds.add(trimmed);
-          }
-          const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
-          if (bearerMatch?.[1]) {
-            const tokenCandidate = bearerMatch[1].trim();
-            if (
-              tokenCandidate.length > 0 &&
-              !/^(?:<token>|<[^>]+>|token)$/i.test(tokenCandidate)
-            ) {
-              creds.add(tokenCandidate);
-            }
-          }
-        }
-      } else if (Array.isArray(val) && isCredentialBearingHeader(name)) {
-        for (const item of val) {
-          if (typeof item === "string" && item.trim().length > 0) {
-            creds.add(item.trim());
-          }
-        }
-      }
-    }
-  }
-  if (req.query && typeof req.query === "object") {
-    for (const [name, val] of Object.entries(
-      req.query as Record<string, unknown>,
-    )) {
-      if (typeof val === "string" && isCredentialBearingHeader(name)) {
-        const trimmed = val.trim();
-        if (trimmed.length > 0) creds.add(trimmed);
-      }
-    }
-  }
-  if (req.body) {
-    for (const val of collectSensitiveStringValues(req.body)) {
-      creds.add(val);
-    }
-  }
-  return [...creds];
 }

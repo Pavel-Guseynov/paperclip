@@ -4,19 +4,17 @@ import express from "express";
 import pino from "pino";
 import { pinoHttp } from "pino-http";
 import request from "supertest";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { HttpError } from "../errors.js";
 import {
+  CREDENTIAL_HEADER_NAMES,
   HTTP_LOG_REDACT_PATHS,
+  isCredentialBearingHeader,
   sanitizeCredentialText,
 } from "../middleware/http-log-redaction.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { testAdapterEnvironmentSchema } from "@paperclipai/shared";
-import {
-  createHttpLogger,
-  logger,
-  wrapLoggerWithRedaction,
-} from "../middleware/logger.js";
+import { basePinoOptions, createHttpLogger } from "../middleware/logger.js";
 import { redactSensitive } from "../middleware/redact-sensitive.js";
 
 describe("HTTP logger redaction", () => {
@@ -328,30 +326,6 @@ describe("HTTP logger redaction", () => {
     expect(HTTP_LOG_REDACT_PATHS).toContain('req.headers["x-api-key"]');
     expect(HTTP_LOG_REDACT_PATHS).toContain(
       'req.headers["x-telegram-bot-api-secret-token"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'req.headers["x-paperclip-tool-gateway-token"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'res.headers["x-paperclip-tool-gateway-token"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'req.headers["x-paperclip-github-capability"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'res.headers["x-paperclip-github-capability"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'req.headers["x-paperclip-dev-server-status-token"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'req.headers["x-paperclip-cloud-runtime-identity"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'req.headers["x-paperclip-cloud-control"]',
-    );
-    expect(HTTP_LOG_REDACT_PATHS).toContain(
-      'req.headers["x-paperclip-signature"]',
     );
     expect(HTTP_LOG_REDACT_PATHS).toContain("reqBody.credentials");
     expect(HTTP_LOG_REDACT_PATHS).toContain("errorContext.details.credentials");
@@ -737,615 +711,430 @@ describe("HTTP logger redaction", () => {
     },
   );
 
-  it("redacts Paperclip gateway tokens and authorization credentials on successful 200 requests while preserving diagnostics", async () => {
-    const chunks: string[] = [];
-    const stream = new Writable({
+  // -------------------------------------------------------------------------
+  // Tool gateway credential redaction (issue #4759).
+  //
+  // Every logger below is built from `basePinoOptions`, the exact options the
+  // exported `logger`/`httpLogger` are constructed with, so the redact paths,
+  // the `headers`/`err` serializers and the `logMethod` hook are all exercised.
+  // -------------------------------------------------------------------------
+
+  const SESSION_TOKEN =
+    "pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU";
+  const GATEWAY_TOKEN =
+    "pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28";
+  const BEARER_SENTINEL = "bearer-sentinel-3f9c17ab";
+  const CAPABILITY_SENTINEL = "capability-sentinel-84d0";
+  const RUN_ID = "run-diagnostic-6f2a";
+  const CLIENT_NAME = "cursor-diagnostic-client";
+
+  function captureChunks(chunks: string[]) {
+    return new Writable({
       write(chunk, _encoding, callback) {
         chunks.push(chunk.toString());
         callback();
       },
     });
+  }
+
+  /** A logger with the exported production configuration, writing to `chunks`. */
+  function productionLogger(chunks: string[]) {
+    return pino(basePinoOptions, captureChunks(chunks));
+  }
+
+  function logRecords(chunks: string[]): any[] {
+    return chunks
+      .join("")
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line));
+  }
+
+  it("derives every redact path from the credential header list, without duplicates", () => {
+    expect(new Set(HTTP_LOG_REDACT_PATHS).size).toBe(
+      HTTP_LOG_REDACT_PATHS.length,
+    );
+    for (const name of CREDENTIAL_HEADER_NAMES) {
+      const quoted = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+        ? name
+        : `["${name}"]`;
+      const suffix = quoted === name ? `.${name}` : quoted;
+      expect(HTTP_LOG_REDACT_PATHS).toContain(`req.headers${suffix}`);
+      expect(HTTP_LOG_REDACT_PATHS).toContain(`res.headers${suffix}`);
+      expect(HTTP_LOG_REDACT_PATHS).toContain(quoted);
+      expect(isCredentialBearingHeader(name)).toBe(true);
+    }
+    expect(CREDENTIAL_HEADER_NAMES).toContain(
+      "x-paperclip-tool-gateway-token",
+    );
+    expect(basePinoOptions.redact.paths).toEqual([...HTTP_LOG_REDACT_PATHS]);
+  });
+
+  it("redacts gateway credentials from a successful request log and keeps safe diagnostics", async () => {
+    const chunks: string[] = [];
     const app = express();
     app.use(express.json());
-    app.use(
-      createHttpLogger(pino({ redact: [...HTTP_LOG_REDACT_PATHS] }, stream)),
-    );
-
-    const bearerSentinel = "pcgw_sentinel_success_99a8b7c6";
-    const headerSentinel = "pcgt_sentinel_success_11223344";
-    const runId = "run-success-safe-uuid-1234";
-    const clientName = "cursor-client-diagnostic-5678";
-
+    app.use(createHttpLogger(productionLogger(chunks)));
     app.post("/api/tool-gateway/tools/call", (_req, res) => {
-      res.status(200).json({ status: "ok", result: { data: "success" } });
+      res.status(200).json({ ok: true });
     });
 
     const response = await request(app)
       .post("/api/tool-gateway/tools/call")
-      .set("Authorization", `Bearer ${bearerSentinel}`)
-      .set("x-paperclip-tool-gateway-token", headerSentinel)
-      .set("X-Paperclip-Run-Id", runId)
-      .set("X-Paperclip-Client-Name", clientName)
-      .send({ tool: "calculator:add", parameters: { a: 1, b: 2 } });
+      .set("Authorization", `Bearer ${BEARER_SENTINEL}`)
+      .set("X-Paperclip-Tool-Gateway-Token", GATEWAY_TOKEN)
+      .set("X-Paperclip-Github-Capability", CAPABILITY_SENTINEL)
+      .set("X-Paperclip-Run-Id", RUN_ID)
+      .set("X-Paperclip-Client-Name", CLIENT_NAME)
+      .send({ tool: "calculator:add" });
 
     expect(response.status).toBe(200);
     const output = chunks.join("");
-    expect(output).not.toContain(bearerSentinel);
-    expect(output).not.toContain(headerSentinel);
-    expect(output).toContain(runId);
-    expect(output).toContain(clientName);
+    expect(output).not.toContain(BEARER_SENTINEL);
+    expect(output).not.toContain(GATEWAY_TOKEN);
+    expect(output).not.toContain(CAPABILITY_SENTINEL);
 
-    const log = JSON.parse(output.trim()) as {
-      res: { statusCode: number };
-      req: { headers: Record<string, string> };
-    };
+    const [log] = logRecords(chunks);
+    expect(log.msg).toBe("POST /api/tool-gateway/tools/call 200");
     expect(log.res.statusCode).toBe(200);
     expect(log.req.headers.authorization).toBe("[Redacted]");
-    expect(log.req.headers["x-paperclip-tool-gateway-token"]).toBe("[Redacted]");
-    expect(log.req.headers["x-paperclip-run-id"]).toBe(runId);
-    expect(log.req.headers["x-paperclip-client-name"]).toBe(clientName);
+    expect(log.req.headers["x-paperclip-tool-gateway-token"]).toBe(
+      "[Redacted]",
+    );
+    expect(log.req.headers["x-paperclip-github-capability"]).toBe("[Redacted]");
+    expect(log.req.headers["x-paperclip-run-id"]).toBe(RUN_ID);
+    expect(log.req.headers["x-paperclip-client-name"]).toBe(CLIENT_NAME);
   });
 
-  it("redacts gateway tokens on rejected 401 authentication while preserving reasonCode and diagnostics", async () => {
+  it("redacts credential-bearing response headers while keeping safe response headers", async () => {
     const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
-      },
-    });
     const app = express();
-    app.use(express.json());
-    app.use(
-      createHttpLogger(pino({ redact: [...HTTP_LOG_REDACT_PATHS] }, stream)),
+    app.use(createHttpLogger(productionLogger(chunks)));
+    app.get("/api/tool-gateway/session", (_req, res) => {
+      res.setHeader("x-paperclip-tool-gateway-token", GATEWAY_TOKEN);
+      res.setHeader("x-paperclip-signature", `sha256=${CAPABILITY_SENTINEL}`);
+      res.setHeader("x-paperclip-bridge-outcome", "accepted");
+      res.status(200).json({ ok: true });
+    });
+
+    await request(app).get("/api/tool-gateway/session").expect(200);
+
+    const output = chunks.join("");
+    expect(output).not.toContain(GATEWAY_TOKEN);
+    expect(output).not.toContain(CAPABILITY_SENTINEL);
+
+    const [log] = logRecords(chunks);
+    expect(log.res.headers["x-paperclip-tool-gateway-token"]).toBe(
+      "[Redacted]",
     );
+    expect(log.res.headers["x-paperclip-signature"]).toBe("[Redacted]");
+    expect(log.res.headers["x-paperclip-bridge-outcome"]).toBe("accepted");
+  });
 
-    const rejectedSentinel = "pcgt_sentinel_rejected_55443322";
-    const runId = "run-rejected-safe-uuid-9988";
-
+  it("redacts a rejected session token from the 401 log and the error response", async () => {
+    const chunks: string[] = [];
+    const app = express();
+    app.use(createHttpLogger(productionLogger(chunks)));
     app.post("/api/tool-gateway/tools", (req, _res, next) => {
-      const token = req.header("x-paperclip-tool-gateway-token") ?? "";
       next(
-        new HttpError(401, `Invalid tool gateway session token: ${token}`, {
-          reasonCode: "invalid_token",
-        }),
+        new HttpError(
+          401,
+          `Invalid tool gateway session token: ${req.header("x-paperclip-tool-gateway-token")}`,
+          { reasonCode: "invalid_token", phase: "authenticate" },
+        ),
       );
     });
     app.use(errorHandler);
 
     const response = await request(app)
       .post("/api/tool-gateway/tools")
-      .set("x-paperclip-tool-gateway-token", rejectedSentinel)
-      .set("X-Paperclip-Run-Id", runId);
+      .set("X-Paperclip-Tool-Gateway-Token", SESSION_TOKEN)
+      .set("X-Paperclip-Run-Id", RUN_ID);
 
     expect(response.status).toBe(401);
     expect(response.body).toEqual({
       error: "Invalid tool gateway session token: [REDACTED]",
-      details: {
-        reasonCode: "invalid_token",
-      },
+      details: { reasonCode: "invalid_token", phase: "authenticate" },
     });
 
     const output = chunks.join("");
-    expect(output).not.toContain(rejectedSentinel);
-    expect(output).toContain(runId);
+    expect(output).not.toContain(SESSION_TOKEN);
 
-    const log = JSON.parse(output.trim()) as {
-      res: { statusCode: number };
-      req: { headers: Record<string, string> };
-      msg: string;
-    };
+    const [log] = logRecords(chunks);
+    expect(log.req.headers["x-paperclip-tool-gateway-token"]).toBe(
+      "[Redacted]",
+    );
+    expect(log.req.headers["x-paperclip-run-id"]).toBe(RUN_ID);
     expect(log.res.statusCode).toBe(401);
-    expect(log.req.headers["x-paperclip-tool-gateway-token"]).toBe("[Redacted]");
-    expect(log.req.headers["x-paperclip-run-id"]).toBe(runId);
-    expect(log.msg).not.toContain(rejectedSentinel);
   });
 
-  it("redacts echoed gateway credentials during downstream MCP provider failures", async () => {
+  it("redacts echoed gateway credentials from a downstream 502 message, context, and error", async () => {
     const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
-      },
-    });
     const app = express();
     app.use(express.json());
-    app.use(
-      createHttpLogger(pino({ redact: [...HTTP_LOG_REDACT_PATHS] }, stream)),
-    );
-
-    const downstreamSentinel = "pcgw_sentinel_downstream_aabbccdd";
-
-    app.post("/api/tool-gateway/tools/call", (_req, res) => {
-      (res as any).__errorContext = {
-        error: {
-          message: `Downstream MCP service timed out for token ${downstreamSentinel}`,
-          reasonCode: "downstream_timeout",
-        },
-      };
-      res.status(502).json({
-        error: "Downstream failure",
-        reasonCode: "downstream_timeout",
-      });
-    });
-
-    const response = await request(app)
-      .post("/api/tool-gateway/tools/call")
-      .set("Authorization", `Bearer ${downstreamSentinel}`)
-      .send({ tool: "weather:forecast", parameters: {} });
-
-    expect(response.status).toBe(502);
-    expect(response.body.reasonCode).toBe("downstream_timeout");
-
-    const output = chunks.join("");
-    expect(output).not.toContain(downstreamSentinel);
-
-    const log = JSON.parse(output.trim()) as {
-      res: { statusCode: number };
-      msg: string;
-      errorContext?: { message?: string; reasonCode?: string };
-    };
-    expect(log.res.statusCode).toBe(502);
-    expect(log.msg).not.toContain(downstreamSentinel);
-    expect(log.errorContext?.message).not.toContain(downstreamSentinel);
-    expect(log.errorContext?.message).toContain("[REDACTED]");
-  });
-
-  it("redacts gateway tokens from uncaught 500 error messages, stack traces, and HTTP error context", async () => {
-    const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
-      },
-    });
-    const app = express();
-    app.use(express.json());
-    app.use(
-      createHttpLogger(pino({ redact: [...HTTP_LOG_REDACT_PATHS] }, stream)),
-    );
-
-    const crashToken1 = "pcgw_sentinel_crash_1234abcd";
-    const crashToken2 = "pcgt_sentinel_crash_5678ef01";
-
-    app.post("/api/tool-gateway/crash", () => {
-      throw new Error(
-        `Unexpected crash while resolving gateway token ${crashToken1} and session ${crashToken2}`,
+    app.use(createHttpLogger(productionLogger(chunks)));
+    app.post("/api/tool-gateway/tools/call", (_req, _res, next) => {
+      next(
+        new HttpError(
+          502,
+          `Downstream MCP call failed for ${GATEWAY_TOKEN}`,
+          {
+            reasonCode: "downstream_failed",
+            phase: "invoke",
+            mechanism: "streamable_http",
+          },
+        ),
       );
     });
     app.use(errorHandler);
 
     const response = await request(app)
+      .post("/api/tool-gateway/tools/call")
+      .set("Authorization", `Bearer ${BEARER_SENTINEL}`)
+      .send({ tool: "weather:forecast" });
+
+    expect(response.status).toBe(502);
+
+    const output = chunks.join("");
+    expect(output).not.toContain(GATEWAY_TOKEN);
+    expect(output).not.toContain(BEARER_SENTINEL);
+
+    const [log] = logRecords(chunks);
+    expect(log.msg).toBe(
+      "POST /api/tool-gateway/tools/call 502 — Downstream MCP call failed for [REDACTED]",
+    );
+    expect(log.errorContext.message).toBe(
+      "Downstream MCP call failed for [REDACTED]",
+    );
+    expect(log.errorContext.details).toEqual({
+      reasonCode: "downstream_failed",
+      phase: "invoke",
+      mechanism: "streamable_http",
+    });
+    expect(log.err.type).toBe("HttpError");
+    expect(log.err.message).toBe("Downstream MCP call failed for [REDACTED]");
+    expect(log.err.stack).not.toContain(GATEWAY_TOKEN);
+  });
+
+  it("redacts gateway credentials from an uncaught 500 error message and stack", async () => {
+    const chunks: string[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use(createHttpLogger(productionLogger(chunks)));
+    app.post("/api/tool-gateway/crash", () => {
+      throw new Error(
+        `Unexpected crash resolving ${SESSION_TOKEN} with Authorization: Bearer ${BEARER_SENTINEL}`,
+      );
+    });
+    app.use(errorHandler);
+
+    await request(app)
       .post("/api/tool-gateway/crash")
-      .send({ data: "crash-test" });
+      .send({ data: "crash-test" })
+      .expect(500);
 
-    expect(response.status).toBe(500);
     const output = chunks.join("");
-    expect(output).not.toContain(crashToken1);
-    expect(output).not.toContain(crashToken2);
+    expect(output).not.toContain(SESSION_TOKEN);
+    expect(output).not.toContain(BEARER_SENTINEL);
 
-    const log = JSON.parse(output.trim()) as {
-      res: { statusCode: number };
-      msg: string;
-      err?: { message?: string; stack?: string };
-      errorContext?: { message?: string; stack?: string };
-    };
-    expect(log.res.statusCode).toBe(500);
-    expect(log.msg).not.toContain(crashToken1);
-    expect(log.msg).not.toContain(crashToken2);
-    expect(log.msg).toContain("[REDACTED]");
-    if (log.err) {
-      expect(log.err.message).not.toContain(crashToken1);
-      expect(log.err.message).not.toContain(crashToken2);
-      expect(log.err.stack).not.toContain(crashToken1);
-      expect(log.err.stack).not.toContain(crashToken2);
-    }
-    if (log.errorContext) {
-      expect(log.errorContext.message).not.toContain(crashToken1);
-      expect(log.errorContext.message).not.toContain(crashToken2);
-    }
+    const [log] = logRecords(chunks);
+    expect(log.msg).toBe(
+      "POST /api/tool-gateway/crash 500 — Unexpected crash resolving [REDACTED] with Authorization: Bearer [REDACTED]",
+    );
+    expect(log.errorContext.message).toBe(
+      "Unexpected crash resolving [REDACTED] with Authorization: Bearer [REDACTED]",
+    );
+    expect(log.errorContext.stack).not.toContain(SESSION_TOKEN);
+    expect(log.err.message).toBe(
+      "Unexpected crash resolving [REDACTED] with Authorization: Bearer [REDACTED]",
+    );
+    expect(log.err.stack).not.toContain(SESSION_TOKEN);
   });
 
-  it("redacts mixed-case gateway and authorization headers regardless of casing", async () => {
+  it("keeps the serialized error's cause chain while redacting credentials from it", () => {
     const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
+    const log = productionLogger(chunks);
+
+    log.error(
+      {
+        err: new Error("gateway call failed", {
+          cause: new Error(
+            `upstream rejected ${GATEWAY_TOKEN} for connector acme-crm`,
+          ),
+        }),
       },
-    });
-    const app = express();
-    app.use(
-      createHttpLogger(pino({ redact: [...HTTP_LOG_REDACT_PATHS] }, stream)),
+      "tool gateway invocation failed",
     );
 
-    const mixedHeaderSentinel = "pcgt_sentinel_mixed_header_9988";
-    const mixedBearerSentinel = "pcgw_sentinel_mixed_bearer_7766";
-    const mixedCapSentinel = "cap_sentinel_mixed_5544";
-    const runId = "run-mixed-safe-uuid-1122";
-
-    app.get("/api/tool-gateway/mixed", (_req, res) => {
-      res.status(200).json({ ok: true });
-    });
-
-    const response = await request(app)
-      .get("/api/tool-gateway/mixed")
-      .set("X-Paperclip-Tool-Gateway-Token", mixedHeaderSentinel)
-      .set("Authorization", `Bearer ${mixedBearerSentinel}`)
-      .set("X-Paperclip-Github-Capability", mixedCapSentinel)
-      .set("X-Paperclip-Run-Id", runId);
-
-    expect(response.status).toBe(200);
     const output = chunks.join("");
-    expect(output).not.toContain(mixedHeaderSentinel);
-    expect(output).not.toContain(mixedBearerSentinel);
-    expect(output).not.toContain(mixedCapSentinel);
-    expect(output).toContain(runId);
+    expect(output).not.toContain(GATEWAY_TOKEN);
 
-    const log = JSON.parse(output.trim()) as {
-      req: { headers: Record<string, string> };
-    };
-    expect(log.req.headers["x-paperclip-tool-gateway-token"]).toBe("[Redacted]");
-    expect(log.req.headers.authorization).toBe("[Redacted]");
-    expect(log.req.headers["x-paperclip-github-capability"]).toBe("[Redacted]");
-    expect(log.req.headers["x-paperclip-run-id"]).toBe(runId);
-  });
-
-  it("recursively redacts gateway tokens in nested object properties and custom props", () => {
-    const nestedToken1 = "pcgw_sentinel_nested_aaa1";
-    const nestedToken2 = "pcgt_sentinel_nested_bbb2";
-    const nestedToken3 = "token_sentinel_deep_ccc3";
-
-    const payload = {
-      session: {
-        gatewayToken: nestedToken1,
-        metadata: {
-          toolGatewayToken: nestedToken2,
-          details: {
-            token: nestedToken3,
-            safeMetadata: "normal-diagnostic-info",
-          },
-        },
-      },
-    };
-
-    const redacted = redactSensitive(payload) as typeof payload;
-    const serialized = JSON.stringify(redacted);
-
-    expect(serialized).not.toContain(nestedToken1);
-    expect(serialized).not.toContain(nestedToken2);
-    expect(serialized).not.toContain(nestedToken3);
-    expect(redacted.session.gatewayToken).toBe("[REDACTED]");
-    expect(redacted.session.metadata.toolGatewayToken).toBe("[REDACTED]");
-    expect(redacted.session.metadata.details.token).toBe("[REDACTED]");
-    expect(redacted.session.metadata.details.safeMetadata).toBe(
-      "normal-diagnostic-info",
+    const [record] = logRecords(chunks);
+    expect(record.err.type).toBe("Error");
+    expect(record.err.message).toBe(
+      "gateway call failed: upstream rejected [REDACTED] for connector acme-crm",
     );
+    expect(record.err.stack).toContain("caused by");
+    expect(record.err.stack).toContain("connector acme-crm");
   });
 
-  it("redacts gateway tokens across child logger bindings, info calls, and error methods", () => {
+  it("redacts gateway credentials from child-logger bindings, fields, and messages", () => {
     const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
-      },
-    });
+    const root = productionLogger(chunks);
 
-    const testLogger = wrapLoggerWithRedaction(
-      pino(
-        {
-          redact: [...HTTP_LOG_REDACT_PATHS],
-          serializers: {
-            headers: (h: any) =>
-              h && typeof h === "object" ? redactSensitive(h) : h,
-          },
-          hooks: {
-            logMethod(inputArgs: unknown[], method: any) {
-              const sanitizedArgs = inputArgs.map((arg) => {
-                if (arg instanceof Error) {
-                  const copy = new Error(arg.message);
-                  copy.name = arg.name;
-                  copy.stack = arg.stack;
-                  return redactSensitive(copy);
-                }
-                if (typeof arg === "string") {
-                  return redactSensitive(arg);
-                }
-                if (arg && typeof arg === "object") {
-                  return redactSensitive(arg);
-                }
-                return arg;
-              });
-              return method.apply(this, sanitizedArgs);
-            },
-          },
-        },
-        stream,
-      ),
-    );
-
-    const childBinding1 = "pcgw_sentinel_child_binding_1";
-    const childBinding2 = "pcgt_sentinel_child_binding_2";
-    const childLogToken = "pcgw_sentinel_child_info_3";
-    const childErrorToken = "pcgw_sentinel_child_err_4";
-
-    const child = testLogger.child({
-      gatewayToken: childBinding1,
-      "X-Paperclip-Tool-Gateway-Token": childBinding2,
+    const child = root.child({
       service: "tool-gateway",
+      gatewayToken: GATEWAY_TOKEN,
+      "x-paperclip-tool-gateway-token": SESSION_TOKEN,
+      headers: {
+        authorization: `Bearer ${BEARER_SENTINEL}`,
+        "x-paperclip-run-id": RUN_ID,
+      },
     });
 
-    child.info({
-      token: childLogToken,
-      msg: `calling gateway with Bearer ${childLogToken}`,
-    });
+    child.info(
+      { sessionToken: SESSION_TOKEN, phase: "invoke" },
+      `calling gateway with Authorization: Bearer ${BEARER_SENTINEL}`,
+    );
     child.error(
-      new Error(`Downstream connection failed for ${childErrorToken}`),
+      { err: new Error(`connection failed for ${GATEWAY_TOKEN}`) },
+      "downstream failure",
     );
 
     const output = chunks.join("");
-    expect(output).not.toContain(childBinding1);
-    expect(output).not.toContain(childBinding2);
-    expect(output).not.toContain(childLogToken);
-    expect(output).not.toContain(childErrorToken);
-    expect(output).toContain("tool-gateway");
+    expect(output).not.toContain(GATEWAY_TOKEN);
+    expect(output).not.toContain(SESSION_TOKEN);
+    expect(output).not.toContain(BEARER_SENTINEL);
+
+    const [infoRecord, errorRecord] = logRecords(chunks);
+    expect(infoRecord.service).toBe("tool-gateway");
+    expect(infoRecord.gatewayToken).toBe("[Redacted]");
+    expect(infoRecord["x-paperclip-tool-gateway-token"]).toBe("[Redacted]");
+    expect(infoRecord.headers.authorization).toBe("[Redacted]");
+    expect(infoRecord.headers["x-paperclip-run-id"]).toBe(RUN_ID);
+    expect(infoRecord.sessionToken).toBe("[Redacted]");
+    expect(infoRecord.phase).toBe("invoke");
+    expect(infoRecord.msg).toBe(
+      "calling gateway with Authorization: Bearer [REDACTED]",
+    );
+    expect(errorRecord.err.message).toBe("connection failed for [REDACTED]");
   });
 
-  it("audits token-bearing URLs and strips query secrets from HTTP message and structured records", async () => {
+  it("leaves non-credential log fields, deep structures, and numeric values intact", () => {
     const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
+    const log = productionLogger(chunks);
+
+    log.info(
+      {
+        value: 4096,
+        metric: "plugin.host.memory",
+        depth1: { depth2: { depth3: { depth4: { depth5: { kept: "yes" } } } } },
+        outcome: { status: "ok", mechanism: "streamable_http" },
       },
-    });
-    const app = express();
-    app.use(
-      createHttpLogger(pino({ redact: [...HTTP_LOG_REDACT_PATHS] }, stream)),
+      "plugin host metric",
     );
 
-    const queryToken1 = "pcgt_sentinel_query_1122";
-    const queryToken2 = "pcgw_sentinel_query_3344";
+    const [record] = logRecords(chunks);
+    expect(record.value).toBe(4096);
+    expect(record.metric).toBe("plugin.host.memory");
+    expect(record.depth1.depth2.depth3.depth4.depth5.kept).toBe("yes");
+    expect(record.outcome).toEqual({
+      status: "ok",
+      mechanism: "streamable_http",
+    });
+  });
 
+  it("strips credential query parameters from the request URL and message", async () => {
+    const chunks: string[] = [];
+    const app = express();
+    app.use(createHttpLogger(productionLogger(chunks)));
     app.get("/api/tool-gateway/tools", (_req, res) => {
       res.status(200).json({ ok: true });
     });
 
-    const response = await request(app).get(
-      `/api/tool-gateway/tools?sessionToken=${queryToken1}&gatewayToken=${queryToken2}#secret-fragment`,
-    );
+    await request(app)
+      .get(
+        `/api/tool-gateway/tools?sessionToken=${SESSION_TOKEN}&gatewayToken=${GATEWAY_TOKEN}`,
+      )
+      .expect(200);
 
-    expect(response.status).toBe(200);
     const output = chunks.join("");
-    expect(output).not.toContain(queryToken1);
-    expect(output).not.toContain(queryToken2);
-    expect(output).not.toContain("secret-fragment");
+    expect(output).not.toContain(SESSION_TOKEN);
+    expect(output).not.toContain(GATEWAY_TOKEN);
 
-    const log = JSON.parse(output.trim()) as {
-      msg: string;
-      req: { method: string; url: string; query?: unknown };
-      reqQuery?: unknown;
-    };
+    const [log] = logRecords(chunks);
     expect(log.msg).toBe("GET /api/tool-gateway/tools 200");
     expect(log.req.url).toBe("/api/tool-gateway/tools");
     expect(log.req.query).toBeUndefined();
-    expect(log.reqQuery).toBeUndefined();
   });
 
-  it("preserves diagnostic bearer prose and error messages without over-redaction", () => {
-    const diagnosticMessage =
-      "Empty bearer token; provide Authorization: Bearer <token>";
-    expect(sanitizeCredentialText(diagnosticMessage)).toBe(diagnosticMessage);
-
-    const credentialMessage =
-      "Failed with Authorization: Bearer secret-agent-token-9988";
-    expect(sanitizeCredentialText(credentialMessage)).toBe(
-      "Failed with Authorization: Bearer [REDACTED]",
-    );
+  it.each([
+    {
+      label: "minted session token",
+      input: `rejected ${SESSION_TOKEN} at authenticate`,
+      expected: "rejected [REDACTED] at authenticate",
+    },
+    {
+      label: "minted gateway token",
+      input: `token=${GATEWAY_TOKEN} expired`,
+      expected: "token=[REDACTED] expired",
+    },
+    {
+      label: "bearer credential with trailing punctuation",
+      input: "Request failed: Authorization: Bearer sk-live-7a91b2c3d4.",
+      expected: "Request failed: Authorization: Bearer [REDACTED].",
+    },
+    {
+      label: "credential in a URL query",
+      input: `retrying https://gw.invalid/mcp?token=${GATEWAY_TOKEN}&tool=add`,
+      expected: "retrying https://gw.invalid/mcp?token=[REDACTED]&tool=add",
+    },
+  ])("removes credential material from prose: $label", ({ input, expected }) => {
+    expect(sanitizeCredentialText(input)).toBe(expected);
   });
 
-  it("preserves pino-http req/res serialization and redacts all credentials in exported production httpLogger", async () => {
-    const prevNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    vi.resetModules();
-
-    try {
-      const { httpLogger: prodHttpLogger, logger: prodLogger } = await import(
-        "../middleware/logger.js"
-      );
-
-      const chunks: string[] = [];
-      const stream = (prodLogger as any)[(pino as any).symbols.streamSym];
-      const origWrite = stream.write.bind(stream);
-      stream.write = (str: string) => {
-        chunks.push(str);
-        return true;
-      };
-
-      try {
-        const app = express();
-        app.use(express.json());
-        app.use(prodHttpLogger);
-
-        app.post("/api/production-test/:id", (req, res) => {
-          const child = req.log.child(
-            {
-              service: "child-worker",
-              gatewayToken: "pcgw_sentinel_child_token_1122",
-              authorization: "Bearer sentinel_child_bearer_3344",
-            },
-            {
-              serializers: {
-                customField: (val: any) => `transformed:${val.raw}`,
-              },
-            },
-          );
-
-          child.info(
-            {
-              customField: { raw: "custom-data" },
-              password: "sentinel_child_password_5566",
-            },
-            "child processing request with token pcgw_sentinel_child_info_8899",
-          );
-
-          (res as any).__errorContext = {
-            error: new Error(
-              "production endpoint failed with Authorization: Bearer sentinel_err_bearer_99",
-            ),
-            reqBody: req.body,
-            reqParams: req.params,
-          };
-          res.status(500).json({ error: "endpoint failure" });
-        });
-
-        const canarySecrets = [
-          "sentinel_bearer_req_1234",
-          "sentinel_api_key_req_5678",
-          "pcgw_sentinel_gw_req_9012",
-          "sentinel_url_query_secret_3456",
-          "sentinel_body_password_7890",
-          "sentinel_body_secret_key_2345",
-          "pcgw_sentinel_child_token_1122",
-          "sentinel_child_bearer_3344",
-          "sentinel_child_password_5566",
-          "pcgw_sentinel_child_info_8899",
-          "sentinel_err_bearer_99",
-        ];
-
-        const response = await request(app)
-          .post("/api/production-test/item-42?token=sentinel_url_query_secret_3456#frag-secret")
-          .set("Authorization", "Bearer sentinel_bearer_req_1234")
-          .set("X-Api-Key", "sentinel_api_key_req_5678")
-          .set("X-Paperclip-Tool-Gateway-Token", "pcgw_sentinel_gw_req_9012")
-          .send({
-            password: "sentinel_body_password_7890",
-            secret: "sentinel_body_secret_key_2345",
-            safeText: "ordinary-payload",
-          });
-
-        expect(response.status).toBe(500);
-
-        expect(chunks.length).toBe(2);
-
-        const childLog = JSON.parse(chunks[0]!.trim());
-        const errorLog = JSON.parse(chunks[1]!.trim());
-
-        // 1. Structured req and res projections on errorLog
-        expect(errorLog.req).toBeDefined();
-        expect(errorLog.req.method).toBe("POST");
-        expect(errorLog.req.url).toBe("/api/production-test/item-42");
-        expect(errorLog.req.headers).toMatchObject({
-          authorization: "[Redacted]",
-          "x-api-key": "[Redacted]",
-          "x-paperclip-tool-gateway-token": "[Redacted]",
-        });
-        expect(errorLog.res).toBeDefined();
-        expect(errorLog.res.statusCode).toBe(500);
-        expect(errorLog.responseTime).toEqual(expect.any(Number));
-        expect(errorLog.reqParams).toEqual({ id: "item-42" });
-        expect(errorLog.reqBody).toMatchObject({
-          password: "[REDACTED]",
-          secret: "[REDACTED]",
-          safeText: "ordinary-payload",
-        });
-
-        // 2. Child logger preserves req projection, redacts child credentials, and applies custom serializers
-        expect(childLog.req).toBeDefined();
-        expect(childLog.req.method).toBe("POST");
-        expect(childLog.service).toBe("child-worker");
-        expect(childLog.gatewayToken).toBe("[Redacted]");
-        expect(childLog.authorization).toBe("[REDACTED]");
-        expect(childLog.customField).toBe("transformed:custom-data");
-
-        // 3. No credentials in any serialized log line
-        const combinedOutput = chunks.join("\n");
-        for (const canary of canarySecrets) {
-          expect(combinedOutput).not.toContain(canary);
-        }
-
-        // 4. No raw IncomingMessage, ServerResponse, socket, or header arrays serialized
-        expect(combinedOutput).not.toContain("rawHeaders");
-        expect(combinedOutput).not.toContain("_readableState");
-        expect(combinedOutput).not.toContain("_writableState");
-        expect((errorLog.res as any).socket).toBeUndefined();
-        expect((errorLog.res as any).req).toBeUndefined();
-        expect((errorLog.req as any).socket).toBeUndefined();
-        expect((errorLog.req as any).client).toBeUndefined();
-        expect((childLog.req as any).socket).toBeUndefined();
-      } finally {
-        stream.write = origWrite;
-      }
-    } finally {
-      process.env.NODE_ENV = prevNodeEnv;
-    }
+  it.each([
+    {
+      label: "documentation placeholder",
+      input: "Empty bearer token; provide Authorization: Bearer <token>",
+    },
+    {
+      label: "prose naming the header",
+      input: "Bearer authorization header is missing",
+    },
+    {
+      label: "prose naming the scheme",
+      input: "Expected a Bearer token, received Basic auth",
+    },
+    {
+      label: "already-redacted text stays stable",
+      input: "Failed with Authorization: Bearer [REDACTED]",
+    },
+    {
+      label: "safe gateway token fingerprint",
+      input: "rejected token pcgw_66666666 in phase authenticate",
+    },
+  ])("keeps safe diagnostic prose unchanged: $label", ({ input }) => {
+    expect(sanitizeCredentialText(input)).toBe(input);
   });
 
-  it("preserves custom Pino serializers and options in wrapped child loggers", () => {
-    const chunks: string[] = [];
-    const stream = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk.toString());
-        callback();
+  it("redacts credential-named fields without renaming ordinary diagnostic keys", () => {
+    const redacted = redactSensitive({
+      session: {
+        gatewayToken: GATEWAY_TOKEN,
+        metadata: { toolGatewayToken: SESSION_TOKEN, token: "inner-token" },
       },
-    });
+      signature: "sha256=8c1f",
+      capability: "issues:read",
+      note: `raw ${GATEWAY_TOKEN} echoed by a provider`,
+    }) as any;
 
-    const rootLogger = wrapLoggerWithRedaction(
-      pino(
-        {
-          redact: [...HTTP_LOG_REDACT_PATHS],
-          serializers: {
-            rootField: (v: any) => `root:${v}`,
-          },
-        },
-        stream,
-      ),
-    );
-
-    const child1 = rootLogger.child(
-      {
-        service: "tier1",
-        gatewayToken: "gw_secret_1",
-      },
-      {
-        serializers: {
-          tier1Field: (v: any) => `tier1:${v}`,
-        },
-      },
-    );
-
-    const child2 = child1.child(
-      {
-        worker: "tier2",
-        gatewayToken: "gw_secret_2",
-      },
-      {
-        serializers: {
-          tier2Field: (v: any) => `tier2:${v}`,
-        },
-      },
-    );
-
-    child2.info(
-      {
-        rootField: "hello",
-        tier1Field: "world",
-        tier2Field: "foo",
-      },
-      "multi-generation child message",
-    );
-
-    const output = chunks.join("");
-    expect(output).not.toContain("gw_secret_1");
-    expect(output).not.toContain("gw_secret_2");
-
-    const record = JSON.parse(output.trim());
-    expect(record.service).toBe("tier1");
-    expect(record.worker).toBe("tier2");
-    expect(record.rootField).toBe("root:hello");
-    expect(record.tier1Field).toBe("tier1:world");
-    expect(record.tier2Field).toBe("tier2:foo");
+    expect(JSON.stringify(redacted)).not.toContain(GATEWAY_TOKEN);
+    expect(redacted.session.gatewayToken).toBe("[REDACTED]");
+    expect(redacted.session.metadata.toolGatewayToken).toBe("[REDACTED]");
+    expect(redacted.session.metadata.token).toBe("[REDACTED]");
+    expect(redacted.signature).toBe("sha256=8c1f");
+    expect(redacted.capability).toBe("issues:read");
+    expect(redacted.note).toBe("raw [REDACTED] echoed by a provider");
   });
 });
