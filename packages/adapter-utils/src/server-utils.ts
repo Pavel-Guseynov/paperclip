@@ -3128,16 +3128,23 @@ export function buildPaperclipEnv(agent: {
   );
   const runtimePort =
     process.env.PAPERCLIP_LISTEN_PORT ?? process.env.PORT ?? "3100";
-  // The internal runtime API URL agents use to call back into Paperclip.
-  // An explicitly configured PAPERCLIP_RUNTIME_API_URL has highest precedence.
+  // The INTERNAL runtime API URL: the origin an agent process dials to call
+  // back into Paperclip. Server boot writes PAPERCLIP_RUNTIME_API_URL to the
+  // operator's pinned origin when one is set, else to the same value as
+  // PAPERCLIP_API_URL, so the two are equal unless an operator deliberately
+  // decoupled them. PAPERCLIP_API_URL is the second source because
+  // sanitizeInheritedPaperclipEnv() keeps PAPERCLIP_RUNTIME_API_URL and strips
+  // PAPERCLIP_API_URL from an inherited environment.
   const runtimeApiUrl =
-    process.env.PAPERCLIP_RUNTIME_API_URL?.trim() ||
+    process.env.PAPERCLIP_RUNTIME_API_URL ??
+    process.env.PAPERCLIP_API_URL ??
     `http://${runtimeHost}:${runtimePort}`;
-  // The public API / dashboard URL. If unset, it falls back to the internal runtime URL.
-  // A public dashboard URL must never overwrite the internal callback URL.
-  const apiUrl =
-    process.env.PAPERCLIP_API_URL?.trim() ||
-    runtimeApiUrl;
+  // An explicit PAPERCLIP_API_URL override must win over the URL derived from
+  // authPublicBaseUrl: the derived URL can be unreachable from inside the
+  // runtime container (e.g. when the public base URL is VPN/tailnet-only).
+  // Expanded, this is the upstream chain unchanged:
+  // PAPERCLIP_API_URL ?? PAPERCLIP_RUNTIME_API_URL ?? derived.
+  const apiUrl = process.env.PAPERCLIP_API_URL ?? runtimeApiUrl;
   vars.PAPERCLIP_API_URL = apiUrl;
   vars.PAPERCLIP_RUNTIME_API_URL = runtimeApiUrl;
   return vars;

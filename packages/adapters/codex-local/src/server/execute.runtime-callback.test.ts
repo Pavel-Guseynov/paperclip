@@ -149,20 +149,38 @@ describe("codex execute — internal runtime callback endpoint", () => {
     expect(env.PAPERCLIP_API_URL).toBe(PUBLIC_DASHBOARD_ORIGIN);
   });
 
-  it("derives the runtime origin from the listen host and port when no override is configured", async () => {
-    // No PAPERCLIP_RUNTIME_API_URL and no PAPERCLIP_API_URL: the callback origin
-    // comes from the port the server actually bound, so a non-default port still
-    // yields a reachable callback instead of a hard-coded 3100.
-    if (!("PAPERCLIP_RUNTIME_API_URL" in savedEnv)) savedEnv.PAPERCLIP_RUNTIME_API_URL = process.env.PAPERCLIP_RUNTIME_API_URL;
-    if (!("PAPERCLIP_API_URL" in savedEnv)) savedEnv.PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL;
-    delete process.env.PAPERCLIP_RUNTIME_API_URL;
-    delete process.env.PAPERCLIP_API_URL;
+  it("keeps a PAPERCLIP_API_URL override when nothing is pinned, instead of a derived loopback origin", async () => {
+    // The environment startServer() leaves behind when an operator overrides
+    // PAPERCLIP_API_URL and pins nothing: both variables hold that override. The
+    // managed MCP block and the child env must carry it, not a guessed loopback.
+    setEnv("PAPERCLIP_RUNTIME_API_URL", "http://10.0.0.5:3100");
+    setEnv("PAPERCLIP_API_URL", "http://10.0.0.5:3100");
     setEnv("PAPERCLIP_LISTEN_HOST", "127.0.0.1");
     setEnv("PAPERCLIP_LISTEN_PORT", "3177");
 
     const { configToml, env } = await runCli();
 
-    expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:3177");
-    expect(configToml).toContain('url = "http://127.0.0.1:3177/mcp/gateways/gw-1"');
+    expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+    expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    expect(configToml).toContain('url = "http://10.0.0.5:3100/mcp/gateways/gw-1"');
+    expect(configToml).not.toContain("127.0.0.1:3177");
+  });
+
+  it("resolves both origins from PAPERCLIP_RUNTIME_API_URL alone in a sanitized inherited environment", async () => {
+    // sanitizeInheritedPaperclipEnv() keeps PAPERCLIP_RUNTIME_API_URL (and the
+    // listen host/port) and strips PAPERCLIP_API_URL, so a re-executed child can
+    // see the internal origin alone. It must still resolve both variables to
+    // that origin rather than falling back to the listen host and port.
+    if (!("PAPERCLIP_API_URL" in savedEnv)) savedEnv.PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL;
+    delete process.env.PAPERCLIP_API_URL;
+    setEnv("PAPERCLIP_RUNTIME_API_URL", "http://10.0.0.5:3100");
+    setEnv("PAPERCLIP_LISTEN_HOST", "127.0.0.1");
+    setEnv("PAPERCLIP_LISTEN_PORT", "3177");
+
+    const { configToml, env } = await runCli();
+
+    expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+    expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    expect(configToml).toContain('url = "http://10.0.0.5:3100/mcp/gateways/gw-1"');
   });
 });

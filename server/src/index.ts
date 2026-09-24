@@ -942,11 +942,17 @@ async function startServerWithDatabaseTeardown(
   const configuredApiUrl = process.env.PAPERCLIP_API_URL?.trim() || runtimeApiUrl;
   // A pre-set PAPERCLIP_RUNTIME_API_URL is the operator's deliberate internal
   // callback origin (e.g. loopback while the dashboard is served through a
-  // public tunnel). It wins as the primary runtime env var and leads the
-  // candidate list, so an agent that iterates the candidates tries it before
-  // the public hostname — but the public API URL stays in the list, so nothing
-  // that worked without the pin stops working. When unset, the candidates lead
-  // with the configured API URL exactly as before.
+  // public tunnel). It wins as the runtime env var and leads the candidate
+  // list, so an agent that iterates the candidates tries it before the public
+  // hostname — but the public API URL stays in the list, so nothing that worked
+  // without the pin stops working.
+  //
+  // Without a pin the runtime URL is `configuredApiUrl`, NOT the URL derived
+  // from authPublicBaseUrl. `runtimeApiUrl` prefers the public base URL, which
+  // can be VPN/tailnet-only and unreachable from a runtime container, and an
+  // explicit PAPERCLIP_API_URL override exists precisely to replace it. Every
+  // consumer of PAPERCLIP_RUNTIME_API_URL therefore sees the same origin it
+  // resolved before this variable existed unless an operator pinned one.
   const pinnedRuntimeApiUrl = process.env.PAPERCLIP_RUNTIME_API_URL?.trim() ?? "";
   const runtimeApiCandidates = buildRuntimeApiCandidateUrls({
     pinnedRuntimeApiUrl: pinnedRuntimeApiUrl || null,
@@ -958,7 +964,7 @@ async function startServerWithDatabaseTeardown(
   });
   process.env.PAPERCLIP_LISTEN_HOST = runtimeListenHost;
   process.env.PAPERCLIP_LISTEN_PORT = String(listenPort);
-  process.env.PAPERCLIP_RUNTIME_API_URL = pinnedRuntimeApiUrl || runtimeApiUrl;
+  process.env.PAPERCLIP_RUNTIME_API_URL = pinnedRuntimeApiUrl || configuredApiUrl;
   process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON = JSON.stringify(runtimeApiCandidates);
   process.env.PAPERCLIP_API_URL = configuredApiUrl;
 

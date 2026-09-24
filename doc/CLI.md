@@ -335,9 +335,11 @@ Company-scoped commands also support `--company-id <id>`.
 API base resolution order:
 
 1. `--api-base <url>`
-2. `PAPERCLIP_RUNTIME_API_URL` (the internal callback origin Paperclip exports to
-   agent processes; it is reachable from the process's own network namespace,
-   while `PAPERCLIP_API_URL` may be a public dashboard origin that is not)
+2. `PAPERCLIP_RUNTIME_API_URL` — the internal callback origin Paperclip exports
+   to agent processes. It equals `PAPERCLIP_API_URL` unless an operator pins it
+   to a different origin (for example loopback while the dashboard is served
+   through a public tunnel), and it is also the variable that survives into a
+   sanitized child environment.
 3. `PAPERCLIP_API_URL`
 4. selected context profile `apiBase`
 5. local Paperclip config server port

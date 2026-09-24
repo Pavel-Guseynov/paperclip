@@ -847,6 +847,26 @@ describe("startServer PAPERCLIP_API_URL handling", () => {
     expect(process.env.PAPERCLIP_API_URL).toBe("http://custom-api:3100");
   });
 
+  it("keeps a PAPERCLIP_API_URL override as the runtime URL when a public base URL is configured and nothing is pinned", async () => {
+    // authPublicBaseUrl is the browser-facing origin and can be VPN/tailnet-only.
+    // An operator sets PAPERCLIP_API_URL precisely to replace it for processes
+    // that cannot reach it. Without an explicit PAPERCLIP_RUNTIME_API_URL pin,
+    // the internal callback URL every agent consumer reads must stay that
+    // override — substituting the public origin would break the default path.
+    loadConfigMock.mockReturnValue(buildTestConfig({ authPublicBaseUrl: "https://pc.tailnet.test" }));
+    process.env.PAPERCLIP_API_URL = "http://10.0.0.5:3100";
+
+    await startServer();
+
+    expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+    expect(process.env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    // The public origin is still offered as a later candidate, never as the
+    // primary internal callback URL.
+    const candidates = JSON.parse(process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON ?? "[]") as string[];
+    expect(candidates[0]).toBe("http://10.0.0.5:3100");
+    expect(candidates).toContain("https://pc.tailnet.test");
+  });
+
   it("falls back to host-based URL when PAPERCLIP_API_URL is not set", async () => {
     const started = await startServer();
 
