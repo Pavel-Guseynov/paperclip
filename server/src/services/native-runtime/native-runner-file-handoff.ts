@@ -239,13 +239,33 @@ async function assertNoSymlinkComponents(
   }
 }
 
+/**
+ * Decode the `\xNN` byte runs `lsof -F0n` prints for the bytes it will not
+ * emit literally, leaving every other character — including printable Unicode,
+ * which `lsof` never escapes — exactly as reported.
+ *
+ * Only this one escape form is recognised. `lsof`'s caret notation for control
+ * characters is left untouched, and a filename that literally contains the
+ * four characters `\x41` is indistinguishable from the escape for `A`, so both
+ * yield a path that no longer names an existing file and the delivery is
+ * rejected rather than resolved to something else.
+ *
+ * A run whose bytes are not valid UTF-8 would decode to U+FFFD and then fail
+ * as a bare `realpath` ENOENT, so it fails closed here with the descriptor
+ * error instead. Exported only for that branch: APFS refuses a filename that
+ * is not valid UTF-8 with EILSEQ, so no real file can drive it.
+ */
 export function decodeLsofPath(raw: string): string {
-  return raw.replace(/(?:\\x[0-9a-fA-F]{2})+/g, (match) => {
-    const bytes: number[] = [];
-    for (let i = 0; i < match.length; i += 4) {
-      bytes.push(parseInt(match.slice(i + 2, i + 4), 16));
+  return raw.replace(/(?:\\x[0-9a-fA-F]{2})+/gu, (run) => {
+    const bytes = Buffer.alloc(run.length / 4);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Number.parseInt(run.slice(index * 4 + 2, index * 4 + 4), 16);
     }
-    return Buffer.from(bytes).toString("utf8");
+    const decoded = bytes.toString("utf8");
+    if (!Buffer.from(decoded, "utf8").equals(bytes)) {
+      throw new Error("paperclip_runner_file_handoff_descriptor_unverifiable");
+    }
+    return decoded;
   });
 }
 
