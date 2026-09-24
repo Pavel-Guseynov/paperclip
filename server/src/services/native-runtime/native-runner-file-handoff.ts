@@ -240,26 +240,30 @@ async function assertNoSymlinkComponents(
 }
 
 /**
- * Decode the `\xNN` byte runs `lsof -F0n` prints for the bytes it will not
- * emit literally, leaving every other character — including printable Unicode,
- * which `lsof` never escapes — exactly as reported.
+ * Undo the escaping `lsof -F0n` applies to a name field under the C locale
+ * pinned above: each byte it will not print becomes `\xNN`, and a literal
+ * backslash in the name is doubled to `\\`. Both forms are decoded in one
+ * left-to-right pass, so `lit\\x41name.txt` yields back `lit\x41name.txt`
+ * rather than `lit\Aname.txt`, and everything else is returned verbatim.
  *
- * Only this one escape form is recognised. `lsof`'s caret notation for control
- * characters is left untouched, and a filename that literally contains the
- * four characters `\x41` is indistinguishable from the escape for `A`, so both
- * yield a path that no longer names an existing file and the delivery is
- * rejected rather than resolved to something else.
+ * Those two are the only escapes a path reaching this check can carry: `lsof`
+ * also renders control characters as C escapes such as `\t`, but
+ * `requiredText` already rejects control characters in both the workspace root
+ * and the content reference this path is built from. Should one appear anyway,
+ * it is left alone and the resulting path fails the checks below rather than
+ * resolving to a different file.
  *
- * A run whose bytes are not valid UTF-8 would decode to U+FFFD and then fail
- * as a bare `realpath` ENOENT, so it fails closed here with the descriptor
- * error instead. Exported only for that branch: APFS refuses a filename that
- * is not valid UTF-8 with EILSEQ, so no real file can drive it.
+ * A byte run that is not valid UTF-8 would decode to U+FFFD and then fail as a
+ * bare `realpath` ENOENT, so it fails closed here with the descriptor error
+ * instead. Exported only for that branch: APFS refuses a filename that is not
+ * valid UTF-8 with EILSEQ, so no real file can drive it.
  */
 export function decodeLsofPath(raw: string): string {
-  return raw.replace(/(?:\\x[0-9a-fA-F]{2})+/gu, (run) => {
-    const bytes = Buffer.alloc(run.length / 4);
+  return raw.replace(/\\\\|(?:\\x[0-9a-fA-F]{2})+/gu, (token) => {
+    if (token === "\\\\") return "\\";
+    const bytes = Buffer.alloc(token.length / 4);
     for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] = Number.parseInt(run.slice(index * 4 + 2, index * 4 + 4), 16);
+      bytes[index] = Number.parseInt(token.slice(index * 4 + 2, index * 4 + 4), 16);
     }
     const decoded = bytes.toString("utf8");
     if (!Buffer.from(decoded, "utf8").equals(bytes)) {
@@ -275,7 +279,17 @@ async function openedFilePath(fd: number): Promise<string> {
       execFile(
         "/usr/sbin/lsof",
         ["-a", "-p", String(process.pid), "-d", String(fd), "-F0n"],
-        { encoding: "buffer", maxBuffer: 16_384, timeout: 1_000 },
+        {
+          encoding: "buffer",
+          maxBuffer: 16_384,
+          timeout: 1_000,
+          // How `lsof` renders a name field depends on its locale: under a
+          // UTF-8 locale it prints multi-byte characters verbatim, and
+          // otherwise it escapes each byte. Pin the C locale so the field has
+          // one format on every host instead of inheriting the server's, and
+          // so `decodeLsofPath` below is always the path under test.
+          env: { LC_ALL: "C" },
+        },
         (error, stdout) => {
           if (error) reject(error);
           else resolve(Buffer.from(stdout));

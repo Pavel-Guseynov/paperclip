@@ -1252,43 +1252,64 @@ describe("native runner file handoff", () => {
   // so this cannot produce failing-before evidence on Linux CI.
   const onDarwin = process.platform === "darwin" ? it : it.skip;
 
-  onDarwin("registers deliverables whose names lsof reports escaped, literal, and mixed", async () => {
-    const names = [
+  onDarwin("registers deliverables whatever escaping lsof applies to their names", async () => {
+    // `lsof` renders a name field according to its locale: under a UTF-8
+    // locale it prints multi-byte characters verbatim, and otherwise it
+    // escapes each byte. A UTF-8 locale is stubbed here precisely because the
+    // handoff pins `LC_ALL=C` on its own call — that pinning is what keeps the
+    // escaped form, and therefore the decoder, on the path under test no
+    // matter what locale the server process runs in.
+    vi.stubEnv("LANG", "en_US.UTF-8");
+    const cases = [
       // Every byte of the Chinese characters comes back as a `\xNN` run.
-      "猫 picture.txt",
+      { onDisk: "猫 picture.txt", attachment: "猫 picture.txt" },
       // Escaped runs interleaved with literal ASCII on both sides.
-      "résumé report.txt",
+      { onDisk: "résumé report.txt", attachment: "résumé report.txt" },
       // Nothing to escape: the field is reported verbatim.
-      "plain report.txt",
+      { onDisk: "plain report.txt", attachment: "plain report.txt" },
+      // `lsof` doubles a literal backslash, so this field reads
+      // `lit\\x41name.txt`; reading that as the escape for `A` would name a
+      // different file. The attachment name drops the backslash because the
+      // handoff rejects one there.
+      { onDisk: "lit\\x41name.txt", attachment: "lit-x41-name.txt" },
     ];
     await mkdir(path.join(workspaceRoot, "unicode"), { recursive: true });
-    for (const [index, name] of names.entries()) {
-      const body = Buffer.from(`unicode deliverable ${index}\n`, "utf8");
-      await writeFile(path.join(workspaceRoot, "unicode", name), body);
-      const result = (await authority().execute({
-        tool: "register_deliverable",
-        callId: `call-unicode-${index}`,
-        arguments: {
-          idempotencyKey: `unicode-deliverable-${index}`,
-          filename: name,
-          contentType: "text/plain",
-          byteSize: body.length,
-          sha256: createHash("sha256").update(body).digest("hex"),
-          contentRef: `unicode/${name}`,
-          title: `Unicode deliverable ${index}`,
-        },
-      })) as { disposition: string; entityRefs: string[] };
-      expect(result.disposition).toBe("applied");
-      const [attachment] = await db
-        .select()
-        .from(issueAttachments)
-        .where(eq(issueAttachments.id, result.entityRefs[0]!));
-      await expect(
-        db.select().from(assets).where(eq(assets.id, attachment!.assetId)),
-      ).resolves.toEqual([
-        expect.objectContaining({ originalFilename: name, byteSize: body.length }),
-      ]);
+    try {
+      for (const [index, { onDisk, attachment: attachmentName }] of cases.entries()) {
+        const body = Buffer.from(`unicode deliverable ${index}\n`, "utf8");
+        await writeFile(path.join(workspaceRoot, "unicode", onDisk), body);
+        const result = (await authority().execute({
+          tool: "register_deliverable",
+          callId: `call-unicode-${index}`,
+          arguments: {
+            idempotencyKey: `unicode-deliverable-${index}`,
+            filename: attachmentName,
+            contentType: "text/plain",
+            byteSize: body.length,
+            sha256: createHash("sha256").update(body).digest("hex"),
+            contentRef: `unicode/${onDisk}`,
+            title: `Unicode deliverable ${index}`,
+          },
+        })) as { disposition: string; entityRefs: string[] };
+        expect(result.disposition).toBe("applied");
+        const [attachment] = await db
+          .select()
+          .from(issueAttachments)
+          .where(eq(issueAttachments.id, result.entityRefs[0]!));
+        await expect(
+          db.select().from(assets).where(eq(assets.id, attachment!.assetId)),
+        ).resolves.toEqual([
+          expect.objectContaining({ originalFilename: attachmentName, byteSize: body.length }),
+        ]);
+      }
+    } finally {
+      vi.unstubAllEnvs();
     }
+  });
+
+  it("decodes a doubled backslash back to the one the filename carries", () => {
+    expect(decodeLsofPath("/workspace/out/lit\\\\x41name.txt"))
+      .toBe("/workspace/out/lit\\x41name.txt");
   });
 
   it("decodes an lsof escape run that carries valid UTF-8", () => {
