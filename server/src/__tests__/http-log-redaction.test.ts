@@ -799,6 +799,33 @@ describe("HTTP logger redaction", () => {
     expect(log.res.headers["x-paperclip-bridge-outcome"]).toBe("accepted");
   });
 
+  it("redacts unlisted credential-shaped headers on both sides of a request", async () => {
+    const chunks: string[] = [];
+    const app = express();
+    app.use(createHttpLogger(productionLogger(chunks)));
+    app.get("/api/tool-gateway/session", (_req, res) => {
+      res.setHeader("x-acme-connector-secret", `response-${CAPABILITY_SENTINEL}`);
+      res.setHeader("x-paperclip-bridge-outcome", "accepted");
+      res.status(200).json({ ok: true });
+    });
+
+    await request(app)
+      .get("/api/tool-gateway/session")
+      .set("X-Acme-Connector-Secret", `request-${CAPABILITY_SENTINEL}`)
+      .set("X-Paperclip-Run-Id", RUN_ID)
+      .expect(200);
+
+    const output = chunks.join("");
+    expect(output).not.toContain(`request-${CAPABILITY_SENTINEL}`);
+    expect(output).not.toContain(`response-${CAPABILITY_SENTINEL}`);
+
+    const [log] = logRecords(chunks);
+    expect(log.req.headers["x-acme-connector-secret"]).toBe("[Redacted]");
+    expect(log.res.headers["x-acme-connector-secret"]).toBe("[Redacted]");
+    expect(log.req.headers["x-paperclip-run-id"]).toBe(RUN_ID);
+    expect(log.res.headers["x-paperclip-bridge-outcome"]).toBe("accepted");
+  });
+
   it("redacts a rejected session token from the 401 log and the error response", async () => {
     const chunks: string[] = [];
     const app = express();
@@ -988,6 +1015,8 @@ describe("HTTP logger redaction", () => {
     expect(errorRecord.err.message).toBe("connection failed for [REDACTED]");
   });
 
+  // Guard: this also holds on upstream master. It fails on any redactor that
+  // walks every log record by key name or caps its depth.
   it("leaves non-credential log fields, deep structures, and numeric values intact", () => {
     const chunks: string[] = [];
     const log = productionLogger(chunks);
@@ -1012,6 +1041,8 @@ describe("HTTP logger redaction", () => {
     });
   });
 
+  // Guard: the URL policy already holds on upstream master; this pins it for
+  // gateway credentials carried as query parameters.
   it("strips credential query parameters from the request URL and message", async () => {
     const chunks: string[] = [];
     const app = express();

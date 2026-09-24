@@ -52,17 +52,8 @@ function attachErrorContext(
   payload: ErrorContext["error"],
   rawError?: Error,
 ) {
-  // The log path renders this message and stack verbatim, so strip credential
-  // text here. Structural redaction stays in `customProps`, which walks the
-  // context once, at the log boundary.
   (res as any).__errorContext = {
-    error: {
-      ...payload,
-      message: sanitizeCredentialText(payload.message),
-      ...(typeof payload.stack === "string"
-        ? { stack: sanitizeCredentialText(payload.stack) }
-        : {}),
-    },
+    error: payload,
     method: req.method,
     url: req.originalUrl,
     reqBody: req.body,
