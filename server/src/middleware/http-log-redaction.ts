@@ -1,3 +1,5 @@
+import { IncomingMessage, ServerResponse } from "node:http";
+
 export const HTTP_LOG_REDACT_PATHS = [
   "req.headers.authorization",
   'req.headers["proxy-authorization"]',
@@ -46,6 +48,25 @@ export const HTTP_LOG_REDACT_PATHS = [
   "reqBody.credentials",
   "errorContext.details.credentials",
 ] as const;
+
+/** Returns true if the object is an HTTP IncomingMessage, ServerResponse, or request/response mock. */
+export function isHttpObject(val: unknown): boolean {
+  if (!val || typeof val !== "object") return false;
+  if (val instanceof IncomingMessage || val instanceof ServerResponse) {
+    return true;
+  }
+  const v = val as any;
+  if (typeof v.setHeader === "function" && typeof v.end === "function") {
+    return true;
+  }
+  if (
+    typeof v.pipe === "function" &&
+    (v.headers || v.socket || v._readableState)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 const SAFE_DIAGNOSTIC_HEADER_NAMES = new Set([
   "x-paperclip-run-id",

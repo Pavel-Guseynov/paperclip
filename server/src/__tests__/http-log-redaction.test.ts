@@ -4,7 +4,7 @@ import express from "express";
 import pino from "pino";
 import { pinoHttp } from "pino-http";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HttpError } from "../errors.js";
 import {
   HTTP_LOG_REDACT_PATHS,
@@ -1144,5 +1144,208 @@ describe("HTTP logger redaction", () => {
     expect(sanitizeCredentialText(credentialMessage)).toBe(
       "Failed with Authorization: Bearer [REDACTED]",
     );
+  });
+
+  it("preserves pino-http req/res serialization and redacts all credentials in exported production httpLogger", async () => {
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+
+    try {
+      const { httpLogger: prodHttpLogger, logger: prodLogger } = await import(
+        "../middleware/logger.js"
+      );
+
+      const chunks: string[] = [];
+      const stream = (prodLogger as any)[(pino as any).symbols.streamSym];
+      const origWrite = stream.write.bind(stream);
+      stream.write = (str: string) => {
+        chunks.push(str);
+        return true;
+      };
+
+      try {
+        const app = express();
+        app.use(express.json());
+        app.use(prodHttpLogger);
+
+        app.post("/api/production-test/:id", (req, res) => {
+          const child = req.log.child(
+            {
+              service: "child-worker",
+              gatewayToken: "pcgw_sentinel_child_token_1122",
+              authorization: "Bearer sentinel_child_bearer_3344",
+            },
+            {
+              serializers: {
+                customField: (val: any) => `transformed:${val.raw}`,
+              },
+            },
+          );
+
+          child.info(
+            {
+              customField: { raw: "custom-data" },
+              password: "sentinel_child_password_5566",
+            },
+            "child processing request with token pcgw_sentinel_child_info_8899",
+          );
+
+          (res as any).__errorContext = {
+            error: new Error(
+              "production endpoint failed with Authorization: Bearer sentinel_err_bearer_99",
+            ),
+            reqBody: req.body,
+            reqParams: req.params,
+          };
+          res.status(500).json({ error: "endpoint failure" });
+        });
+
+        const canarySecrets = [
+          "sentinel_bearer_req_1234",
+          "sentinel_api_key_req_5678",
+          "pcgw_sentinel_gw_req_9012",
+          "sentinel_url_query_secret_3456",
+          "sentinel_body_password_7890",
+          "sentinel_body_secret_key_2345",
+          "pcgw_sentinel_child_token_1122",
+          "sentinel_child_bearer_3344",
+          "sentinel_child_password_5566",
+          "pcgw_sentinel_child_info_8899",
+          "sentinel_err_bearer_99",
+        ];
+
+        const response = await request(app)
+          .post("/api/production-test/item-42?token=sentinel_url_query_secret_3456#frag-secret")
+          .set("Authorization", "Bearer sentinel_bearer_req_1234")
+          .set("X-Api-Key", "sentinel_api_key_req_5678")
+          .set("X-Paperclip-Tool-Gateway-Token", "pcgw_sentinel_gw_req_9012")
+          .send({
+            password: "sentinel_body_password_7890",
+            secret: "sentinel_body_secret_key_2345",
+            safeText: "ordinary-payload",
+          });
+
+        expect(response.status).toBe(500);
+
+        expect(chunks.length).toBe(2);
+
+        const childLog = JSON.parse(chunks[0]!.trim());
+        const errorLog = JSON.parse(chunks[1]!.trim());
+
+        // 1. Structured req and res projections on errorLog
+        expect(errorLog.req).toBeDefined();
+        expect(errorLog.req.method).toBe("POST");
+        expect(errorLog.req.url).toBe("/api/production-test/item-42");
+        expect(errorLog.req.headers).toMatchObject({
+          authorization: "[Redacted]",
+          "x-api-key": "[Redacted]",
+          "x-paperclip-tool-gateway-token": "[Redacted]",
+        });
+        expect(errorLog.res).toBeDefined();
+        expect(errorLog.res.statusCode).toBe(500);
+        expect(errorLog.responseTime).toEqual(expect.any(Number));
+        expect(errorLog.reqParams).toEqual({ id: "item-42" });
+        expect(errorLog.reqBody).toMatchObject({
+          password: "[REDACTED]",
+          secret: "[REDACTED]",
+          safeText: "ordinary-payload",
+        });
+
+        // 2. Child logger preserves req projection, redacts child credentials, and applies custom serializers
+        expect(childLog.req).toBeDefined();
+        expect(childLog.req.method).toBe("POST");
+        expect(childLog.service).toBe("child-worker");
+        expect(childLog.gatewayToken).toBe("[Redacted]");
+        expect(childLog.authorization).toBe("[REDACTED]");
+        expect(childLog.customField).toBe("transformed:custom-data");
+
+        // 3. No credentials in any serialized log line
+        const combinedOutput = chunks.join("\n");
+        for (const canary of canarySecrets) {
+          expect(combinedOutput).not.toContain(canary);
+        }
+
+        // 4. No raw IncomingMessage, ServerResponse, socket, or header arrays serialized
+        expect(combinedOutput).not.toContain("rawHeaders");
+        expect(combinedOutput).not.toContain("_readableState");
+        expect(combinedOutput).not.toContain("_writableState");
+        expect((errorLog.res as any).socket).toBeUndefined();
+        expect((errorLog.res as any).req).toBeUndefined();
+        expect((errorLog.req as any).socket).toBeUndefined();
+        expect((errorLog.req as any).client).toBeUndefined();
+        expect((childLog.req as any).socket).toBeUndefined();
+      } finally {
+        stream.write = origWrite;
+      }
+    } finally {
+      process.env.NODE_ENV = prevNodeEnv;
+    }
+  });
+
+  it("preserves custom Pino serializers and options in wrapped child loggers", () => {
+    const chunks: string[] = [];
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(chunk.toString());
+        callback();
+      },
+    });
+
+    const rootLogger = wrapLoggerWithRedaction(
+      pino(
+        {
+          redact: [...HTTP_LOG_REDACT_PATHS],
+          serializers: {
+            rootField: (v: any) => `root:${v}`,
+          },
+        },
+        stream,
+      ),
+    );
+
+    const child1 = rootLogger.child(
+      {
+        service: "tier1",
+        gatewayToken: "gw_secret_1",
+      },
+      {
+        serializers: {
+          tier1Field: (v: any) => `tier1:${v}`,
+        },
+      },
+    );
+
+    const child2 = child1.child(
+      {
+        worker: "tier2",
+        gatewayToken: "gw_secret_2",
+      },
+      {
+        serializers: {
+          tier2Field: (v: any) => `tier2:${v}`,
+        },
+      },
+    );
+
+    child2.info(
+      {
+        rootField: "hello",
+        tier1Field: "world",
+        tier2Field: "foo",
+      },
+      "multi-generation child message",
+    );
+
+    const output = chunks.join("");
+    expect(output).not.toContain("gw_secret_1");
+    expect(output).not.toContain("gw_secret_2");
+
+    const record = JSON.parse(output.trim());
+    expect(record.service).toBe("tier1");
+    expect(record.worker).toBe("tier2");
+    expect(record.rootField).toBe("root:hello");
+    expect(record.tier1Field).toBe("tier1:world");
+    expect(record.tier2Field).toBe("tier2:foo");
   });
 });

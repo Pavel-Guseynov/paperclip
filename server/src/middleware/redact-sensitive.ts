@@ -13,6 +13,7 @@
 
 import {
   isCredentialBearingHeader,
+  isHttpObject,
   sanitizeCredentialText,
 } from "./http-log-redaction.js";
 
@@ -159,12 +160,17 @@ export function redactSensitive(value: unknown, depth = 0): unknown {
     return sanitizeCredentialText(value);
   }
   if (typeof value !== "object") return value;
+  if (isHttpObject(value)) return value;
   if (Array.isArray(value)) {
     if (depth + 1 > MAX_DEPTH) return undefined;
     return value.map((entry) => redactSensitive(entry, depth + 1));
   }
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "req" || key === "res" || isHttpObject(entry)) {
+      out[key] = entry;
+      continue;
+    }
     if (isSensitiveKey(key)) {
       out[key] = REDACTED;
       continue;
