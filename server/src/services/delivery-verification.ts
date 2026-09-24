@@ -186,6 +186,38 @@ function sha(value: unknown): string | null {
 }
 
 /**
+ * The exact reviewed head this issue records, read from its own `commit` work product.
+ *
+ * This is the revision identity a review is keyed on. It is server-held state: a caller
+ * cannot name it, and an abbreviated or absent SHA resolves to null rather than to a
+ * guess.
+ */
+export async function resolveReviewedHeadSha(
+  db: Db,
+  issue: Pick<DeliveryTargetIssue, "id" | "companyId">,
+): Promise<string | null> {
+  const rows = await db
+    .select({
+      externalId: issueWorkProducts.externalId,
+      metadata: issueWorkProducts.metadata,
+    })
+    .from(issueWorkProducts)
+    .where(
+      and(
+        eq(issueWorkProducts.companyId, issue.companyId),
+        eq(issueWorkProducts.issueId, issue.id),
+        eq(issueWorkProducts.type, "commit"),
+        eq(issueWorkProducts.provider, "github"),
+      ),
+    )
+    .orderBy(desc(issueWorkProducts.isPrimary), desc(issueWorkProducts.updatedAt))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return sha(row.externalId) ?? sha((row.metadata as Record<string, unknown> | null)?.sha);
+}
+
+/**
  * Resolve the verification target from server-held state only.
  *
  * Nothing on this path reads the request body. The repository and the base branch come

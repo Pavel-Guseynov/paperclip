@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import {
-  agents,
   companies,
   createDb,
-  heartbeatRuns,
   issueThreadInteractions,
+  issueWorkProducts,
   issues,
+  projectWorkspaces,
+  projects,
   reviewAdmissions,
-  statusDecisions,
 } from "@paperclipai/db";
+import { reviewAdmissionSchema } from "@paperclipai/shared";
 import {
   startEmbeddedPostgresTestDatabase,
   getEmbeddedPostgresTestSupport,
@@ -18,17 +19,13 @@ import {
 import {
   computeReviewPolicyDigest,
   createReviewAdmissionService,
-  ReviewAdmissionService,
-} from "../services/review-admission.js";
-import {
-  DeliveryVerificationService,
-  type DeliveryProviderClient,
-} from "../services/delivery-verification.js";
+} from "../services/review-admission.ts";
+
+const HEAD_SHA = "1111111111111111111111111111111111111111";
+const NEXT_SHA = "4444444444444444444444444444444444444444";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
-const describeEmbeddedPostgres = embeddedPostgresSupport.supported
-  ? describe
-  : describe.skip;
+const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
 if (!embeddedPostgresSupport.supported) {
   console.warn(
@@ -37,588 +34,448 @@ if (!embeddedPostgresSupport.supported) {
 }
 
 describe("computeReviewPolicyDigest", () => {
-  it("computes deterministic SHA-256 digest regardless of object key order", () => {
-    const d1 = computeReviewPolicyDigest({
-      policy: "anyone",
-      acceptance: { b: 2, a: 1 },
-      instructions: "test",
+  it("is independent of key order in the acceptance contract", () => {
+    const first = computeReviewPolicyDigest({
+      acceptanceContract: { b: 2, a: 1 },
+      reviewPolicy: "anyone",
     });
-    const d2 = computeReviewPolicyDigest({
-      instructions: "test",
-      acceptance: { a: 1, b: 2 },
-      policy: "anyone",
+    const second = computeReviewPolicyDigest({
+      acceptanceContract: { a: 1, b: 2 },
+      reviewPolicy: "anyone",
     });
-    expect(d1).toBe(d2);
-    expect(d1).toMatch(/^[0-9a-f]{64}$/);
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("yields different digests for different acceptance criteria or review policies", () => {
-    const d1 = computeReviewPolicyDigest({ policy: "anyone", instructions: "foo" });
-    const d2 = computeReviewPolicyDigest({ policy: "human_only", instructions: "foo" });
-    const d3 = computeReviewPolicyDigest({ policy: "anyone", instructions: "bar" });
-    expect(d1).not.toBe(d2);
-    expect(d1).not.toBe(d3);
+  it("changes when the review policy changes", () => {
+    expect(computeReviewPolicyDigest({ reviewPolicy: "anyone" })).not.toBe(
+      computeReviewPolicyDigest({ reviewPolicy: "human_only" }),
+    );
+  });
+
+  it("changes when the acceptance contract changes", () => {
+    expect(computeReviewPolicyDigest({ acceptanceContract: { objective: "a" } })).not.toBe(
+      computeReviewPolicyDigest({ acceptanceContract: { objective: "b" } }),
+    );
+  });
+
+  it("changes when the execution policy changes", () => {
+    expect(computeReviewPolicyDigest({ executionPolicy: { stages: [] } })).not.toBe(
+      computeReviewPolicyDigest({ executionPolicy: { stages: [{ type: "review" }] } }),
+    );
+  });
+});
+
+describe("review admission contract", () => {
+  it("declares exactly the decision values the database stores", () => {
+    expect(reviewAdmissionSchema.shape.decision.safeParse("approved").success).toBe(true);
+    expect(reviewAdmissionSchema.shape.decision.safeParse("changes_requested").success).toBe(true);
+    expect(reviewAdmissionSchema.shape.decision.safeParse("withdrawn").success).toBe(true);
+    expect(reviewAdmissionSchema.shape.decision.safeParse("accept").success).toBe(false);
+    expect(reviewAdmissionSchema.shape.decision.safeParse("reject").success).toBe(false);
+  });
+
+  it("requires a full 40-character source sha", () => {
+    expect(reviewAdmissionSchema.shape.sourceSha.safeParse(HEAD_SHA).success).toBe(true);
+    expect(reviewAdmissionSchema.shape.sourceSha.safeParse("1111111").success).toBe(false);
   });
 });
 
 describeEmbeddedPostgres("ReviewAdmissionService", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
-  let companyId: string;
-  let agentId: string;
-  let mockClient: DeliveryProviderClient;
 
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-review-admission-");
     db = createDb(tempDb.connectionString);
-  }, 30_000);
+  }, 60_000);
 
   afterAll(async () => {
     await tempDb?.cleanup();
   });
 
-  beforeEach(async () => {
-    companyId = randomUUID();
-    agentId = randomUUID();
-
-    await db.insert(companies).values({
-      id: companyId,
-      name: "Acme Corp",
-      issuePrefix: "ACM",
-      requireBoardApprovalForNewAgents: false,
-    });
-
-    await db.insert(agents).values({
-      id: agentId,
-      companyId,
-      name: "ReviewerAgent",
-      role: "qa_engineer",
-      status: "active",
-      adapterType: "claude_local",
-      adapterConfig: {},
-    });
-
-    mockClient = {
-      provider: "github",
-      getPullRequest: async () => ({
-        provider: "github",
-        owner: "acme",
-        repo: "test-repo",
-        pullNumber: 42,
-        state: "open",
-        headSha: "1111222233334444555566667777888899990000",
-        baseRef: "main",
-        merged: false,
-        mergeCommitSha: null,
-      }),
-      getChecks: async () => ({
-        total: 2,
-        passed: 2,
-        failed: 0,
-        pending: 0,
-        status: "passed",
-      }),
-      isReachableInBase: async () => true,
-      getPullRequestFiles: async () => [
-        {
-          filename: "src/index.ts",
-          status: "modified",
-          additions: 10,
-          deletions: 2,
-          patch: "@@ -1 +1 @@",
-        },
-      ],
-    };
-  });
-
   afterEach(async () => {
     await db.delete(reviewAdmissions);
     await db.delete(issueThreadInteractions);
-    await db.delete(statusDecisions);
-    await db.delete(heartbeatRuns);
+    await db.delete(issueWorkProducts);
     await db.delete(issues);
-    await db.delete(agents);
+    await db.delete(projectWorkspaces);
+    await db.delete(projects);
     await db.delete(companies);
   });
 
-  it("admits review for an operation task without requiring PR or deliverables", async () => {
+  async function seedIssue(
+    options: { reviewedHeadSha?: string | null; pullUrl?: string | null; companyId?: string } = {},
+  ) {
+    const companyId = options.companyId ?? randomUUID();
+    const projectId = randomUUID();
     const issueId = randomUUID();
+    if (!options.companyId) {
+      await db.insert(companies).values({
+        id: companyId,
+        name: "Acme",
+        issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+        requireBoardApprovalForNewAgents: false,
+      });
+    }
+    await db.insert(projects).values({ id: projectId, companyId, name: "Widgets" });
+    await db.insert(projectWorkspaces).values({
+      id: randomUUID(),
+      companyId,
+      projectId,
+      name: "primary",
+      repoUrl: "https://github.com/acme/widgets.git",
+      defaultRef: "main",
+      isPrimary: true,
+    });
     await db.insert(issues).values({
       id: issueId,
       companyId,
-      title: "Operation Task",
-      status: "in_progress",
-      originKind: "operation",
-    });
-
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    const sourceSha = "1111222233334444555566667777888899990000";
-    const result = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha,
+      projectId,
+      title: "Ship the widget",
+      description: "The widget must ship.",
+      status: "in_review",
+      priority: "medium",
       reviewPolicy: "anyone",
     });
-
-    expect(result.status).toBe("admitted");
-    expect(result.created).toBe(true);
-    expect(result.admission.status).toBe("in_review");
-    expect(result.admission.sourceSha).toBe(sourceSha);
-    expect(result.admission.reviewInteractionId).toBeTruthy();
-
-    const [persisted] = await db
-      .select()
-      .from(reviewAdmissions)
-      .where(eq(reviewAdmissions.id, result.admission.id));
-    expect(persisted).toBeTruthy();
-    expect(persisted.status).toBe("in_review");
-  });
-
-  it("denies admission when preflight fails: terminal issue", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Closed Task",
-      status: "done",
-    });
-
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    await expect(
-      service.admitReview({
+    const reviewedHeadSha =
+      options.reviewedHeadSha === undefined ? HEAD_SHA : options.reviewedHeadSha;
+    if (reviewedHeadSha) {
+      await db.insert(issueWorkProducts).values({
+        id: randomUUID(),
         companyId,
+        projectId,
         issueId,
-        sourceSha: "1111222233334444555566667777888899990000",
-        evidence: { pr: 42, repo: "acme/test-repo" },
-        workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-      }),
-    ).rejects.toThrow("Cannot admit review for an issue that is already terminal");
-
-    // Zero uncommitted rows
-    const rows = await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, issueId));
-    expect(rows).toHaveLength(0);
-  });
-
-  it("denies admission when preflight fails: head movement / SHA mismatch", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Code Task",
-      status: "in_progress",
-    });
-
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    // Source SHA does not match mockClient's PR head
-    await expect(
-      service.admitReview({
-        companyId,
-        issueId,
-        sourceSha: "9999999999999999999999999999999999999999",
-        evidence: { pr: 42, repo: "acme/test-repo" },
-        workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-      }),
-    ).rejects.toThrow("Head SHA mismatch");
-
-    // Zero rows in DB
-    const rows = await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, issueId));
-    expect(rows).toHaveLength(0);
-  });
-
-  it("denies admission when preflight fails: code task missing deliverables", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Code Task",
-      status: "in_progress",
-    });
-
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    await expect(
-      service.admitReview({
-        companyId,
-        issueId,
-        sourceSha: "1111222233334444555566667777888899990000",
-        evidence: { pr: 42, repo: "acme/test-repo" },
-        workProducts: [], // empty work products
-      }),
-    ).rejects.toThrow("A code task requires recorded work products");
-
-    const rows = await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, issueId));
-    expect(rows).toHaveLength(0);
-  });
-
-  it("denies admission when preflight fails: checks failing on PR", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Code Task",
-      status: "in_progress",
-    });
-
-    const failingClient: DeliveryProviderClient = {
-      ...mockClient,
-      getChecks: async () => ({
-        total: 3,
-        passed: 1,
-        failed: 2,
-        pending: 0,
-        status: "failed",
-      }),
-    };
-
-    const deliveryVerification = new DeliveryVerificationService({ client: failingClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    await expect(
-      service.admitReview({
-        companyId,
-        issueId,
-        sourceSha: "1111222233334444555566667777888899990000",
-        evidence: { pr: 42, repo: "acme/test-repo" },
-        workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-      }),
-    ).rejects.toThrow("Checks failing on commit");
-
-    const rows = await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, issueId));
-    expect(rows).toHaveLength(0);
-  });
-
-  it("deduplicates repeated requests for same revision and policy", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Task with Repeated Review",
-      status: "in_progress",
-    });
-
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    const sourceSha = "1111222233334444555566667777888899990000";
-    const input = {
-      companyId,
-      issueId,
-      sourceSha,
-      reviewPolicy: "anyone",
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-    };
-
-    // First request admits
-    const first = await service.admitReview(input);
-    expect(first.status).toBe("admitted");
-    expect(first.created).toBe(true);
-
-    // Second request returns existing active review
-    const second = await service.admitReview(input);
-    expect(second.status).toBe("active");
-    expect(second.deduplicated).toBe(true);
-    expect(second.admission.id).toBe(first.admission.id);
-
-    // Only one row exists in DB
-    const all = await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, issueId));
-    expect(all).toHaveLength(1);
-
-    // Only one interaction exists
-    const interactions = await db
-      .select()
-      .from(issueThreadInteractions)
-      .where(eq(issueThreadInteractions.issueId, issueId));
-    expect(interactions).toHaveLength(1);
-  });
-
-  it("supersedes prior admission when a new sourceSha is provided", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Task with multiple heads",
-      status: "in_progress",
-    });
-
-    const sha1 = "1111222233334444555566667777888899990000";
-    const sha2 = "2222333344445555666677778888999900001111";
-
-    let currentHead = sha1;
-    const dynamicClient: DeliveryProviderClient = {
-      ...mockClient,
-      getPullRequest: async () => ({
+        type: "commit",
         provider: "github",
-        owner: "acme",
-        repo: "test-repo",
-        pullNumber: 42,
-        state: "open",
-        headSha: currentHead,
-        baseRef: "main",
-        merged: false,
-        mergeCommitSha: null,
-      }),
-    };
+        externalId: reviewedHeadSha,
+        title: "reviewed head",
+        status: "active",
+      });
+    }
+    const pullUrl =
+      options.pullUrl === undefined ? "https://github.com/acme/widgets/pull/42" : options.pullUrl;
+    if (pullUrl) {
+      await db.insert(issueWorkProducts).values({
+        id: randomUUID(),
+        companyId,
+        projectId,
+        issueId,
+        type: "pull_request",
+        provider: "github",
+        title: "PR #42",
+        url: pullUrl,
+        status: "open",
+        isPrimary: true,
+      });
+    }
+    const [issue] = await db.select().from(issues).where(eq(issues.id, issueId));
+    return { companyId, projectId, issueId, issue: issue! };
+  }
 
-    const deliveryVerification = new DeliveryVerificationService({ client: dynamicClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    // First admission
-    const first = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: sha1,
-      reviewPolicy: "anyone",
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
+  const admit = (
+    issue: typeof issues.$inferSelect,
+    overrides: { reviewInteractionId?: string | null } = {},
+  ) =>
+    createReviewAdmissionService(db).admitReview({
+      companyId: issue.companyId,
+      issue,
+      reviewInteractionId: overrides.reviewInteractionId ?? null,
+      decisionId: null,
+      resolverPolicy: "anyone",
     });
-    expect(first.status).toBe("admitted");
 
-    // Second admission with new SHA
-    currentHead = sha2;
-    const second = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: sha2,
+  it("records one admission keyed by the issue's own reviewed head", async () => {
+    const { issue } = await seedIssue();
+
+    const result = await admit(issue);
+
+    expect(result.admitted).toBe(true);
+    if (!result.admitted) throw new Error("unreachable");
+    expect(result.created).toBe(true);
+    expect(result.admission).toMatchObject({
+      companyId: issue.companyId,
+      issueId: issue.id,
+      sourceSha: HEAD_SHA,
+      status: "in_review",
       reviewPolicy: "anyone",
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
     });
-    expect(second.status).toBe("admitted");
-    expect(second.admission.id).not.toBe(first.admission.id);
+    expect(result.admission.policyDigest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("records the server-bound pull request identity, with no outbound request", async () => {
+    const { issue } = await seedIssue();
+
+    const result = await admit(issue);
+
+    if (!result.admitted) throw new Error("unreachable");
+    expect(result.admission.prDetails).toEqual({
+      provider: "github",
+      repository: "acme/widgets",
+      pullNumber: 42,
+      baseRef: "main",
+      reviewedHeadSha: HEAD_SHA,
+    });
+  });
+
+  it("records no pull request identity when the issue records no pull request", async () => {
+    const { issue } = await seedIssue({ pullUrl: null });
+
+    const result = await admit(issue);
+
+    if (!result.admitted) throw new Error("unreachable");
+    expect(result.admission.prDetails).toBeNull();
+  });
+
+  it("records nothing when the issue has no revision identity", async () => {
+    const { issue } = await seedIssue({ reviewedHeadSha: null });
+
+    const result = await admit(issue);
+
+    expect(result).toEqual({ admitted: false, reason: "no_revision_identity" });
+    expect(await db.select().from(reviewAdmissions)).toEqual([]);
+  });
+
+  it("returns the existing admission when the same revision and contract admit again", async () => {
+    const { issue } = await seedIssue();
+
+    const first = await admit(issue);
+    const second = await admit(issue);
+
+    if (!first.admitted || !second.admitted) throw new Error("unreachable");
+    expect(second.created).toBe(false);
+    expect(second.admission.id).toBe(first.admission.id);
+    expect(await db.select().from(reviewAdmissions)).toHaveLength(1);
+  });
+
+  it("admits a new linked review when the head moves", async () => {
+    const { issue, companyId, issueId, projectId } = await seedIssue();
+    const first = await admit(issue);
+    if (!first.admitted) throw new Error("unreachable");
+
+    await db.delete(issueWorkProducts).where(
+      and(eq(issueWorkProducts.issueId, issueId), eq(issueWorkProducts.type, "commit")),
+    );
+    await db.insert(issueWorkProducts).values({
+      id: randomUUID(),
+      companyId,
+      projectId,
+      issueId,
+      type: "commit",
+      provider: "github",
+      externalId: NEXT_SHA,
+      title: "reviewed head",
+      status: "active",
+    });
+
+    const second = await admit(issue);
+
+    if (!second.admitted) throw new Error("unreachable");
+    expect(second.created).toBe(true);
+    expect(second.admission.sourceSha).toBe(NEXT_SHA);
     expect(second.admission.supersedesAdmissionId).toBe(first.admission.id);
-
-    // Verify first admission is now superseded
-    const [persistedFirst] = await db
+    const [superseded] = await db
       .select()
       .from(reviewAdmissions)
       .where(eq(reviewAdmissions.id, first.admission.id));
-    expect(persistedFirst.status).toBe("superseded");
-    expect(persistedFirst.updatedAt).toBeTruthy();
-
-    // Verify first interaction is cancelled with superseded reason
-    const [firstInteraction] = await db
-      .select()
-      .from(issueThreadInteractions)
-      .where(eq(issueThreadInteractions.id, first.admission.reviewInteractionId!));
-    expect(firstInteraction.status).toBe("cancelled");
+    expect(superseded!.status).toBe("superseded");
   });
 
-  it("supersedes prior admission when acceptance contract or policy digest changes", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Task with changing policy",
-      status: "in_progress",
-    });
+  it("admits a new linked review when the acceptance contract changes materially", async () => {
+    const { issue, issueId } = await seedIssue();
+    const first = await admit(issue);
+    if (!first.admitted) throw new Error("unreachable");
 
-    const sha = "1111222233334444555566667777888899990000";
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
+    await db
+      .update(issues)
+      .set({ description: "The widget must ship behind a flag." })
+      .where(eq(issues.id, issueId));
+    const [changed] = await db.select().from(issues).where(eq(issues.id, issueId));
 
-    const first = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: sha,
-      reviewPolicy: "anyone",
-      acceptanceContract: { requirement: "initial requirement" },
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-    });
-    expect(first.status).toBe("admitted");
+    const second = await admit(changed!);
 
-    // Same SHA, but altered criteria
-    const second = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: sha,
-      reviewPolicy: "anyone",
-      acceptanceContract: { requirement: "updated requirement with more strict tests" },
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-    });
-
-    expect(second.status).toBe("admitted");
+    if (!second.admitted) throw new Error("unreachable");
+    expect(second.created).toBe(true);
+    expect(second.admission.sourceSha).toBe(HEAD_SHA);
     expect(second.admission.policyDigest).not.toBe(first.admission.policyDigest);
     expect(second.admission.supersedesAdmissionId).toBe(first.admission.id);
+  });
 
-    const [persistedFirst] = await db
+  it("admits once under concurrent requests for the same revision", async () => {
+    const { issue } = await seedIssue();
+
+    const results = await Promise.all([admit(issue), admit(issue), admit(issue)]);
+
+    const admissionIds = new Set(
+      results.map((result) => {
+        if (!result.admitted) throw new Error("unreachable");
+        return result.admission.id;
+      }),
+    );
+    expect(admissionIds.size).toBe(1);
+    expect(await db.select().from(reviewAdmissions)).toHaveLength(1);
+  });
+
+  it("lets the database refuse a second row for the same revision and contract", async () => {
+    const { issue } = await seedIssue();
+    const first = await admit(issue);
+    if (!first.admitted) throw new Error("unreachable");
+
+    await expect(
+      db.insert(reviewAdmissions).values({
+        companyId: issue.companyId,
+        issueId: issue.id,
+        sourceSha: first.admission.sourceSha,
+        policyDigest: first.admission.policyDigest,
+        status: "in_review",
+        acceptanceContract: {},
+        reviewPolicy: "anyone",
+      }),
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        constraint_name: "review_admissions_issue_revision_digest_uq",
+      }),
+    });
+  });
+
+  it("keeps two companies' admissions of the same revision apart", async () => {
+    const first = await seedIssue();
+    const second = await seedIssue();
+
+    const firstResult = await admit(first.issue);
+    const secondResult = await admit(second.issue);
+
+    if (!firstResult.admitted || !secondResult.admitted) throw new Error("unreachable");
+    expect(firstResult.admission.id).not.toBe(secondResult.admission.id);
+    expect(firstResult.admission.sourceSha).toBe(secondResult.admission.sourceSha);
+    expect(await db.select().from(reviewAdmissions)).toHaveLength(2);
+  });
+
+  it("refuses to read another company's admission by id", async () => {
+    const owner = await seedIssue();
+    const other = await seedIssue();
+    const admitted = await admit(owner.issue);
+    if (!admitted.admitted) throw new Error("unreachable");
+
+    await expect(
+      createReviewAdmissionService(db).recordReviewDecision({
+        companyId: other.companyId,
+        admissionId: admitted.admission.id,
+        decision: "approved",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const [untouched] = await db
       .select()
       .from(reviewAdmissions)
-      .where(eq(reviewAdmissions.id, first.admission.id));
-    expect(persistedFirst.status).toBe("superseded");
+      .where(eq(reviewAdmissions.id, admitted.admission.id));
+    expect(untouched!.status).toBe("in_review");
+    expect(untouched!.decision).toBeNull();
   });
 
-  it("enforces decision immutability and rejects contradictory decisions", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Immutable Task",
-      status: "in_progress",
-    });
-
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    const admitted = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: "1111222233334444555566667777888899990000",
-      reviewPolicy: "anyone",
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-    });
-
-    // Submit review: approved
-    const decisionResult = await service.recordReviewDecision({
-      companyId,
-      admissionId: admitted.admission.id,
-      decision: "approved",
-      decisionReason: "LGTM! All acceptance criteria met.",
-      actorId: agentId,
-      actorType: "agent",
-    });
-
-    expect(decisionResult.decision).toBe("approved");
-    expect(decisionResult.admission.status).toBe("completed");
-
-    // Linked interaction is resolved
-    const [interaction] = await db
-      .select()
-      .from(issueThreadInteractions)
-      .where(eq(issueThreadInteractions.id, admitted.admission.reviewInteractionId!));
-    expect(interaction.status).toBe("accepted");
-
-    // Subsequent admitReview returns completed immutable result
-    const repeatAdmit = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: "1111222233334444555566667777888899990000",
-      reviewPolicy: "anyone",
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
-    });
-    expect(repeatAdmit.status).toBe("completed");
-    expect(repeatAdmit.immutable).toBe(true);
-    expect(repeatAdmit.decision).toBe("approved");
-
-    // Contradictory decision attempt is rejected with 409
-    await expect(
-      service.recordReviewDecision({
-        companyId,
-        admissionId: admitted.admission.id,
-        decision: "changes_requested",
-        decisionReason: "Actually never mind",
-        actorId: agentId,
-        actorType: "agent",
-      }),
-    ).rejects.toThrow("Review decision is immutable and cannot be changed once recorded");
-  });
-
-  it("recovers interrupted launches idempotently without duplicate admissions", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Interrupted Task",
-      status: "in_progress",
-    });
-
-    const sha = "1111222233334444555566667777888899990000";
-    const digest = computeReviewPolicyDigest({ policy: "anyone" });
-
-    // Simulate crash where row was left in "admitted" status 5 minutes ago
-    const staleAdmittedAt = new Date(Date.now() - 300_000);
-    const [admission] = await db
-      .insert(reviewAdmissions)
-      .values({
-        companyId,
-        issueId,
-        sourceSha: sha,
-        policyDigest: digest,
-        reviewPolicy: "anyone",
-        acceptanceContract: {},
-        status: "admitted",
-        reviewInteractionId: null,
-        createdAt: staleAdmittedAt,
-        updatedAt: staleAdmittedAt,
-      })
-      .returning();
-
+  it("records an approval as an immutable decision", async () => {
+    const { issue } = await seedIssue();
+    const admitted = await admit(issue);
+    if (!admitted.admitted) throw new Error("unreachable");
     const service = createReviewAdmissionService(db);
 
-    // Recover
-    const recovered = await service.recoverInterruptedLaunches({
-      companyId,
-      staleThresholdMs: 60_000,
+    const decided = await service.recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: admitted.admission.id,
+      decision: "approved",
+      reason: "Looks right",
     });
 
-    expect(recovered).toHaveLength(1);
-    expect(recovered[0].id).toBe(admission.id);
-    expect(recovered[0].status).toBe("in_review");
-    expect(recovered[0].reviewInteractionId).toBeTruthy();
-
-    // Verify interaction was created
-    const [interaction] = await db
-      .select()
-      .from(issueThreadInteractions)
-      .where(eq(issueThreadInteractions.id, recovered[0].reviewInteractionId!));
-    expect(interaction).toBeTruthy();
-    expect(interaction.status).toBe("pending");
-
-    // Second recovery is a no-op
-    const recoveredSecond = await service.recoverInterruptedLaunches({
-      companyId,
-      staleThresholdMs: 60_000,
+    expect(decided.admission).toMatchObject({
+      status: "completed",
+      decision: "approved",
+      decisionReason: "Looks right",
     });
-    expect(recoveredSecond).toHaveLength(0);
+    expect(decided.admission.decidedAt).toBeInstanceOf(Date);
   });
 
-  it("produces compact, bounded review context with truncated limits", async () => {
-    const issueId = randomUUID();
-    await db.insert(issues).values({
-      id: issueId,
-      companyId,
-      title: "Compact Context Test",
-      status: "in_progress",
-      description: "A".repeat(10_000), // oversized description
+  it("treats the same decision twice as the decision already recorded", async () => {
+    const { issue } = await seedIssue();
+    const admitted = await admit(issue);
+    if (!admitted.admitted) throw new Error("unreachable");
+    const service = createReviewAdmissionService(db);
+    await service.recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: admitted.admission.id,
+      decision: "approved",
     });
 
-    const deliveryVerification = new DeliveryVerificationService({ client: mockClient });
-    const service = createReviewAdmissionService(db, deliveryVerification);
-
-    const admitted = await service.admitReview({
-      companyId,
-      issueId,
-      sourceSha: "1111222233334444555566667777888899990000",
-      reviewPolicy: "anyone",
-      acceptanceContract: {
-        objective: "Objective " + "B".repeat(5_000),
-        criteria: Array.from({ length: 50 }, (_, i) => ({
-          id: `crit-${i}`,
-          requirement: `Requirement ${i}: ` + "C".repeat(200),
-        })),
-      },
-      instructions: "D".repeat(5_000),
-      evidence: { pr: 42, repo: "acme/test-repo" },
-      workProducts: [{ kind: "pr", location: "https://github.com/acme/test-repo/pull/42" }],
+    const again = await service.recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: admitted.admission.id,
+      decision: "approved",
     });
 
-    const context = await service.getCompactReviewContext(admitted.admission.id);
-    expect(context).toBeTruthy();
-    expect(context!.title).toBe("Compact Context Test");
-    expect(context!.pullRequest?.pullNumber).toBe(42);
-    expect(context!.pullRequest?.checksSummary?.status).toBe("passed");
-    expect(context!.acceptanceCriteria.criteria!.length).toBeLessThanOrEqual(20);
-    expect(context!.acceptanceCriteria.objective?.length).toBeLessThanOrEqual(503);
+    expect(again.deduplicated).toBe(true);
+  });
+
+  it("refuses to change a decision once recorded", async () => {
+    const { issue } = await seedIssue();
+    const admitted = await admit(issue);
+    if (!admitted.admitted) throw new Error("unreachable");
+    const service = createReviewAdmissionService(db);
+    await service.recordReviewDecision({
+      companyId: issue.companyId,
+      admissionId: admitted.admission.id,
+      decision: "approved",
+    });
+
+    await expect(
+      service.recordReviewDecision({
+        companyId: issue.companyId,
+        admissionId: admitted.admission.id,
+        decision: "changes_requested",
+        reason: "Actually no",
+      }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "review_already_decided" } });
+  });
+
+  it("requires changes_requested to say what to change", async () => {
+    const { issue } = await seedIssue();
+    const admitted = await admit(issue);
+    if (!admitted.admitted) throw new Error("unreachable");
+
+    await expect(
+      createReviewAdmissionService(db).recordReviewDecision({
+        companyId: issue.companyId,
+        admissionId: admitted.admission.id,
+        decision: "changes_requested",
+        reason: "   ",
+      }),
+    ).rejects.toMatchObject({ status: 422, details: { code: "rejection_reason_required" } });
+  });
+
+  it("finds an admission by its interaction only under its own company", async () => {
+    const owner = await seedIssue();
+    const other = await seedIssue();
+    const interactionId = randomUUID();
+    await db.insert(issueThreadInteractions).values({
+      id: interactionId,
+      companyId: owner.companyId,
+      issueId: owner.issueId,
+      kind: "request_confirmation",
+      payload: { version: 1, prompt: "Review it" } as never,
+    });
+    const admitted = await admit(owner.issue, { reviewInteractionId: interactionId });
+    if (!admitted.admitted) throw new Error("unreachable");
+
+    const service = createReviewAdmissionService(db);
+    expect(
+      await service.findAdmissionForInteraction({
+        companyId: owner.companyId,
+        reviewInteractionId: interactionId,
+      }),
+    ).toMatchObject({ id: admitted.admission.id });
+    expect(
+      await service.findAdmissionForInteraction({
+        companyId: other.companyId,
+        reviewInteractionId: interactionId,
+      }),
+    ).toBeNull();
   });
 });

@@ -12,25 +12,30 @@ import {
 } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
-import { heartbeatRuns } from "./heartbeat_runs.js";
 import { issueThreadInteractions } from "./issue_thread_interactions.js";
 import { statusDecisions } from "./status_decisions.js";
 
+/**
+ * One row per admitted review of one issue revision.
+ *
+ * `(company_id, issue_id, source_sha, policy_digest)` is unique: the same revision
+ * reviewed against the same normalized acceptance contract and review policy admits
+ * exactly once, whatever concurrency the callers apply. A new head or a materially
+ * changed contract inserts a new row that names the row it superseded.
+ */
 export const reviewAdmissions = pgTable(
   "review_admissions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id),
     issueId: uuid("issue_id").notNull(),
-    sourceSha: varchar("source_sha", { length: 64 }).notNull(),
+    sourceSha: varchar("source_sha", { length: 40 }).notNull(),
     policyDigest: varchar("policy_digest", { length: 64 }).notNull(),
-    status: varchar("status", { length: 32 }).notNull().default("admitted"),
+    status: varchar("status", { length: 32 }).notNull().default("in_review"),
     acceptanceContract: jsonb("acceptance_contract").$type<Record<string, unknown>>().notNull(),
     reviewPolicy: varchar("review_policy", { length: 64 }).notNull().default("anyone"),
     prDetails: jsonb("pr_details").$type<Record<string, unknown>>(),
-    preflightEvidence: jsonb("preflight_evidence").$type<Record<string, unknown>>(),
     supersedesAdmissionId: uuid("supersedes_admission_id"),
-    reviewerRunId: uuid("reviewer_run_id").references(() => heartbeatRuns.id, { onDelete: "set null" }),
     reviewInteractionId: uuid("review_interaction_id").references(() => issueThreadInteractions.id, { onDelete: "set null" }),
     decisionId: uuid("decision_id").references(() => statusDecisions.id, { onDelete: "set null" }),
     decision: varchar("decision", { length: 32 }),
@@ -50,6 +55,8 @@ export const reviewAdmissions = pgTable(
       foreignColumns: [issues.companyId, issues.id],
       name: "review_admissions_issue_company_fk",
     }).onDelete("cascade"),
+    // A superseded admission must belong to the same company and issue, so the chain
+    // cannot cross a company boundary even if an id leaks.
     supersedesOwnerFk: foreignKey({
       columns: [table.companyId, table.issueId, table.supersedesAdmissionId],
       foreignColumns: [table.companyId, table.issueId, table.id],
@@ -60,6 +67,10 @@ export const reviewAdmissions = pgTable(
       table.issueId,
       table.sourceSha,
       table.policyDigest,
+    ),
+    companyInteractionIdx: index("review_admissions_company_interaction_idx").on(
+      table.companyId,
+      table.reviewInteractionId,
     ),
     companyIssueIdx: index("review_admissions_company_issue_idx").on(
       table.companyId,

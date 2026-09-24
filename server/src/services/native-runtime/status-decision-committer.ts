@@ -40,6 +40,7 @@ import {
 } from "./chat-attachment-reuse.js";
 import { issueService } from "../issues.js";
 import { issueThreadInteractionService } from "../issue-thread-interactions.js";
+import { createReviewAdmissionService } from "../review-admission.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { buildIssueBlockersResolvedWakeIdempotencyKey } from "../issue-dependency-wakeups.js";
 import {
@@ -611,6 +612,21 @@ async function materializeDecisionEffect(input: {
       input.issue,
       reviewInput,
       { systemId: "native-status-committer", runId: input.runId },
+    );
+    // Record the admission for this review in the same transaction that launches it.
+    // The card, its admission and its next actor commit together, so there is no window
+    // in which a review exists without its revision identity. An issue with no recorded
+    // reviewed head has no revision identity; the review still launches exactly as
+    // before and nothing is recorded.
+    await createReviewAdmissionService(input.tx as unknown as Db).admitReview(
+      {
+        companyId: input.companyId,
+        issue: input.issue,
+        reviewInteractionId: interaction.id,
+        decisionId: input.decisionId,
+        resolverPolicy: interaction.effectiveResolverPolicy,
+      },
+      input.tx as unknown as Db,
     );
     // The card and its next actor commit together. The post-commit dispatcher
     // revalidates this exact review before granting a scoped reviewer run.

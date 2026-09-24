@@ -18,6 +18,7 @@ import {
   issues,
   nativeRunFinalizations,
   nativeRunResults,
+  reviewAdmissions,
   statusDecisionEffects,
   statusDecisions,
   workAssessments,
@@ -2061,6 +2062,107 @@ describe("P6-31 Section 18.13 executable status-authority corpus", () => {
     await db.update(heartbeatRuns).set({ status: "succeeded", finishedAt: new Date() }).where(eq(heartbeatRuns.id, seeded.runId));
     return seeded;
   }
+
+  const REVIEWED_HEAD_SHA = "1111111111111111111111111111111111111111";
+
+  async function seedReviewBinding(options: { reviewedHeadSha?: string | null } = {}) {
+    const template = corpus.fixtures.find((candidate) => candidate.mode === "native")!;
+    const seeded = await seedFixture({
+      ...template,
+      id: `review-admission-${randomUUID()}`,
+      given: { ...template.given, priorIssueStatus: "in_progress", completionState: "policy_review_cleanup" },
+    });
+    if (options.reviewedHeadSha) {
+      await db.insert(issueWorkProducts).values({
+        companyId,
+        issueId: seeded.issueId,
+        type: "commit",
+        provider: "github",
+        externalId: options.reviewedHeadSha,
+        title: "reviewed head",
+        status: "active",
+      });
+    }
+    const committed = await commitNativeStatusDecision({
+      db, companyId, issueId: seeded.issueId, runId: seeded.runId,
+      assessmentId: seeded.assessmentId, priorStatus: "in_progress", priorStatusVersion: 0, priorDecisionId: null,
+      decision: {
+        policyVersion: NATIVE_STATUS_ARBITER_POLICY_VERSION,
+        statusAction: "in_review", toStatus: "in_review",
+        reasonCode: "completion_review_required", unblockDescriptor: null,
+        effects: [{ kind: "bind_reviewer", prompt: "Review the release before publishing.", ownerUserId: null }],
+      },
+    });
+    const [interaction] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.issueId, seeded.issueId));
+    return { seeded, committed, interaction: interaction! };
+  }
+
+  it("records a review admission in the same transaction that binds a reviewer", async () => {
+    const { seeded, committed, interaction } = await seedReviewBinding({
+      reviewedHeadSha: REVIEWED_HEAD_SHA,
+    });
+
+    const admissions = await db.select().from(reviewAdmissions)
+      .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    expect(admissions).toHaveLength(1);
+    expect(admissions[0]).toMatchObject({
+      companyId,
+      issueId: seeded.issueId,
+      sourceSha: REVIEWED_HEAD_SHA,
+      status: "in_review",
+      reviewInteractionId: interaction.id,
+      decisionId: committed.decision.id,
+    });
+  }, 30_000);
+
+  it("binds a reviewer unchanged when the issue records no reviewed head", async () => {
+    const { seeded, interaction } = await seedReviewBinding();
+
+    expect(interaction).toMatchObject({ kind: "request_confirmation", status: "pending" });
+    expect(
+      await db.select().from(reviewAdmissions).where(eq(reviewAdmissions.issueId, seeded.issueId)),
+    ).toEqual([]);
+  }, 30_000);
+
+  it("completes the review admission when the reviewer approves the bound review", async () => {
+    const { seeded, interaction } = await seedReviewBinding({ reviewedHeadSha: REVIEWED_HEAD_SHA });
+    await db.insert(workspaceOperations).values({
+      companyId, heartbeatRunId: seeded.runId, issueId: seeded.issueId,
+      phase: "workspace_finalize", status: "succeeded", exitCode: 0, cwd: process.cwd(), finishedAt: new Date(),
+    });
+
+    await issueThreadInteractionService(db).acceptInteraction(
+      { id: seeded.issueId, companyId, projectId: null, goalId: null, status: "in_review" },
+      interaction.id,
+      {},
+      { userId: "board-user" },
+    );
+
+    const [admission] = await db.select().from(reviewAdmissions)
+      .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    expect(admission).toMatchObject({ status: "completed", decision: "approved" });
+    expect(admission!.decidedAt).toBeInstanceOf(Date);
+  }, 30_000);
+
+  it("records changes_requested with the reviewer's reason when the review is rejected", async () => {
+    const { seeded, interaction } = await seedReviewBinding({ reviewedHeadSha: REVIEWED_HEAD_SHA });
+
+    await issueThreadInteractionService(db).rejectInteraction(
+      { id: seeded.issueId, companyId, status: "in_review" },
+      interaction.id,
+      { reason: "Run the external verification and report only that result." },
+      { userId: "board-user" },
+    );
+
+    const [admission] = await db.select().from(reviewAdmissions)
+      .where(eq(reviewAdmissions.issueId, seeded.issueId));
+    expect(admission).toMatchObject({
+      status: "completed",
+      decision: "changes_requested",
+      decisionReason: "Run the external verification and report only that result.",
+    });
+  }, 30_000);
 
   it("retires a proven automatic review and applies the current successful completion exactly once", async () => {
     const seeded = await seedAutomaticReview();

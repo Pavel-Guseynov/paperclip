@@ -26,7 +26,6 @@ import {
   issueQuestionResponseDeliveries,
   issueThreadInteractions,
   issues,
-  reviewAdmissions,
   toolActionRequests,
   toolOauthStates,
 } from "@paperclipai/db";
@@ -106,6 +105,7 @@ import {
   runWorkspaceIsFinalized,
 } from "./issues.js";
 import { questionResponseDeliveryValues } from "./question-response-delivery.js";
+import { createReviewAdmissionService } from "./review-admission.js";
 import {
   cancelPendingIssueInteractionChatPublications,
   enqueueIssueInteractionChatPublications,
@@ -357,23 +357,40 @@ function isNativeCompletionReview(
   return target.type === "custom" && target.key === "native_completion_review";
 }
 
-function isRevisionKeyedReview(
-  row: Pick<IssueThreadInteractionRow, "kind" | "payload">,
+type TxLike = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * Complete the review admission this interaction belongs to, if it has one.
+ *
+ * Most completion reviews have no admission — an issue with no recorded reviewed head
+ * has no revision identity to key one on — so the absence of a row is the normal case
+ * and never an error.
+ */
+async function recordAdmissionDecisionForInteraction(
+  tx: TxLike,
+  input: {
+    companyId: string;
+    reviewInteractionId: string;
+    decision: "approved" | "changes_requested";
+    reason: string | null;
+  },
 ) {
-  if (row.kind !== "request_confirmation") return false;
-  const payload =
-    row.payload &&
-    typeof row.payload === "object" &&
-    !Array.isArray(row.payload)
-      ? (row.payload as unknown as Record<string, unknown>)
-      : {};
-  const target =
-    payload.target &&
-    typeof payload.target === "object" &&
-    !Array.isArray(payload.target)
-      ? (payload.target as Record<string, unknown>)
-      : {};
-  return target.type === "custom" && target.key === "revision_keyed_review";
+  const db = tx as unknown as Db;
+  const service = createReviewAdmissionService(db);
+  const admission = await service.findAdmissionForInteraction(
+    { companyId: input.companyId, reviewInteractionId: input.reviewInteractionId },
+    db,
+  );
+  if (!admission || admission.status !== "in_review") return;
+  await service.recordReviewDecision(
+    {
+      companyId: input.companyId,
+      admissionId: admission.id,
+      decision: input.decision,
+      reason: input.reason,
+    },
+    db,
+  );
 }
 
 export const DEFAULT_RESOLVER_POLICY_BY_KIND: Record<
@@ -2236,27 +2253,17 @@ export function issueThreadInteractionService(
         acceptedPlanTarget?.issueId === issueContext.id &&
         acceptedPlanTarget.key === "plan" &&
         issueContext.workMode === "planning";
-      if (isRevisionKeyedReview(lockedCurrent)) {
-        const payload = lockedCurrent.payload as any;
-        const admissionId = payload?.target?.revisionId;
-        if (admissionId) {
-          await tx
-            .update(reviewAdmissions)
-            .set({
-              status: "completed",
-              decision: "approved",
-              decisionReason: (args.input as any)?.reason ?? null,
-              decidedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(reviewAdmissions.id, admissionId),
-                eq(reviewAdmissions.status, "in_review"),
-              ),
-            );
-        }
-      }
+      // The review admission, when this interaction has one, is completed through the
+      // service that owns its immutability and reject-reason rules — under this
+      // interaction's own company, never by an id read out of a payload.
+      await recordAdmissionDecisionForInteraction(tx, {
+        companyId: issueContext.companyId,
+        reviewInteractionId: lockedCurrent.id,
+        decision: "approved",
+        reason: typeof (args.input as { reason?: unknown } | undefined)?.reason === "string"
+          ? ((args.input as { reason?: string }).reason ?? null)
+          : null,
+      });
       if (isNativeCompletionReview(lockedCurrent)) {
         const otherPending = await tx.select({ id: issueThreadInteractions.id })
           .from(issueThreadInteractions).where(and(
@@ -2537,30 +2544,14 @@ export function issueThreadInteractionService(
         issueContext.status === "in_review" &&
         (lockedCurrent.continuationPolicy === "wake_assignee" ||
           rejectedPlanNeedsRevision);
-      if (isRevisionKeyedReview(lockedCurrent)) {
-        const payload = lockedCurrent.payload as any;
-        const admissionId = payload?.target?.revisionId;
-        if (admissionId) {
-          await tx
-            .update(reviewAdmissions)
-            .set({
-              status: "completed",
-              decision: "changes_requested",
-              decisionReason: reason || null,
-              decidedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(reviewAdmissions.id, admissionId),
-                eq(reviewAdmissions.status, "in_review"),
-              ),
-            );
-        }
-      }
+      await recordAdmissionDecisionForInteraction(tx, {
+        companyId: issueContext.companyId,
+        reviewInteractionId: lockedCurrent.id,
+        decision: "changes_requested",
+        reason: reason || null,
+      });
       if (
         isNativeCompletionReview(lockedCurrent) ||
-        isRevisionKeyedReview(lockedCurrent) ||
         shouldResumeReviewedIssue
       ) {
         await issueService(db).update(

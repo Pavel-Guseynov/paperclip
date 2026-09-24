@@ -1,5 +1,5 @@
 {
-  "id": "75babf02-3c24-4408-ab70-81db20f5c009",
+  "id": "520c2181-6b70-449a-a534-6dedea6ee6ee",
   "prevId": "082acb16-75ab-4edd-a0e4-c2c76130a363",
   "version": "7",
   "dialect": "postgresql",
@@ -37182,7 +37182,7 @@
         },
         "source_sha": {
           "name": "source_sha",
-          "type": "varchar(64)",
+          "type": "varchar(40)",
           "primaryKey": false,
           "notNull": true
         },
@@ -37197,7 +37197,7 @@
           "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'admitted'"
+          "default": "'in_review'"
         },
         "acceptance_contract": {
           "name": "acceptance_contract",
@@ -37218,20 +37218,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "preflight_evidence": {
-          "name": "preflight_evidence",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "supersedes_admission_id": {
           "name": "supersedes_admission_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reviewer_run_id": {
-          "name": "reviewer_run_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -37315,6 +37303,27 @@
           "method": "btree",
           "with": {}
         },
+        "review_admissions_company_interaction_idx": {
+          "name": "review_admissions_company_interaction_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "review_interaction_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "review_admissions_company_issue_idx": {
           "name": "review_admissions_company_issue_idx",
           "columns": [
@@ -37370,19 +37379,6 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "review_admissions_reviewer_run_id_heartbeat_runs_id_fk": {
-          "name": "review_admissions_reviewer_run_id_heartbeat_runs_id_fk",
-          "tableFrom": "review_admissions",
-          "tableTo": "heartbeat_runs",
-          "columnsFrom": [
-            "reviewer_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "review_admissions_review_interaction_id_issue_thread_interactions_id_fk": {

@@ -1133,7 +1133,42 @@ reconcile) carries no approver and therefore no claim. Under `evidenceRequired` 
 is refused with `delivery_evidence_missing` rather than exempted, so the recovery
 path cannot become the way around the gate.
 
-## 15. What This Does Not Mean
+## 15. Review Admissions
+
+When the native runtime binds a reviewer (`bind_reviewer`), Paperclip records a
+**review admission** in the same transaction that creates the review card. The
+card, its admission and its next actor commit together, so there is no state in
+which a review exists without its identity, or the reverse.
+
+An admission's identity is `(company, issue, source SHA, policy digest)` and the
+database enforces it as unique. Everything in it is server-held:
+
+| Field | Where the server reads it |
+| --- | --- |
+| `source_sha` | the issue's `commit` work product, as a full 40-character SHA |
+| `acceptance_contract` | the issue's own title and description |
+| `review_policy` | the issue's `review_policy`, else the interaction's effective resolver policy |
+| `policy_digest` | SHA-256 over the canonicalized acceptance contract, review policy and execution policy |
+| `pr_details` | the same repository binding delivery verification uses (§14); no outbound request is made |
+
+Consequences:
+
+- The same revision reviewed against the same contract admits once. A repeated
+  launch returns the existing admission rather than a second row, and a racing
+  insert is refused by `review_admissions_issue_revision_digest_uq`.
+- A new head, or a materially changed acceptance contract, review policy or
+  execution policy, admits a new review whose `supersedes_admission_id` names
+  the one it replaced; that prior admission becomes `superseded`.
+- An issue with no recorded reviewed head has no revision identity. Nothing is
+  recorded and the review launches exactly as it did before — admission records,
+  it does not gate.
+
+Resolving the review card records the decision through the admission service,
+under the card's own company: `approved` on accept, `changes_requested` on
+reject, and `changes_requested` must state the changes. A decision is immutable
+— the same decision again is a no-op, a different one is a 409.
+
+## 16. What This Does Not Mean
 
 These semantics do not change V1 into an auto-reassignment system.
 
@@ -1150,7 +1185,7 @@ The recovery model is intentionally conservative:
 - open a board-owned recovery action when the original-owner bound is exhausted or unsafe
 - escalate visibly when the system cannot safely keep going
 
-## 16. Practical Interpretation
+## 17. Practical Interpretation
 
 For a board operator, the intended meaning is:
 
