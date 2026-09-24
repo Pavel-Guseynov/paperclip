@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   companies,
@@ -22,9 +22,11 @@ import {
 } from "./helpers/embedded-postgres.js";
 import {
   DELIVERY_ERROR_CODES,
+  assertDeliveryTargetUnchanged,
   comparisonContainsHead,
   createDeliveryVerificationService,
   createGitHubDeliveryClient,
+  normalizeBaseRef,
   parseConfiguredGitHubRepo,
   parseGitHubPullRequestUrl,
 } from "../services/delivery-verification.ts";
@@ -116,6 +118,20 @@ describe("configured repository parsing", () => {
 
   it("refuses a pull url on another host", () => {
     expect(parseGitHubPullRequestUrl("https://attacker.example.com/acme/widgets/pull/42")).toBeNull();
+  });
+});
+
+describe("base ref normalization", () => {
+  it("reduces a refs/heads ref to its branch name", () => {
+    expect(normalizeBaseRef("refs/heads/main")).toBe("main");
+  });
+
+  it("reduces a remote-tracking ref to its branch name", () => {
+    expect(normalizeBaseRef("origin/main")).toBe("main");
+  });
+
+  it("leaves a plain branch name alone", () => {
+    expect(normalizeBaseRef("  release/2026-09  ")).toBe("release/2026-09");
   });
 });
 
@@ -258,14 +274,15 @@ describeEmbeddedPostgres("verifyTerminalDelivery", () => {
             head: { sha: HEAD_SHA },
             base: { ref: "main" },
           })),
-      [`https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/check-runs`]:
+      [`https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/check-runs?per_page=100&page=1`]:
         overrides.checkRuns ??
         (() =>
           jsonResponse({
+            total_count: 1,
             check_runs: [{ status: "completed", conclusion: "success", name: "build" }],
           })),
-      [`https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/status`]:
-        overrides.status ?? (() => jsonResponse({ statuses: [] })),
+      [`https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/status?per_page=100&page=1`]:
+        overrides.status ?? (() => jsonResponse({ total_count: 0, statuses: [] })),
       [`https://api.github.com/repos/acme/widgets/compare/main...${HEAD_SHA}`]:
         overrides.compare ??
         (() => jsonResponse({ status: "behind", ahead_by: 0, behind_by: 2 })),
@@ -422,12 +439,12 @@ describeEmbeddedPostgres("verifyTerminalDelivery", () => {
       },
       {
         method: "GET",
-        url: `https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/check-runs`,
+        url: `https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/check-runs?per_page=100&page=1`,
         authorization: "Bearer company-github-token",
       },
       {
         method: "GET",
-        url: `https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/status`,
+        url: `https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/status?per_page=100&page=1`,
         authorization: "Bearer company-github-token",
       },
       {
@@ -668,8 +685,8 @@ describeEmbeddedPostgres("verifyTerminalDelivery", () => {
     const { issue } = await seed();
     stubGitHub(
       githubRoutes({
-        checkRuns: () => jsonResponse({ check_runs: [] }),
-        status: () => jsonResponse({ statuses: [] }),
+        checkRuns: () => jsonResponse({ total_count: 0, check_runs: [] }),
+        status: () => jsonResponse({ total_count: 0, statuses: [] }),
       }),
     );
 
@@ -681,11 +698,112 @@ describeEmbeddedPostgres("verifyTerminalDelivery", () => {
     });
   });
 
+  it("reads every page of checks and fails on a failure the first page does not carry", async () => {
+    const { issue } = await seed();
+    const firstPage = Array.from({ length: 100 }, () => ({
+      status: "completed",
+      conclusion: "success",
+    }));
+    stubGitHub({
+      ...githubRoutes(),
+      [`https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/check-runs?per_page=100&page=1`]:
+        () => jsonResponse({ total_count: 101, check_runs: firstPage }),
+      [`https://api.github.com/repos/acme/widgets/commits/${HEAD_SHA}/check-runs?per_page=100&page=2`]:
+        () =>
+          jsonResponse({
+            total_count: 101,
+            check_runs: [{ status: "completed", conclusion: "failure" }],
+          }),
+    });
+
+    await expect(
+      service().verifyTerminalDelivery({ db, issue, evidence: { pr: 42, mergedSha: MERGE_SHA } }),
+    ).resolves.toMatchObject({ verified: false, errorCode: DELIVERY_ERROR_CODES.CHECKS_FAILING });
+  });
+
+  it("treats a read that ends short of the provider's count as unverifiable", async () => {
+    const { issue } = await seed();
+    stubGitHub(
+      githubRoutes({
+        checkRuns: () =>
+          jsonResponse({
+            total_count: 7,
+            check_runs: [{ status: "completed", conclusion: "success" }],
+          }),
+      }),
+    );
+
+    await expect(
+      service().verifyTerminalDelivery({ db, issue, evidence: { pr: 42, mergedSha: MERGE_SHA } }),
+    ).resolves.toMatchObject({
+      verified: false,
+      errorCode: DELIVERY_ERROR_CODES.CHECKS_UNVERIFIABLE,
+    });
+  });
+
+  it("accepts a configured base written as a refs/heads ref", async () => {
+    const { issue } = await seed({ baseRef: "refs/heads/main" });
+    stubGitHub(githubRoutes());
+
+    const result = await service().verifyTerminalDelivery({
+      db,
+      issue,
+      evidence: { pr: 42, mergedSha: MERGE_SHA },
+    });
+
+    expect(result).toMatchObject({ verified: true });
+    if (!result.verified) throw new Error("unreachable");
+    expect(result.receipt.baseBranch).toBe("main");
+  });
+
+  it("refuses the terminal write when the reviewed head changes after verification", async () => {
+    const { issue, companyId, projectId, issueId } = await seed();
+    stubGitHub(githubRoutes());
+    const result = await service().verifyTerminalDelivery({
+      db,
+      issue,
+      evidence: { pr: 42, mergedSha: MERGE_SHA },
+    });
+    if (!result.verified) throw new Error("unreachable");
+
+    await db.delete(issueWorkProducts).where(
+      and(eq(issueWorkProducts.issueId, issueId), eq(issueWorkProducts.type, "commit")),
+    );
+    await db.insert(issueWorkProducts).values({
+      id: randomUUID(),
+      companyId,
+      projectId,
+      issueId,
+      type: "commit",
+      provider: "github",
+      externalId: OTHER_SHA,
+      title: "reviewed head",
+      status: "active",
+    });
+
+    await expect(
+      assertDeliveryTargetUnchanged(db, issue, result.target),
+    ).rejects.toMatchObject({ details: { code: DELIVERY_ERROR_CODES.STALE } });
+  });
+
+  it("accepts an unchanged binding under the lock", async () => {
+    const { issue } = await seed();
+    stubGitHub(githubRoutes());
+    const result = await service().verifyTerminalDelivery({
+      db,
+      issue,
+      evidence: { pr: 42, mergedSha: MERGE_SHA },
+    });
+    if (!result.verified) throw new Error("unreachable");
+
+    await expect(assertDeliveryTargetUnchanged(db, issue, result.target)).resolves.toBeUndefined();
+  });
+
   it("rejects a pending check", async () => {
     const { issue } = await seed();
     stubGitHub(
       githubRoutes({
-        checkRuns: () => jsonResponse({ check_runs: [{ status: "in_progress" }] }),
+        checkRuns: () => jsonResponse({ total_count: 1, check_runs: [{ status: "in_progress" }] }),
       }),
     );
 
@@ -699,7 +817,7 @@ describeEmbeddedPostgres("verifyTerminalDelivery", () => {
     stubGitHub(
       githubRoutes({
         checkRuns: () =>
-          jsonResponse({ check_runs: [{ status: "completed", conclusion: "failure" }] }),
+          jsonResponse({ total_count: 1, check_runs: [{ status: "completed", conclusion: "failure" }] }),
       }),
     );
 

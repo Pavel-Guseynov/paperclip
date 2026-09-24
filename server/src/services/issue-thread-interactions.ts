@@ -105,6 +105,7 @@ import {
   runWorkspaceIsFinalized,
 } from "./issues.js";
 import { questionResponseDeliveryValues } from "./question-response-delivery.js";
+import { assertTerminalWriteCarriesEvidence } from "./issue-execution-policy.js";
 import { createReviewAdmissionService } from "./review-admission.js";
 import {
   cancelPendingIssueInteractionChatPublications,
@@ -501,6 +502,7 @@ type IssueResolutionContext = {
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
   reviewPolicy: IssueReviewPolicy | null;
+  executionPolicy: unknown;
   createdByAgentId: string | null;
   createdByUserId: string | null;
 };
@@ -2156,6 +2158,7 @@ export function issueThreadInteractionService(
           assigneeAgentId: issues.assigneeAgentId,
           assigneeUserId: issues.assigneeUserId,
           reviewPolicy: issues.reviewPolicy,
+          executionPolicy: issues.executionPolicy,
           createdByAgentId: issues.createdByAgentId,
           createdByUserId: issues.createdByUserId,
         })
@@ -2281,7 +2284,17 @@ export function issueThreadInteractionService(
           )).limit(1);
         // Each explicit reviewer must be able to answer independently. Completing
         // on the first answer would cancel the other pending decisions.
-        const completedIssue = otherPending.length > 0 || issueContext.status !== "in_review" ? null : await issueService(db).update(
+        const completesIssue = otherPending.length === 0 && issueContext.status === "in_review";
+        // This write closes the issue without going through the execution-policy
+        // transition, so the evidence gate is stated here too. An approving reviewer
+        // card carries no delivery claim, so on an evidence-gated issue it is refused
+        // rather than allowed to close the issue on an unverified approval.
+        if (completesIssue) {
+          assertTerminalWriteCarriesEvidence(issueContext.executionPolicy, {
+            path: "an approving native completion review card",
+          });
+        }
+        const completedIssue = !completesIssue ? null : await issueService(db).update(
           args.issue.id,
           {
             status: "done",
@@ -2440,6 +2453,7 @@ export function issueThreadInteractionService(
           assigneeAgentId: issues.assigneeAgentId,
           assigneeUserId: issues.assigneeUserId,
           reviewPolicy: issues.reviewPolicy,
+          executionPolicy: issues.executionPolicy,
           createdByAgentId: issues.createdByAgentId,
           createdByUserId: issues.createdByUserId,
         })

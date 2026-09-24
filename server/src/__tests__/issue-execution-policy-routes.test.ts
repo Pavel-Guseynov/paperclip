@@ -31,12 +31,18 @@ const mockAccessService = vi.hoisted(() => ({
   decide: vi.fn(),
   hasPermission: vi.fn(async () => false),
 }));
-const mockDeliveryRows = vi.hoisted(() => ({ value: [] as unknown[] }));
+// The delivery-target resolver reads three tables through `.orderBy(...)`. Keying the
+// stub by the drizzle table name lets one test hand each query its own rows.
+const mockDecisionInserts = vi.hoisted(() => [] as any[]);
+const mockCompanyGitHubToken = vi.hoisted(() => ({ value: "company-github-token" }));
+const mockDeliveryRows = vi.hoisted(() => ({
+  byTable: {} as Record<string, unknown[]>,
+  lastTable: "" as string,
+}));
 const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
-  // The delivery-target resolver reads workspace and work-product rows through
-  // `.orderBy(...).limit(...)`; an empty result means the server holds no binding.
+  // An empty result means the server holds no binding for that table.
   orderBy: () => {
-    const rows = Promise.resolve(mockDeliveryRows.value);
+    const rows = Promise.resolve(mockDeliveryRows.byTable[mockDeliveryRows.lastTable] ?? []);
     return Object.assign(rows, { limit: () => rows });
   },
   for: () => ({
@@ -58,14 +64,22 @@ const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
       permissions: null,
     }]).then(onFulfilled, onRejected),
 })));
-const mockDbSelectFrom = vi.hoisted(() => vi.fn(() => ({ where: mockDbSelectWhere })));
+const mockDbSelectFrom = vi.hoisted(() => vi.fn((table?: unknown) => {
+  const name = (table as Record<symbol, unknown> | undefined)?.[Symbol.for("drizzle:Name")];
+  mockDeliveryRows.lastTable = typeof name === "string" ? name : "";
+  return { where: mockDbSelectWhere };
+}));
 const mockDbSelect = vi.hoisted(() => vi.fn(() => ({ from: mockDbSelectFrom })));
 const mockDb = vi.hoisted(() => ({
   select: mockDbSelect,
   transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
       select: mockDbSelect,
-      insert: () => ({ values: async () => undefined }),
+      insert: () => ({
+        values: async (row: unknown) => {
+          mockDecisionInserts.push(row);
+        },
+      }),
     })),
 }));
 
@@ -84,6 +98,16 @@ const mockRunnerGoalService = vi.hoisted(() => ({
 }));
 
 function registerModuleMocks() {
+  // This harness runs the route against a stubbed database, so the real secret store
+  // cannot answer. `resolveDeliveryCredentialToken`'s own resolution order is still
+  // exercised — it is proven end to end against a real company secret in
+  // delivery-verification.test.ts.
+  vi.doMock("../services/secrets.js", () => ({
+    secretService: () => ({
+      getByName: async () => ({ id: "secret-1" }),
+      resolveSecretValue: async () => mockCompanyGitHubToken.value,
+    }),
+  }));
   vi.doMock("../services/queued-interaction-response.js", () => ({
     hasQueuedInteractionResponse: vi.fn(async () => false),
   }));
@@ -223,13 +247,18 @@ describe("issue execution policy routes", () => {
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByComment.mockResolvedValue([]);
     mockIssueApprovalService.listApprovalsForIssue.mockResolvedValue([]);
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
-    mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
-    mockDeliveryRows.value = [];
+    mockDbSelectFrom.mockImplementation((table?: unknown) => {
+      const name = (table as Record<symbol, unknown> | undefined)?.[Symbol.for("drizzle:Name")];
+      mockDeliveryRows.lastTable = typeof name === "string" ? name : "";
+      return { where: mockDbSelectWhere };
+    });
+    mockDecisionInserts.length = 0;
+    mockDeliveryRows.byTable = {};
+    mockDeliveryRows.lastTable = "";
     mockDbSelectWhere.mockImplementation(() => ({
-      // The delivery-target resolver reads workspace and work-product rows through
-      // `.orderBy(...).limit(...)`; an empty result means the server holds no binding.
+      // An empty result means the server holds no binding for that table.
       orderBy: () => {
-        const rows = Promise.resolve(mockDeliveryRows.value);
+        const rows = Promise.resolve(mockDeliveryRows.byTable[mockDeliveryRows.lastTable] ?? []);
         return Object.assign(rows, { limit: () => rows });
       },
       for: () => ({
@@ -1224,7 +1253,10 @@ describe("issue execution policy routes", () => {
     );
   });
 
-  function terminalApprovalIssue(evidenceRequired: boolean) {
+  function terminalApprovalIssue(
+    evidenceRequired: boolean,
+    overrides: { status?: string } = {},
+  ) {
     const stageId = "44444444-4444-4444-8444-444444444444";
     const agentId = "33333333-3333-4333-8333-333333333333";
     const policy = {
@@ -1253,7 +1285,7 @@ describe("issue execution policy routes", () => {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       companyId: "company-1",
       projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      status: "in_review",
+      status: overrides.status ?? "in_review",
       assigneeAgentId: agentId,
       assigneeUserId: null,
       createdByUserId: "user-creator",
@@ -1275,6 +1307,171 @@ describe("issue execution policy routes", () => {
     companyId: "company-1",
     runId: "55555555-5555-4555-8555-555555555555",
   };
+
+  const HEAD_SHA = "abcdef1234567890abcdef1234567890abcdef12";
+  const MERGE_SHA = "beefbeef1234567890abcdef1234567890abcdef";
+
+  /** The server-side binding the delivery resolver reads, as stub rows per table. */
+  function bindDelivery(
+    overrides: { pullUrl?: string; reviewedHeadSha?: string; baseRef?: string } = {},
+  ) {
+    mockDeliveryRows.byTable = {
+      execution_workspaces: [
+        {
+          repoUrl: "https://github.com/acme/widgets.git",
+          baseRef: overrides.baseRef ?? "refs/heads/main",
+        },
+      ],
+      issue_work_products: [
+        {
+          type: "pull_request",
+          provider: "github",
+          externalId: null,
+          url: overrides.pullUrl ?? "https://github.com/acme/widgets/pull/55",
+          isPrimary: true,
+          metadata: null,
+        },
+        {
+          type: "commit",
+          provider: "github",
+          externalId: overrides.reviewedHeadSha ?? HEAD_SHA,
+          url: null,
+          isPrimary: false,
+          metadata: null,
+        },
+      ],
+    };
+  }
+
+  function stubMergedPullRequest() {
+    return vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/pulls/55")
+        ? {
+            state: "closed",
+            merged: true,
+            merge_commit_sha: MERGE_SHA,
+            head: { sha: HEAD_SHA },
+            base: { ref: "main" },
+          }
+        : url.includes("/check-runs")
+          ? { total_count: 1, check_runs: [{ status: "completed", conclusion: "success" }] }
+          : url.includes("/status")
+            ? { total_count: 0, statuses: [] }
+            : { status: "behind", ahead_by: 0, behind_by: 3 };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch);
+  }
+
+  it("keeps the evidence gate when the same request clears evidenceRequired", async () => {
+    const issue = terminalApprovalIssue(true);
+    const outbound = vi.spyOn(globalThis, "fetch");
+    const app = await createApp(agentActor);
+
+    const res = await request(app)
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        executionPolicy: {
+          stages: (issue.executionPolicy as { stages: unknown[] }).stages,
+        },
+      });
+
+    // Assert the write first: that is the defect, and the status code follows from it.
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("delivery_evidence_missing");
+    expect(outbound).not.toHaveBeenCalled();
+    outbound.mockRestore();
+  });
+
+  it("closes the issue and persists the server-written receipt when delivery verifies", async () => {
+    const issue = terminalApprovalIssue(true);
+    bindDelivery();
+    mockIssueService.update.mockResolvedValue({ ...issue, status: "done", changes: {} });
+    mockIssueService.addComment.mockResolvedValue({ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+    const outbound = stubMergedPullRequest();
+
+    await request(await createApp(agentActor))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        evidence: { pr: 55, mergedSha: MERGE_SHA, checkRun: "build" },
+      });
+
+    // The terminal write happened — verification did not refuse it — and the decision
+    // row carries the receipt the server wrote. (This harness stubs the database, so
+    // the response plumbing after the write is out of this test's subject.)
+    expect(mockIssueService.update).toHaveBeenCalledTimes(1);
+    expect(mockIssueService.update.mock.calls[0]![1]).toMatchObject({
+      executionState: { status: "completed", lastDecisionOutcome: "approved" },
+    });
+    expect(mockDecisionInserts).toHaveLength(1);
+    expect(mockDecisionInserts[0]).toMatchObject({
+      outcome: "approved",
+      evidence: {
+        pr: "55",
+        mergedSha: MERGE_SHA,
+        checkRun: "build",
+        verified: true,
+        receipt: {
+          provider: "github",
+          repository: "acme/widgets",
+          pullRequestNumber: 55,
+          headSha: HEAD_SHA,
+          mergedSha: MERGE_SHA,
+          // `refs/heads/main` and the provider's `main` are the same branch.
+          baseBranch: "main",
+          reachable: true,
+        },
+      },
+    });
+    expect(outbound).toHaveBeenCalled();
+    outbound.mockRestore();
+  });
+
+  it("refuses the terminal write when the binding moves after verification", async () => {
+    terminalApprovalIssue(true);
+    bindDelivery();
+    const outbound = stubMergedPullRequest();
+    // The locked re-read sees a different reviewed head than the one just verified.
+    mockIssueService.getByIdForUpdate.mockImplementation(async () => {
+      bindDelivery({ reviewedHeadSha: "0000000000000000000000000000000000000000" });
+      return mockIssueService.getById.mock.results[0]?.value ?? null;
+    });
+
+    const res = await request(await createApp(agentActor))
+      .patch("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .send({
+        status: "done",
+        comment: "Looks good to land",
+        evidence: { pr: 55, mergedSha: MERGE_SHA },
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("delivery_verification_stale");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    outbound.mockRestore();
+  });
+
+  it("refuses an approving comment with no evidence before the comment is inserted", async () => {
+    terminalApprovalIssue(true, { status: "in_review" });
+    const app = await createApp(agentActor);
+
+    const res = await request(app)
+      .post("/api/issues/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/comments")
+      .send({ body: "kind: review\ndecision: approved" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("delivery_evidence_missing");
+    expect(mockIssueService.addComment).not.toHaveBeenCalled();
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
 
   it("refuses a caller-named repository on the terminal evidence at the API boundary", async () => {
     terminalApprovalIssue(true);
@@ -1300,7 +1497,6 @@ describe("issue execution policy routes", () => {
 
   it("refuses the terminal write when the server holds no repository binding for the issue", async () => {
     terminalApprovalIssue(true);
-    mockDeliveryRows.value = [];
     const outbound = vi.spyOn(globalThis, "fetch");
     const app = await createApp(agentActor);
     const res = await request(app)

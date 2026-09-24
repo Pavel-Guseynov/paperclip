@@ -65,12 +65,22 @@ export const SUPPORTED_DELIVERY_HOST = "github.com";
 
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 
+/** GitHub's maximum page size, and a bound on how many pages one read will fetch. */
+const CHECK_PAGE_SIZE = 100;
+const CHECK_PAGE_LIMIT = 10;
+
 export interface DeliveryChecksSummary {
   status: "passed" | "pending" | "failed";
   total: number;
   passed: number;
   failed: number;
   pending: number;
+  /**
+   * False when the provider reported more checks than this read collected. A partial
+   * read cannot establish "all checks passed" — the failing one may be on a page that
+   * was never fetched — so the caller treats it as unverifiable, never as a pass.
+   */
+  complete: boolean;
 }
 
 export interface DeliveryPullRequestDetails {
@@ -137,6 +147,17 @@ export function parseConfiguredGitHubRepo(
   return { owner, repo };
 }
 
+/**
+ * A branch ref as the provider names it.
+ *
+ * An operator may configure `main`, `refs/heads/main` or `origin/main` for the same
+ * branch; GitHub reports the pull request's base as `main`. Comparing the raw strings
+ * would call those a base mismatch, so both sides are reduced to the branch name.
+ */
+export function normalizeBaseRef(ref: string): string {
+  return ref.trim().replace(/^refs\/heads\//, "").replace(/^origin\//, "");
+}
+
 /** Parse a github.com pull-request URL recorded on a work product. */
 export function parseGitHubPullRequestUrl(
   value: string | null | undefined,
@@ -164,7 +185,6 @@ export type DeliveryTargetIssue = {
   id: string;
   companyId: string;
   projectId?: string | null;
-  executionWorkspaceId?: string | null;
   sourceTrust?: unknown;
 };
 
@@ -303,7 +323,7 @@ export async function resolveDeliveryTarget(
     };
   }
 
-  const baseRef = typeof configuredBase === "string" ? configuredBase.trim() : "";
+  const baseRef = typeof configuredBase === "string" ? normalizeBaseRef(configuredBase) : "";
   if (!baseRef) {
     return {
       ok: false,
@@ -499,37 +519,54 @@ export function createGitHubDeliveryClient(options: {
     },
     async getChecks({ owner, repo, ref }) {
       const prefix = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
-      const checkRunsRes = await doFetch(`${prefix}/check-runs`, { headers });
-      if (!checkRunsRes.ok) {
-        throw new DeliveryVerificationError(
-          DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-          `GitHub returned HTTP ${checkRunsRes.status} for the check runs on ${ref}.`,
-        );
-      }
-      const checkRunsBody = asRecord(await checkRunsRes.json().catch(() => null));
-      const checkRuns = Array.isArray(checkRunsBody?.check_runs) ? checkRunsBody.check_runs : [];
 
-      const statusRes = await doFetch(`${prefix}/status`, { headers });
-      if (!statusRes.ok) {
-        throw new DeliveryVerificationError(
-          DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
-          `GitHub returned HTTP ${statusRes.status} for the commit statuses on ${ref}.`,
-        );
-      }
-      const statusBody = asRecord(await statusRes.json().catch(() => null));
-      const statuses = Array.isArray(statusBody?.statuses) ? statusBody.statuses : [];
+      /**
+       * Read every page the provider says exists.
+       *
+       * The default page size is 30. A repository with more checks than that would
+       * otherwise report "all passed" from page one while a failing run sat on page
+       * two. `total_count` is the provider's own count, so a read that ends short of
+       * it is reported as incomplete rather than summarized.
+       */
+      const readAll = async (path: string, key: string) => {
+        const collected: unknown[] = [];
+        let expected: number | null = null;
+        for (let page = 1; page <= CHECK_PAGE_LIMIT; page++) {
+          const res = await doFetch(`${prefix}${path}?per_page=${CHECK_PAGE_SIZE}&page=${page}`, {
+            headers,
+          });
+          if (!res.ok) {
+            throw new DeliveryVerificationError(
+              DELIVERY_ERROR_CODES.REPOSITORY_UNAVAILABLE,
+              `GitHub returned HTTP ${res.status} for ${key} on ${ref}.`,
+            );
+          }
+          const body = asRecord(await res.json().catch(() => null));
+          const entries = Array.isArray(body?.[key]) ? (body[key] as unknown[]) : [];
+          if (typeof body?.total_count === "number" && Number.isFinite(body.total_count)) {
+            expected = body.total_count;
+          }
+          collected.push(...entries);
+          if (entries.length < CHECK_PAGE_SIZE) break;
+          if (expected !== null && collected.length >= expected) break;
+        }
+        return { collected, complete: expected === null || collected.length >= expected };
+      };
+
+      const checkRuns = await readAll("/check-runs", "check_runs");
+      const statuses = await readAll("/status", "statuses");
 
       let passed = 0;
       let failed = 0;
       let pending = 0;
-      for (const entry of checkRuns) {
+      for (const entry of checkRuns.collected) {
         const run = asRecord(entry);
         const conclusion = typeof run?.conclusion === "string" ? run.conclusion : "";
         if (run?.status !== "completed" || !conclusion) pending++;
         else if (conclusion === "success" || conclusion === "neutral" || conclusion === "skipped") passed++;
         else failed++;
       }
-      for (const entry of statuses) {
+      for (const entry of statuses.collected) {
         const status = asRecord(entry);
         const state = typeof status?.state === "string" ? status.state : "";
         if (state === "success") passed++;
@@ -537,13 +574,14 @@ export function createGitHubDeliveryClient(options: {
         else failed++;
       }
 
-      const total = checkRuns.length + statuses.length;
+      const total = checkRuns.collected.length + statuses.collected.length;
       return {
         status: failed > 0 ? "failed" : pending > 0 ? "pending" : "passed",
         total,
         passed,
         failed,
         pending,
+        complete: checkRuns.complete && statuses.complete,
       };
     },
     async isReachableInBase({ owner, repo, baseRef, headSha, mergeCommitSha }) {
@@ -558,8 +596,6 @@ export interface VerifyTerminalDeliveryInput {
   db: Db;
   issue: DeliveryTargetIssue;
   evidence?: IssueTerminalEvidence | null;
-  /** Test seam for the provider HTTP boundary only; production resolves it per company. */
-  client?: DeliveryProviderClient;
 }
 
 export type VerifyTerminalDeliveryResult =
@@ -567,12 +603,6 @@ export type VerifyTerminalDeliveryResult =
   | { verified: false; errorCode: DeliveryErrorCode; reason: string };
 
 export class DeliveryVerificationService {
-  private readonly clientOverride?: DeliveryProviderClient;
-
-  constructor(options?: { client?: DeliveryProviderClient }) {
-    this.clientOverride = options?.client;
-  }
-
   async verifyTerminalDelivery(
     input: VerifyTerminalDeliveryInput,
   ): Promise<VerifyTerminalDeliveryResult> {
@@ -609,22 +639,19 @@ export class DeliveryVerificationService {
       };
     }
 
-    let client = input.client ?? this.clientOverride;
-    if (!client) {
-      const token = await resolveDeliveryCredentialToken(input.db, {
-        companyId: input.issue.companyId,
-        issueId: input.issue.id,
-      });
-      if (!token) {
-        return {
-          verified: false,
-          errorCode: DELIVERY_ERROR_CODES.CREDENTIALS_UNAVAILABLE,
-          reason:
-            "No company-scoped GitHub credential is available, so delivery cannot be verified against the repository.",
-        };
-      }
-      client = createGitHubDeliveryClient({ token });
+    const token = await resolveDeliveryCredentialToken(input.db, {
+      companyId: input.issue.companyId,
+      issueId: input.issue.id,
+    });
+    if (!token) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.CREDENTIALS_UNAVAILABLE,
+        reason:
+          "No company-scoped GitHub credential is available, so delivery cannot be verified against the repository.",
+      };
     }
+    const client = createGitHubDeliveryClient({ token });
 
     let pr: DeliveryPullRequestDetails;
     try {
@@ -652,7 +679,7 @@ export class DeliveryVerificationService {
       };
     }
 
-    if (pr.baseRef !== target.baseRef) {
+    if (normalizeBaseRef(pr.baseRef) !== target.baseRef) {
       return {
         verified: false,
         errorCode: DELIVERY_ERROR_CODES.BASE_MISMATCH,
@@ -693,6 +720,13 @@ export class DeliveryVerificationService {
       };
     }
 
+    if (!checks.complete) {
+      return {
+        verified: false,
+        errorCode: DELIVERY_ERROR_CODES.CHECKS_UNVERIFIABLE,
+        reason: `The provider reports more checks on "${providerHeadSha}" than this read collected, so "all required checks passed" cannot be established.`,
+      };
+    }
     if (checks.total === 0) {
       return {
         verified: false,
@@ -763,10 +797,8 @@ export class DeliveryVerificationService {
   }
 }
 
-export function createDeliveryVerificationService(options?: {
-  client?: DeliveryProviderClient;
-}): DeliveryVerificationService {
-  return new DeliveryVerificationService(options);
+export function createDeliveryVerificationService(): DeliveryVerificationService {
+  return new DeliveryVerificationService();
 }
 
 /**
@@ -812,7 +844,6 @@ export async function verifyTerminalDecisionEvidence(input: {
   issue: DeliveryTargetIssue;
   policy?: { evidenceRequired?: boolean } | null;
   evidence: IssueTerminalEvidence | null | undefined;
-  client?: DeliveryProviderClient;
 }): Promise<{ record: IssueTerminalEvidenceRecord | null; target: DeliveryTarget | null }> {
   // A decision without evidence is either a non-terminal decision or an approval on a
   // policy that does not require evidence. `applyIssueExecutionPolicyTransition` is the
@@ -831,9 +862,11 @@ export async function verifyTerminalDecisionEvidence(input: {
     return { record: { ...claim, verified: false, receipt: null }, target: null };
   }
 
-  const result = await createDeliveryVerificationService({
-    client: input.client,
-  }).verifyTerminalDelivery({ db: input.db, issue: input.issue, evidence: claim });
+  const result = await createDeliveryVerificationService().verifyTerminalDelivery({
+    db: input.db,
+    issue: input.issue,
+    evidence: claim,
+  });
 
   if (!result.verified) {
     throw new DeliveryVerificationError(result.errorCode, result.reason);
