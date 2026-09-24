@@ -1325,6 +1325,91 @@ describe("HTTP logger redaction", () => {
     });
   });
 
+  it("projects a live HTTP object logged under an ordinary key", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    const upstream = new IncomingMessage(null as never);
+    upstream.method = "GET";
+    upstream.headers = { authorization: `Bearer ${BEARER_SENTINEL}` };
+
+    log.info({ upstreamResponse: upstream, stage: "relay" }, "relayed upstream");
+
+    const output = chunks.join("");
+    expect(output).not.toContain(BEARER_SENTINEL);
+
+    const [record] = logRecords(chunks);
+    expect(record.upstreamResponse).toEqual({
+      type: "[HttpObject]",
+      method: "GET",
+    });
+    expect(record.stage).toBe("relay");
+  });
+
+  it("still lets pino's own req and res serializers project the live objects", async () => {
+    const chunks: string[] = [];
+    const app = express();
+    app.use(createHttpLogger(productionLogger(chunks)));
+    app.get("/api/tool-gateway/tools", (_req, res) => {
+      res.status(200).json({ ok: true });
+    });
+
+    await request(app)
+      .get("/api/tool-gateway/tools")
+      .set("Authorization", `Bearer ${BEARER_SENTINEL}`)
+      .expect(200);
+
+    const [log] = logRecords(chunks);
+    expect(log.res.statusCode).toBe(200);
+    expect(log.req.method).toBe("GET");
+    expect(log.req.headers.authorization).toBe("[Redacted]");
+  });
+
+  it("redacts a credential name in every separator spelling", () => {
+    const redacted = redactSensitive({
+      proxyAuthorization: "proxy-auth-sentinel-1",
+      proxy_authorization: "proxy-auth-sentinel-2",
+      "proxy-authorization": "proxy-auth-sentinel-3",
+      setCookie: "sid=set-cookie-sentinel",
+      xApiKey: "x-api-key-sentinel",
+      gateway_token: SESSION_TOKEN,
+      connectorId: "acme-crm",
+    }) as Record<string, unknown>;
+
+    expect(JSON.stringify(redacted)).not.toMatch(
+      /proxy-auth-sentinel|set-cookie-sentinel|x-api-key-sentinel/,
+    );
+    expect(redacted.proxyAuthorization).toBe("[REDACTED]");
+    expect(redacted.proxy_authorization).toBe("[REDACTED]");
+    expect(redacted["proxy-authorization"]).toBe("[REDACTED]");
+    expect(redacted.setCookie).toBe("[REDACTED]");
+    expect(redacted.xApiKey).toBe("[REDACTED]");
+    expect(redacted.gateway_token).toBe("[REDACTED]");
+    expect(redacted.connectorId).toBe("acme-crm");
+  });
+
+  it("writes the record instead of throwing when a nested field getter throws", () => {
+    const chunks: string[] = [];
+    const log = productionLogger(chunks);
+
+    // pino reads the record's own top-level keys itself, so a getter there
+    // throws with or without this change. A nested getter is only ever read by
+    // the redaction walk, and pino's stringifier already handles the fallout.
+    const record = {
+      stage: "relay",
+      context: {
+        get lazyDetail(): string {
+          throw new Error("getter exploded");
+        },
+      },
+    };
+
+    expect(() => log.warn(record, "relay diagnostics")).not.toThrow();
+    const [written] = logRecords(chunks);
+    expect(written.msg).toBe("relay diagnostics");
+    expect(written.stage).toBe("relay");
+  });
+
   it("redacts credential names nested anywhere inside a log record", () => {
     const chunks: string[] = [];
     const log = productionLogger(chunks);

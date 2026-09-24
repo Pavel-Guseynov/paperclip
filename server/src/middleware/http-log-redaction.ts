@@ -124,18 +124,29 @@ export function summarizeHttpObject(value: unknown): Record<string, unknown> {
   return summary;
 }
 
-const KNOWN_CREDENTIAL_NAMES: ReadonlySet<string> = new Set<string>([
-  ...CREDENTIAL_HEADER_NAMES,
-  ...CREDENTIAL_LOG_FIELD_NAMES.map((name) => name.toLowerCase()),
-]);
+/**
+ * The same credential reaches a log as a header (`proxy-authorization`), a
+ * snake_case body field (`proxy_authorization`) or a camelCase log field
+ * (`proxyAuthorization`). Comparing separator-free lower case makes one list
+ * cover every spelling instead of enumerating them.
+ */
+function normalizeCredentialName(name: string): string {
+  return name.trim().toLowerCase().replace(/[-_]/g, "");
+}
+
+const KNOWN_CREDENTIAL_NAMES: ReadonlySet<string> = new Set<string>(
+  [...CREDENTIAL_HEADER_NAMES, ...CREDENTIAL_LOG_FIELD_NAMES].map(
+    normalizeCredentialName,
+  ),
+);
 
 /**
- * The exact credential header and field names. This is the single authority
- * every name-based redactor falls through to, so no consumer keeps its own
- * partial copy of the list.
+ * The credential header and field names, in any separator spelling. This is
+ * the single authority every name-based redactor falls through to, so no
+ * consumer keeps its own partial copy of the list.
  */
 export function isKnownCredentialName(name: string): boolean {
-  return KNOWN_CREDENTIAL_NAMES.has(name.trim().toLowerCase());
+  return KNOWN_CREDENTIAL_NAMES.has(normalizeCredentialName(name));
 }
 
 const CREDENTIAL_HEADER_PATTERN =
@@ -310,6 +321,14 @@ function sanitizeErrorRecord(
 }
 
 /**
+ * The top-level keys pino routes through `serializers.req` / `res` / `err`,
+ * which turn a live HTTP object into a safe projection themselves. Under any
+ * other key there is no serializer and no redact path, so the object must be
+ * projected before it reaches the stringifier.
+ */
+const SERIALIZER_OWNED_KEYS: ReadonlySet<string> = new Set(["req", "res", "err"]);
+
+/**
  * Censors credential-named fields anywhere inside a log record, at any nesting
  * depth. The input is returned unchanged when it holds no credential name, so
  * an ordinary log record is scanned but never cloned, and only exact names
@@ -354,9 +373,7 @@ function redactFieldsValue(
         changed = true;
         continue;
       }
-      if (depth === 0 && isHttpObject(entry)) {
-        // pino's own `req`/`res`/`err` serializers own the live objects at the
-        // top of a record and replace them with safe projections themselves.
+      if (depth === 0 && SERIALIZER_OWNED_KEYS.has(key) && isHttpObject(entry)) {
         out[key] = entry;
         continue;
       }
