@@ -1340,6 +1340,17 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
     const endpoint = `/api/tool-gateway/gateways/${created.id}/mcp`;
 
+    async function tokenRow() {
+      const [row] = await db
+        .select()
+        .from(toolMcpGatewayTokens)
+        .where(eq(toolMcpGatewayTokens.id, token.id));
+      return row!;
+    }
+
+    const beforeHandshake = await tokenRow();
+    expect(beforeHandshake.lastUsedAt).toBeNull();
+
     // First handshake: spends session-setup budget 1 of 2.
     await request(app)
       .post(endpoint)
@@ -1347,12 +1358,22 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
       .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
       .expect(200);
 
+    const afterHandshake = await tokenRow();
+    expect(afterHandshake.lastUsedAt).toBeInstanceOf(Date);
+
     const notified = await request(app)
       .post(endpoint)
       .set("authorization", `Bearer ${token.token}`)
       .send({ jsonrpc: "2.0", method: "notifications/initialized" })
       .expect(202);
     expect(notified.text).toBe("");
+
+    // The notification verifies the bearer and records nothing: no token write,
+    // so a bearer holder cannot drive repeated writes from a status-only
+    // endpoint.
+    const afterNotification = await tokenRow();
+    expect(afterNotification.lastUsedAt).toEqual(afterHandshake.lastUsedAt);
+    expect(afterNotification.updatedAt).toEqual(afterHandshake.updatedAt);
 
     // Second handshake: still budget 2 of 2, because the notification above is
     // charged to no limiter. This is 429 when the notification spends a slot.
@@ -4878,6 +4899,42 @@ rl.on("line", (line) => {
     expect(byAgentName.body.events).toEqual([
       expect.objectContaining({ agentId: otherAgent.id }),
     ]);
+  });
+
+  it("validates audit filter ids as generic UUIDs rather than by version nibble", async () => {
+    const company = await createCompany(db);
+    const app = createGatewayRouteApp(db, createTestToolGatewayService(db), {
+      type: "board",
+      userId: "instance-admin",
+      source: "session",
+      companyIds: [company.id],
+      memberships: [{ companyId: company.id, membershipRole: "owner", status: "active" }],
+      isInstanceAdmin: true,
+    });
+    // These filters select plain `uuid` columns, so any RFC-shaped id the
+    // database can hold is a legal filter value even when its version and
+    // variant nibbles are not those of a random v4 id.
+    const genericUuid = "00000000-0000-0000-0000-000000000000";
+
+    for (const filter of ["gateway", "app", "agent"] as const) {
+      const accepted = await request(app)
+        .get("/api/tool-gateway/audit")
+        .query({ companyId: company.id, [filter]: genericUuid });
+      expect(accepted.status).toBe(200);
+      expect(accepted.body.events).toEqual([]);
+    }
+
+    for (const [filter, message] of [
+      ["gateway", "gateway must be a gateway UUID"],
+      ["app", "app must be an applicationId or connectionId UUID"],
+      ["agent", "agent must be an agentId UUID"],
+    ] as const) {
+      const rejected = await request(app)
+        .get("/api/tool-gateway/audit")
+        .query({ companyId: company.id, [filter]: "not-a-uuid" });
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error).toBe(message);
+    }
   });
 
   it("rejects durable sessions after the heartbeat run is no longer active", async () => {

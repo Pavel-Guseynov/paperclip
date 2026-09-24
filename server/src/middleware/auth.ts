@@ -251,15 +251,21 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       return;
     }
 
-    // The internal managed gateway route gets the same handoff, but only for an
-    // actual pcgw_* bearer. Unlike the public path this one lives under /api,
-    // where a local_trusted deployment would otherwise hand the request a
-    // full-control implicit board actor; a runtime that presents a gateway
-    // bearer must never be upgraded to board authority, so the actor is reset
-    // to none and the gateway service remains the only authority for this
-    // credential. Every other /api request retains normal actor authentication
-    // below.
-    if (hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path)) {
+    // The internal managed gateway route gets the same handoff, but only for a
+    // POST carrying an actual pcgw_* bearer. POST is the only method the MCP
+    // protocol uses; the GET on this path is an unauthenticated descriptor, and
+    // handing it the bypass would make it reachable with a bearer nothing ever
+    // verifies. Unlike the public path this one also lives under /api, where a
+    // local_trusted deployment would otherwise hand the request a full-control
+    // implicit board actor; a runtime that presents a gateway bearer must never
+    // be upgraded to board authority, so the actor is reset to none and the
+    // gateway service remains the only authority for this credential. Every
+    // other /api request retains normal actor authentication below.
+    if (
+      req.method === "POST"
+      && hasGatewayBearer
+      && managedMcpGatewayProtocolPath.test(req.path)
+    ) {
       req.actor = { type: "none", source: "none" };
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();
