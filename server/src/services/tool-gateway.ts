@@ -13,7 +13,7 @@ import { resolveManagedGitHubIdentitySelection } from "./git-credentials.js";
 import { extractRemoteMcpPending } from "./remote-mcp-pending.js";
 import { logger } from "../middleware/logger.js";
 import { spawn } from "node:child_process";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   and,
   asc,
@@ -502,17 +502,9 @@ function hashGatewayToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-const gatewaySessionTokenPattern =
-  /^pcgt_([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([A-Za-z0-9_-]+)$/i;
-
-function parseGatewaySessionToken(token: string): { sessionId: string; secret: string } | null {
-  const match = token.match(gatewaySessionTokenPattern);
-  if (!match) return null;
-  return { sessionId: match[1]!.toLowerCase(), secret: match[2]! };
-}
-
 function sessionIdFromGatewayToken(token: string) {
-  return parseGatewaySessionToken(token)?.sessionId ?? null;
+  const match = token.match(/^pcgt_([0-9a-fA-F-]{36})\.[A-Za-z0-9_-]+$/);
+  return match?.[1] ?? null;
 }
 
 function namedGatewayTokenId(token: string) {
@@ -1822,53 +1814,47 @@ export function createToolGatewayService(
       );
     }
     if (namedGatewayTokenId(token)) {
-      if (namedGatewayProtocol?.gatewayId || namedGatewayProtocol?.gatewayPublicId) {
-        return namedGatewaySessionFromBearer({
-          gatewayId: namedGatewayProtocol.gatewayId ?? null,
-          gatewayPublicId: namedGatewayProtocol.gatewayPublicId ?? null,
-          bearerToken: token,
-          protocolMethod: namedGatewayProtocol.protocolMethod ?? "tools/call",
-          callerHeaders: namedGatewayProtocol.callerHeaders,
-        });
+      // A pcgw_* gateway token is only ever a credential for a named gateway
+      // endpoint, which supplies the gateway locator. The run-scoped session
+      // endpoints supply none, and they list and call tools without consulting
+      // the token's allowedActions — so accepting one here lets a gateway token
+      // whose actions exclude tools/list enumerate the gateway's tools anyway.
+      // Reject the wrong token family on the wrong surface instead.
+      if (!namedGatewayProtocol?.gatewayId && !namedGatewayProtocol?.gatewayPublicId) {
+        throw new ToolGatewayHttpError(
+          401,
+          "Tool gateway session is expired or invalid",
+          "session_invalid",
+        );
       }
-      throw new ToolGatewayHttpError(
-        401,
-        "Tool gateway session is expired or invalid",
-        "session_invalid",
-      );
+      return namedGatewaySessionFromBearer({
+        gatewayId: namedGatewayProtocol.gatewayId ?? null,
+        gatewayPublicId: namedGatewayProtocol.gatewayPublicId ?? null,
+        bearerToken: token,
+        protocolMethod: namedGatewayProtocol.protocolMethod ?? "tools/call",
+        callerHeaders: namedGatewayProtocol.callerHeaders,
+      });
     }
 
-    const parsed = parseGatewaySessionToken(token);
-    if (!parsed) {
-      throw new ToolGatewayHttpError(
-        401,
-        "Tool gateway session token is malformed",
-        "session_token_malformed",
-      );
-    }
-
+    const tokenHash = hashGatewayToken(token);
     const [row] = await db
       .select()
       .from(toolGatewaySessions)
-      .where(eq(toolGatewaySessions.id, parsed.sessionId))
+      .where(eq(toolGatewaySessions.tokenHash, tokenHash))
       .limit(1);
 
     if (!row) {
-      throw new ToolGatewayHttpError(
-        401,
-        "Tool gateway session is expired or invalid",
-        "session_invalid",
-      );
-    }
-
-    const expectedHash = Buffer.from(row.tokenHash, "hex");
-    const computedHash = Buffer.from(hashGatewayToken(token), "hex");
-    const hashesMatch =
-      expectedHash.length === computedHash.length &&
-      timingSafeEqual(expectedHash, computedHash);
-
-    if (!hashesMatch) {
-      await writeSessionAuthFailure(row, "session_invalid");
+      const sessionId = sessionIdFromGatewayToken(token);
+      if (sessionId) {
+        const [candidate] = await db
+          .select()
+          .from(toolGatewaySessions)
+          .where(eq(toolGatewaySessions.id, sessionId))
+          .limit(1);
+        if (candidate) {
+          await writeSessionAuthFailure(candidate, "session_invalid");
+        }
+      }
       throw new ToolGatewayHttpError(
         401,
         "Tool gateway session is expired or invalid",

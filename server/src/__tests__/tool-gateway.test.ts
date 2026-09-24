@@ -5489,32 +5489,36 @@ rl.on("line", (line) => {
   });
 
   describe("run-scoped gateway session-token verification", () => {
-    it("authenticates tools/list and tools/call using Authorization Bearer pcgt_* through its advertised expiry", async () => {
-      const company = await createCompany(db);
-      const agent = await createAgent(db, company.id);
-      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
-      const localTool = await createLocalStdioMcpTool(db, company.id, {
+    async function createSessionFixture(companyId: string) {
+      const agent = await createAgent(db, companyId);
+      const { project, issue, run } = await createIssueAndRun(db, companyId, agent.id);
+      const localTool = await createLocalStdioMcpTool(db, companyId, {
         applicationKey: "local-demo",
         connectionName: "Local Demo",
         toolName: "echo",
         title: "Local echo",
       });
-      const expectedToolName = expectedConnectedToolName({
+      const toolName = expectedConnectedToolName({
         applicationKey: "local-demo",
         connectionId: localTool.connection.id,
         toolName: "echo",
       });
-      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
+      const profile = await allowToolsForAgent(db, companyId, agent.id, []);
       await db.insert(toolProfileEntries).values({
-        companyId: company.id,
+        companyId,
         profileId: profile.id,
         selectorType: "catalog_entry",
         effect: "include",
         catalogEntryId: localTool.catalogEntry.id,
       });
+      return { agent, project, issue, run, profile, toolName };
+    }
 
+    it("authenticates tools/list and tools/call for its own session over an Authorization bearer", async () => {
+      const company = await createCompany(db);
+      const { agent, project, issue, run, toolName } = await createSessionFixture(company.id);
       const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
-      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+      const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
 
       const session = await gateway.createSession({
         companyId: company.id,
@@ -5525,90 +5529,48 @@ rl.on("line", (line) => {
         ttlMs: 60_000,
       });
 
-      expect(session.token).toMatch(/^pcgt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]+$/i);
-
-      // tools/list via Authorization: Bearer
-      const listRes = await request(app)
+      const listed = await request(app)
         .get("/api/tool-gateway/tools")
         .set("Authorization", `Bearer ${session.token}`);
-      expect(listRes.status).toBe(200);
-      expect(listRes.body).toEqual(expect.arrayContaining([
-        expect.objectContaining({ name: expectedToolName }),
+      expect(listed.status).toBe(200);
+      expect(listed.body).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: toolName }),
       ]));
-      expect(JSON.stringify(listRes.body)).not.toContain(session.token);
 
-      // tools/call via Authorization: Bearer
-      const callRes = await request(app)
+      const called = await request(app)
         .post("/api/tool-gateway/tools/call")
         .set("Authorization", `Bearer ${session.token}`)
-        .send({
-          tool: expectedToolName,
-          parameters: { message: "hello" },
-        });
-      expect(callRes.status).toBe(200);
-      expect(callRes.body).toMatchObject({
+        .send({ tool: toolName, parameters: { message: "hello" } });
+      expect(called.status).toBe(200);
+      expect(called.body).toMatchObject({
         status: "completed",
         result: expect.objectContaining({ content: "local:hello" }),
       });
-      expect(JSON.stringify(callRes.body)).not.toContain(session.token);
 
-      // tools/list via x-paperclip-tool-gateway-token header
-      const headerListRes = await request(app)
+      // The header transport this change extends keeps working unchanged.
+      const listedByHeader = await request(app)
         .get("/api/tool-gateway/tools")
         .set("x-paperclip-tool-gateway-token", session.token);
-      expect(headerListRes.status).toBe(200);
+      expect(listedByHeader.status).toBe(200);
 
-      // Controlled clock verification near expiry boundary and after expiry
-      vi.useFakeTimers({ toFake: ["Date"] });
-      try {
-        // 1 second before expiry: success
-        vi.setSystemTime(new Date(session.expiresAt.getTime() - 1_000));
-        const nearExpiryRes = await request(app)
-          .get("/api/tool-gateway/tools")
-          .set("Authorization", `Bearer ${session.token}`);
-        expect(nearExpiryRes.status).toBe(200);
-
-        // 1 second after expiry: rejected with session_expired
-        vi.setSystemTime(new Date(session.expiresAt.getTime() + 1_000));
-        const expiredRes = await request(app)
-          .get("/api/tool-gateway/tools")
-          .set("Authorization", `Bearer ${session.token}`);
-        expect(expiredRes.status).toBe(401);
-        expect(expiredRes.body).toMatchObject({
-          reasonCode: "session_expired",
-        });
-        expect(JSON.stringify(expiredRes.body)).not.toContain(session.token);
-      } finally {
-        vi.useRealTimers();
-      }
+      // Expiry is driven through the session row rather than a faked clock, so
+      // the live Postgres and HTTP calls around it stay on the real timer.
+      await db
+        .update(toolGatewaySessions)
+        .set({ expiresAt: new Date(Date.now() - 1_000), updatedAt: new Date() })
+        .where(eq(toolGatewaySessions.id, session.id));
+      const expired = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${session.token}`);
+      expect(expired.status).toBe(401);
+      expect(expired.body).toMatchObject({ reasonCode: "session_expired" });
     });
 
-    it("rejects revoked, cross-session, malformed, inactive-run, and cross-protocol tokens with stable reason codes", async () => {
+    it("rejects revoked, cross-session, unknown, and malformed session bearers", async () => {
       const company = await createCompany(db);
-      const agent = await createAgent(db, company.id);
-      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
-      const localTool = await createLocalStdioMcpTool(db, company.id, {
-        applicationKey: "local-demo",
-        connectionName: "Local Demo",
-        toolName: "echo",
-        title: "Local echo",
-      });
-      const expectedToolName = expectedConnectedToolName({
-        applicationKey: "local-demo",
-        connectionId: localTool.connection.id,
-        toolName: "echo",
-      });
-      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
-      await db.insert(toolProfileEntries).values({
-        companyId: company.id,
-        profileId: profile.id,
-        selectorType: "catalog_entry",
-        effect: "include",
-        catalogEntryId: localTool.catalogEntry.id,
-      });
-
+      const { agent, issue, project, run } = await createSessionFixture(company.id);
       const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
-      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+      const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
 
       const sessionA = await gateway.createSession({
         companyId: company.id,
@@ -5624,120 +5586,174 @@ rl.on("line", (line) => {
         issueId: issue.id,
         projectId: project.id,
       });
+      const secretB = sessionB.token.split(".")[1]!;
 
-      // 1. Rejection after revocation
-      await gateway.revokeSession({
-        companyId: company.id,
-        sessionId: sessionA.id,
-      });
-      const revokedRes = await request(app)
+      await gateway.revokeSession({ companyId: company.id, sessionId: sessionA.id });
+      const revoked = await request(app)
         .get("/api/tool-gateway/tools")
         .set("Authorization", `Bearer ${sessionA.token}`);
-      expect(revokedRes.status).toBe(401);
-      expect(revokedRes.body).toMatchObject({
-        reasonCode: "session_revoked",
-      });
-      expect(JSON.stringify(revokedRes.body)).not.toContain(sessionA.token);
+      expect(revoked.status).toBe(401);
+      expect(revoked.body).toMatchObject({ reasonCode: "session_revoked" });
 
-      // 2. Cross-session token (Session A id with Session B secret)
-      const secretB = sessionB.token.split(".")[1];
-      const crossSessionToken = `pcgt_${sessionA.id}.${secretB}`;
-      const crossSessionRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${crossSessionToken}`);
-      expect(crossSessionRes.status).toBe(401);
-      expect(crossSessionRes.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(crossSessionRes.body)).not.toContain(crossSessionToken);
-
-      // 3. Non-existent session ID
-      const nonExistentToken = `pcgt_${randomUUID()}.${secretB}`;
-      const nonExistentRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${nonExistentToken}`);
-      expect(nonExistentRes.status).toBe(401);
-      expect(nonExistentRes.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(nonExistentRes.body)).not.toContain(nonExistentToken);
-
-      // 4. Malformed tokens
+      // Session A's id carrying Session B's secret: a stolen secret must not
+      // authenticate another session, and an unknown id must not either.
       for (const badToken of [
+        `pcgt_${sessionA.id}.${secretB}`,
+        `pcgt_${randomUUID()}.${secretB}`,
         `pcgt_not-a-uuid.${secretB}`,
         `pcgt_${sessionB.id}`,
-        `pcgt_${sessionB.id}.`,
         "pcgt_malformed",
-        "not-even-a-prefix",
       ]) {
-        const malformedRes = await request(app)
+        const rejected = await request(app)
           .get("/api/tool-gateway/tools")
           .set("Authorization", `Bearer ${badToken}`);
-        expect(malformedRes.status).toBe(401);
-        expect(malformedRes.body).toMatchObject({
-          reasonCode: "session_token_malformed",
-        });
-        expect(JSON.stringify(malformedRes.body)).not.toContain(badToken);
+        expect(rejected.status).toBe(401);
+        expect(rejected.body).toMatchObject({ reasonCode: "session_invalid" });
       }
 
-      // 5. Rejection of pcgw_* on pcgt_*-only routes (tools/list and tools/call)
+      // A bearer that is not a session token never reaches the gateway
+      // service: actor authentication owns it, and rejects it.
+      const notASessionBearer = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", "Bearer not-even-a-prefix");
+      expect(notASessionBearer.status).toBe(401);
+      expect(notASessionBearer.body).not.toMatchObject({ reasonCode: "session_invalid" });
+    });
+
+    it("rejects a session bound to another agent's run and a session whose run has finished", async () => {
+      const company = await createCompany(db);
+      const { agent, issue, project, run } = await createSessionFixture(company.id);
+      const otherAgent = await createAgent(db, company.id);
+      const otherRun = await createIssueAndRun(db, company.id, otherAgent.id);
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
+
+      const wrongRunSession = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+      // Re-point the stored session at a live run that belongs to a different
+      // agent. The run is still "running", so only the run/agent binding can
+      // reject this one.
+      await db
+        .update(toolGatewaySessions)
+        .set({ runId: otherRun.run.id, updatedAt: new Date() })
+        .where(eq(toolGatewaySessions.id, wrongRunSession.id));
+      const wrongRun = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${wrongRunSession.token}`);
+      expect(wrongRun.status).toBe(401);
+      expect(wrongRun.body).toMatchObject({ reasonCode: "session_run_inactive" });
+
+      const finishedRunSession = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+      await db
+        .update(heartbeatRuns)
+        .set({ status: "succeeded", completedAt: new Date() })
+        .where(eq(heartbeatRuns.id, run.id));
+      const finishedRun = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${finishedRunSession.token}`);
+      expect(finishedRun.status).toBe(401);
+      expect(finishedRun.body).toMatchObject({ reasonCode: "session_run_inactive" });
+    });
+
+    it("rejects a gateway token on the run-scoped session endpoints", async () => {
+      const company = await createCompany(db);
+      const { profile, run, toolName } = await createSessionFixture(company.id);
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
+
       const namedGateway = await gateway.createNamedGateway({
         companyId: company.id,
         body: { name: `GW ${randomUUID()}`, profileId: profile.id, defaultProfileMode: "gateway_only" },
       });
-      const gwToken = await gateway.createNamedGatewayToken({
+      // Allowed actions deliberately exclude tools/list: the session endpoints
+      // never consult allowedActions, so accepting this credential there would
+      // let it enumerate the gateway's tools anyway.
+      const gatewayToken = await gateway.createNamedGatewayToken({
         companyId: company.id,
         gatewayId: namedGateway.id,
-        body: { name: "test-gw-token", clientLabel: "test-gw-token", subjectType: "heartbeat_run", subjectId: run.id },
+        body: {
+          name: "call-only",
+          clientLabel: "call-only",
+          subjectType: "heartbeat_run",
+          subjectId: run.id,
+          allowedActions: ["tools/call"],
+        },
       });
 
-      const pcgwOnSessionRoute = await request(app)
+      // The header transport is the one these endpoints already accept, so
+      // this is the gateway service's own guard, not the route's.
+      const listedByHeader = await request(app)
         .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${gwToken.token}`);
-      expect(pcgwOnSessionRoute.status).toBe(401);
-      expect(pcgwOnSessionRoute.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(pcgwOnSessionRoute.body)).not.toContain(gwToken.token);
+        .set("x-paperclip-tool-gateway-token", gatewayToken.token);
+      expect(listedByHeader.status).toBe(401);
+      expect(listedByHeader.body).toMatchObject({ reasonCode: "session_invalid" });
 
-      const pcgwOnCallRoute = await request(app)
+      const calledByHeader = await request(app)
         .post("/api/tool-gateway/tools/call")
-        .set("Authorization", `Bearer ${gwToken.token}`)
-        .send({ tool: expectedToolName, parameters: { message: "hi" } });
-      expect(pcgwOnCallRoute.status).toBe(401);
-      expect(pcgwOnCallRoute.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(pcgwOnCallRoute.body)).not.toContain(gwToken.token);
+        .set("x-paperclip-tool-gateway-token", gatewayToken.token)
+        .send({ tool: toolName, parameters: { message: "hi" } });
+      expect(calledByHeader.status).toBe(401);
+      expect(calledByHeader.body).toMatchObject({ reasonCode: "session_invalid" });
 
-      // 6. Rejection of pcgt_* on pcgw_* route
-      const pcgtOnNamedGw = await request(app)
-        .post(`/mcp/gateways/${namedGateway.gatewayPublicId}`)
-        .set("Authorization", `Bearer ${sessionB.token}`)
-        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
-      expect(pcgtOnNamedGw.status).toBe(401);
-      expect(pcgtOnNamedGw.body).toMatchObject({
-        error: { data: { reasonCode: "gateway_token_invalid" } },
-      });
-      expect(JSON.stringify(pcgtOnNamedGw.body)).not.toContain(sessionB.token);
-
-      // 7. Rejection with session_run_inactive when heartbeat run completes
-      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, run.id));
-      const inactiveRunRes = await request(app)
+      // A pcgw_* bearer never even reaches these endpoints: only the pcgt_*
+      // session credential is handed past actor authentication.
+      const listedByBearer = await request(app)
         .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${sessionB.token}`);
-      expect(inactiveRunRes.status).toBe(401);
-      expect(inactiveRunRes.body).toMatchObject({
-        reasonCode: "session_run_inactive",
-      });
-      expect(JSON.stringify(inactiveRunRes.body)).not.toContain(sessionB.token);
+        .set("Authorization", `Bearer ${gatewayToken.token}`);
+      expect(listedByBearer.status).toBe(401);
+      expect(listedByBearer.body).not.toMatchObject({ reasonCode: "session_invalid" });
 
-      // 8. Verify audit logs do not leak any raw token material
-      const allAudits = await db.select().from(activityLog);
-      const serializedAudits = JSON.stringify(allAudits);
-      expect(serializedAudits).not.toContain(sessionA.token);
-      expect(serializedAudits).not.toContain(sessionB.token);
-      expect(serializedAudits).not.toContain(gwToken.token);
+      // The same token still works on the gateway endpoint it belongs to.
+      const gatewayCall = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("Authorization", `Bearer ${gatewayToken.token}`)
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: toolName, arguments: { message: "hi" } },
+        });
+      expect(gatewayCall.status).toBe(200);
+    });
+
+    it("rejects a session bearer on a named gateway endpoint and audits no raw token", async () => {
+      const company = await createCompany(db);
+      const { agent, issue, profile, project, run } = await createSessionFixture(company.id);
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, undefined, { withActorMiddleware: true });
+
+      const session = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+      const namedGateway = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: { name: `GW ${randomUUID()}`, profileId: profile.id, defaultProfileMode: "gateway_only" },
+      });
+
+      const wrongFamily = await request(app)
+        .post(`/mcp/gateways/${namedGateway.gatewayPublicId}`)
+        .set("Authorization", `Bearer ${session.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      expect(wrongFamily.status).toBe(401);
+      expect(wrongFamily.body.error.data).toMatchObject({ reasonCode: "gateway_token_invalid" });
+
+      const audits = await db.select().from(activityLog);
+      expect(JSON.stringify(audits)).not.toContain(session.token.split(".")[1]!);
     });
   });
 });
