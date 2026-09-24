@@ -10,7 +10,6 @@ import { logger } from "./logger.js";
 import { isSecretSensitiveHttpRequest } from "./http-log-policy.js";
 import { sanitizeCredentialText } from "./http-log-redaction.js";
 import {
-  collectRequestCredentials,
   collectSensitiveStringValues,
   redactSensitiveValueOccurrences,
 } from "./redact-sensitive.js";
@@ -53,19 +52,17 @@ function attachErrorContext(
   payload: ErrorContext["error"],
   rawError?: Error,
 ) {
-  const credentials = collectRequestCredentials(req);
-  const sanitizedPayload = {
-    ...payload,
-    message: sanitizeCredentialText(payload.message),
-    stack: payload.stack ? sanitizeCredentialText(payload.stack) : undefined,
-  };
-  const scrubbedPayload = redactSensitiveValueOccurrences(
-    sanitizedPayload,
-    credentials,
-  ) as ErrorContext["error"];
-
+  // The log path renders this message and stack verbatim, so strip credential
+  // text here. Structural redaction stays in `customProps`, which walks the
+  // context once, at the log boundary.
   (res as any).__errorContext = {
-    error: scrubbedPayload,
+    error: {
+      ...payload,
+      message: sanitizeCredentialText(payload.message),
+      ...(typeof payload.stack === "string"
+        ? { stack: sanitizeCredentialText(payload.stack) }
+        : {}),
+    },
     method: req.method,
     url: req.originalUrl,
     reqBody: req.body,
@@ -90,10 +87,18 @@ function sanitizeSecretSensitiveResponse(
   req: Request,
   value: unknown,
 ): unknown {
-  const credentials = collectRequestCredentials(req);
+  // Credential text an upstream provider echoed into prose is stripped on
+  // every route; the value-occurrence scrub, which walks the whole request
+  // body, stays limited to the routes that accept credentials.
   const sanitized =
     typeof value === "string" ? sanitizeCredentialText(value) : value;
-  return redactSensitiveValueOccurrences(sanitized, credentials);
+  if (!isSecretSensitiveHttpRequest(req.method, req.originalUrl)) {
+    return sanitized;
+  }
+  return redactSensitiveValueOccurrences(
+    sanitized,
+    collectSensitiveStringValues(req.body),
+  );
 }
 
 /** Report a server-side crash to every error sink. */
