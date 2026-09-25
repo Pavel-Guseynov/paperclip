@@ -5445,4 +5445,163 @@ rl.on("line", (line) => {
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
   });
+
+  it("gates gateway context tools and capabilities by token allowedActions", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
+    const profile = await allowToolsForAgent(db, company.id, agent.id, ["mcp-stdio-fixture:runtime_status"]);
+    const gateway = createTestToolGatewayService(db);
+    const namedGateway = await gateway.createNamedGateway({
+      companyId: company.id,
+      body: {
+        name: `Context gate gateway ${randomUUID()}`,
+        profileId: profile.id,
+        defaultProfileMode: "gateway_only",
+      },
+    });
+
+    const app = createGatewayRouteApp(db, gateway);
+
+    // 1. Run-scoped token with only tools/list and tools/call
+    const runToken = await gateway.createNamedGatewayToken({
+      companyId: company.id,
+      gatewayId: namedGateway.id,
+      body: {
+        name: "Run token",
+        subjectType: "heartbeat_run",
+        subjectId: run.id,
+        allowedActions: ["tools/list", "tools/call"],
+      },
+      actor: { agentId: agent.id },
+    });
+
+    // initialize: must not advertise resources or prompts capabilities
+    const initRun = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${runToken.token}`)
+      .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+      .expect(200);
+    expect(initRun.body.result.capabilities).toEqual({ tools: {} });
+    expect(initRun.body.result.capabilities.resources).toBeUndefined();
+    expect(initRun.body.result.capabilities.prompts).toBeUndefined();
+
+    // tools/list: must not include any of the four context tools
+    const listRun = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${runToken.token}`)
+      .send({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+      .expect(200);
+    const runToolNames = listRun.body.result.tools.map((t: { name: string }) => t.name);
+    expect(runToolNames).not.toContain("paperclip_list_resources");
+    expect(runToolNames).not.toContain("paperclip_read_resource");
+    expect(runToolNames).not.toContain("paperclip_list_prompts");
+    expect(runToolNames).not.toContain("paperclip_get_prompt");
+
+    // 2. Token with all six actions (or default token)
+    const fullToken = await gateway.createNamedGatewayToken({
+      companyId: company.id,
+      gatewayId: namedGateway.id,
+      body: {
+        name: "Full token",
+        allowedActions: [
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+        ],
+      },
+    });
+
+    const initFull = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${fullToken.token}`)
+      .send({ jsonrpc: "2.0", id: 3, method: "initialize" })
+      .expect(200);
+    expect(initFull.body.result.capabilities).toMatchObject({
+      tools: {},
+      resources: {},
+      prompts: {},
+    });
+
+    const listFull = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${fullToken.token}`)
+      .send({ jsonrpc: "2.0", id: 4, method: "tools/list" })
+      .expect(200);
+    const fullToolNames = listFull.body.result.tools.map((t: { name: string }) => t.name);
+    expect(fullToolNames).toContain("paperclip_list_resources");
+    expect(fullToolNames).toContain("paperclip_read_resource");
+    expect(fullToolNames).toContain("paperclip_list_prompts");
+    expect(fullToolNames).toContain("paperclip_get_prompt");
+
+    // Full token can call the context tools without action denial
+    const callFull = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${fullToken.token}`)
+      .send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "paperclip_list_resources", arguments: {} } })
+      .expect(200);
+    expect(callFull.body.result.isError).toBe(false);
+
+    // 3. Token with some of the actions: only prompts/list
+    const promptListToken = await gateway.createNamedGatewayToken({
+      companyId: company.id,
+      gatewayId: namedGateway.id,
+      body: {
+        name: "Prompt list token",
+        allowedActions: ["tools/list", "tools/call", "prompts/list"],
+      },
+    });
+
+    const initPrompt = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${promptListToken.token}`)
+      .send({ jsonrpc: "2.0", id: 6, method: "initialize" })
+      .expect(200);
+    expect(initPrompt.body.result.capabilities.prompts).toBeDefined();
+    expect(initPrompt.body.result.capabilities.resources).toBeUndefined();
+
+    const listPrompt = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${promptListToken.token}`)
+      .send({ jsonrpc: "2.0", id: 7, method: "tools/list" })
+      .expect(200);
+    const promptToolNames = listPrompt.body.result.tools.map((t: { name: string }) => t.name);
+    expect(promptToolNames).toContain("paperclip_list_prompts");
+    expect(promptToolNames).not.toContain("paperclip_get_prompt");
+    expect(promptToolNames).not.toContain("paperclip_list_resources");
+    expect(promptToolNames).not.toContain("paperclip_read_resource");
+
+    // 4. Token with only resources/read
+    const resourceReadToken = await gateway.createNamedGatewayToken({
+      companyId: company.id,
+      gatewayId: namedGateway.id,
+      body: {
+        name: "Resource read token",
+        allowedActions: ["tools/list", "tools/call", "resources/read"],
+      },
+    });
+
+    const initResource = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${resourceReadToken.token}`)
+      .send({ jsonrpc: "2.0", id: 8, method: "initialize" })
+      .expect(200);
+    expect(initResource.body.result.capabilities.resources).toBeDefined();
+    expect(initResource.body.result.capabilities.prompts).toBeUndefined();
+
+    const listResource = await request(app)
+      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+      .set("authorization", `Bearer ${resourceReadToken.token}`)
+      .send({ jsonrpc: "2.0", id: 9, method: "tools/list" })
+      .expect(200);
+    const resourceToolNames = listResource.body.result.tools.map((t: { name: string }) => t.name);
+    expect(resourceToolNames).toContain("paperclip_read_resource");
+    expect(resourceToolNames).not.toContain("paperclip_list_resources");
+    expect(resourceToolNames).not.toContain("paperclip_list_prompts");
+    expect(resourceToolNames).not.toContain("paperclip_get_prompt");
+  });
 });
+

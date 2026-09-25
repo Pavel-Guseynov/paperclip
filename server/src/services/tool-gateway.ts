@@ -74,6 +74,7 @@ import type {
   UpdateToolMcpGateway,
 } from "@paperclipai/shared";
 import {
+  TOOL_MCP_GATEWAY_TOKEN_ACTIONS,
   isGitHubConnectorProfileId,
   isGoogleWorkspaceConnectorProfileId,
   type GitHubConnectorProfileId,
@@ -8563,7 +8564,10 @@ export function createToolGatewayService(
       gatewayPublicId?: string | null;
       bearerToken: string;
       callerHeaders?: Record<string, string | string[] | undefined>;
-    }): Promise<ToolGatewayDescriptor[]> {
+    }): Promise<ToolGatewayDescriptor[] & {
+      tools: ToolGatewayDescriptor[];
+      allowedActions: ToolMcpGatewayTokenAction[];
+    }> {
       const session = await namedGatewaySessionFromBearer({
         gatewayId: input.gatewayId ?? null,
         gatewayPublicId: input.gatewayPublicId ?? null,
@@ -8587,7 +8591,10 @@ export function createToolGatewayService(
           visibleTools: tools.map((tool) => tool.name),
         },
       });
-      return tools;
+      return Object.assign([...tools], {
+        tools,
+        allowedActions: session.gatewayTokenAllowedActions ?? [...TOOL_MCP_GATEWAY_TOKEN_ACTIONS],
+      });
     },
 
     async executeContextForNamedGateway(input: {
