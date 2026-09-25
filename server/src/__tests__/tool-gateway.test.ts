@@ -5567,18 +5567,29 @@ rl.on("line", (line) => {
       body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
     }));
     try {
-      const { connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+      const { connection: ooConn } = await createRemoteMcpTool(db, company.id, {
         url: remote.url,
-        applicationKey: "openobserve",
+        applicationKey: "harness-mcp-openobserve",
         toolName: "searchsql",
         title: "Search SQL",
         riskLevel: "read",
       });
 
-      const legacyToolName = `mcp.openobserve-${connection.id.replace(/-/g, "").slice(0, 8)}:searchsql`;
-      const clientSafeToolName = `openobserve_searchsql`;
+      const { connection: giteaConn } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "gitea-committer",
+        toolName: "pull-request-write",
+        title: "Pull Request Write",
+        riskLevel: "write",
+      });
 
-      // 1. Profile with entries written under pre-Change-14 legacy name, Change 14 client-safe name, fixture, and plugin
+      const legacyToolName = `mcp.harness-mcp-openobserve-${ooConn.id.replace(/-/g, "").slice(0, 8)}:searchsql`;
+      const clientSafeOoToolName = `harness-mcp-openobserve_searchsql`;
+      const clientSafeGiteaToolName = `gitea-committer_pull-request-write`;
+      const clientSafeCollisionName = `harness-mcp-openobser_searchsql_c2222222`;
+      const fixtureReportName = `mcp_openobserve_conn5678_searchsql`;
+
+      // 1. Profile with entries written under legacy name, real Change 14 names, collision name, fixture, and plugin
       const [profile] = await db
         .insert(toolProfiles)
         .values({
@@ -5589,7 +5600,7 @@ rl.on("line", (line) => {
         })
         .returning();
 
-      const [legacyEntry, clientSafeEntry, fixtureEntry, pluginEntry] = await db
+      const [legacyEntry, clientSafeOoEntry, clientSafeGiteaEntry, collisionEntry, reportFixtureEntry, fixtureEntry, pluginEntry] = await db
         .insert(toolProfileEntries)
         .values([
           {
@@ -5604,7 +5615,28 @@ rl.on("line", (line) => {
             profileId: profile.id,
             selectorType: "tool_name",
             effect: "include",
-            toolName: clientSafeToolName,
+            toolName: clientSafeOoToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: clientSafeGiteaToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: clientSafeCollisionName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: fixtureReportName,
           },
           {
             companyId: company.id,
@@ -5625,20 +5657,26 @@ rl.on("line", (line) => {
 
       // Run upgrade migration on database with entries still to convert
       const migrationResult = await migrateLegacyProfileToolNameEntries(db);
-      expect(migrationResult.migratedEntries).toBe(2);
+      expect(migrationResult.migratedEntries).toBe(5);
 
-      // Verify entries in db: legacy and client-safe converted to catalog tool name, fixture and plugin preserved
+      // Verify entries in db: all converted to catalog tool names, fixture and plugin preserved
       const updatedEntries = await db
         .select()
         .from(toolProfileEntries)
         .where(eq(toolProfileEntries.profileId, profile.id));
       const updatedLegacy = updatedEntries.find((e) => e.id === legacyEntry.id);
-      const updatedClientSafe = updatedEntries.find((e) => e.id === clientSafeEntry.id);
+      const updatedOo = updatedEntries.find((e) => e.id === clientSafeOoEntry.id);
+      const updatedGitea = updatedEntries.find((e) => e.id === clientSafeGiteaEntry.id);
+      const updatedCollision = updatedEntries.find((e) => e.id === collisionEntry.id);
+      const updatedReportFixture = updatedEntries.find((e) => e.id === reportFixtureEntry.id);
       const updatedFixture = updatedEntries.find((e) => e.id === fixtureEntry.id);
       const updatedPlugin = updatedEntries.find((e) => e.id === pluginEntry.id);
 
       expect(updatedLegacy?.toolName).toBe("searchsql");
-      expect(updatedClientSafe?.toolName).toBe("searchsql");
+      expect(updatedOo?.toolName).toBe("searchsql");
+      expect(updatedGitea?.toolName).toBe("pull-request-write");
+      expect(updatedCollision?.toolName).toBe("searchsql");
+      expect(updatedReportFixture?.toolName).toBe("searchsql");
       expect(updatedFixture?.toolName).toBe("mcp-stdio-fixture:status");
       expect(updatedPlugin?.toolName).toBe("demo-plugin:echo");
 
@@ -5646,9 +5684,9 @@ rl.on("line", (line) => {
       const secondRunResult = await migrateLegacyProfileToolNameEntries(db);
       expect(secondRunResult.migratedEntries).toBe(0);
 
-      // Verify profile summary reports tool as allowed
+      // Verify profile summary reports tools as allowed
       const profileDetails = await toolAccessService(db).getProfile(profile.id, company.id);
-      expect(profileDetails.summary.allowedToolCount).toBe(1);
+      expect(profileDetails.summary.allowedToolCount).toBe(2);
 
       // Verify named gateway lists and permits tool
       const gateway = createTestToolGatewayService(db);
