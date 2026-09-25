@@ -171,12 +171,13 @@ async function allowToolsForAgent(db: Db, companyId: string, agentId: string, to
         );
         if (match) resolvedToolName = match.toolName;
       } else {
-        const match = catalog.find((c) => {
-          if (c.toolName === toolName) return true;
-          const cleanTool = c.toolName.toLowerCase().replace(/[^a-z0-9]/g, "");
-          const cleanInput = toolName.toLowerCase().replace(/[^a-z0-9]/g, "");
-          return cleanInput.endsWith(cleanTool);
-        });
+        const match = catalog.find(
+          (c) =>
+            c.toolName === toolName ||
+            toolName === c.toolName.toLowerCase().replace(/[^a-z0-9_-]/g, "") ||
+            toolName.endsWith(`_${c.toolName}`) ||
+            toolName.endsWith(`_${c.toolName.toLowerCase().replace(/[^a-z0-9_-]/g, "")}`),
+        );
         if (match) resolvedToolName = match.toolName;
       }
       return {
@@ -5751,7 +5752,6 @@ rl.on("line", (line) => {
         name: `Legacy Profile ${randomUUID()}`,
         defaultAction: "deny",
       }).returning();
-
       await db.insert(toolProfileEntries).values({
         companyId: company.id,
         profileId: profile.id,
@@ -6530,5 +6530,3 @@ rl.on("line", (line) => {
     expect(resourceToolNames).not.toContain("paperclip_get_prompt");
   });
 });
-
-
