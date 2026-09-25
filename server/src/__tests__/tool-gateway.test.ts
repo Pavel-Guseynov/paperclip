@@ -5543,7 +5543,7 @@ rl.on("line", (line) => {
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
   });
-  it("lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve", async () => {
+  it("lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve and gitea-committer", async () => {
     const company = await createCompany(db);
     const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
       body: {
@@ -5553,30 +5553,46 @@ rl.on("line", (line) => {
       },
     }));
     try {
-      const { application, connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+      const { application: ooApp } = await createRemoteMcpTool(db, company.id, {
         url: remote.url,
         applicationKey: "harness-mcp-openobserve",
         toolName: "searchsql",
         title: "Search SQL",
         riskLevel: "read",
       });
+      const { application: giteaApp } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "gitea-committer",
+        toolName: "pull-request-write",
+        title: "Pull Request Write",
+        riskLevel: "write",
+      });
       const [profile] = await db.insert(toolProfiles).values({
         companyId: company.id,
-        profileKey: `openobserve-${randomUUID()}`,
-        name: `OpenObserve Profile ${randomUUID()}`,
+        profileKey: `tools-${randomUUID()}`,
+        name: `Tools Profile ${randomUUID()}`,
         defaultAction: "deny",
       }).returning();
-      await db.insert(toolProfileEntries).values({
-        companyId: company.id,
-        profileId: profile.id,
-        selectorType: "application",
-        applicationId: application.id,
-        effect: "include",
-      });
+      await db.insert(toolProfileEntries).values([
+        {
+          companyId: company.id,
+          profileId: profile.id,
+          selectorType: "application",
+          applicationId: ooApp.id,
+          effect: "include",
+        },
+        {
+          companyId: company.id,
+          profileId: profile.id,
+          selectorType: "application",
+          applicationId: giteaApp.id,
+          effect: "include",
+        },
+      ]);
       const gateway = createTestToolGatewayService(db);
       const created = await gateway.createNamedGateway({
         companyId: company.id,
-        body: { name: "OpenObserve Gateway", profileId: profile.id },
+        body: { name: "Gateway", profileId: profile.id },
       });
       const token = await gateway.createNamedGatewayToken({
         companyId: company.id,
@@ -5591,12 +5607,25 @@ rl.on("line", (line) => {
         .expect(200);
 
       const tools = res.body.result.tools as Array<{ name: string }>;
-      expect(tools.length).toBeGreaterThan(0);
-      const openobserveTool = tools.find((t) => t.name.includes("searchsql") || t.name.includes("openobserve"));
+      expect(tools.length).toBeGreaterThanOrEqual(2);
+
+      const openobserveTool = tools.find((t) => t.name === "harness-mcp-openobserve_searchsql");
       expect(openobserveTool).toBeDefined();
+      expect(openobserveTool!.name).toBe("harness-mcp-openobserve_searchsql");
+      expect(openobserveTool!.name.length).toBe(33);
       expect(openobserveTool!.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+      expect(`mcp_paperclip-assigned_${openobserveTool!.name}`).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+
+      const giteaTool = tools.find((t) => t.name === "gitea-committer_pull-request-write");
+      expect(giteaTool).toBeDefined();
+      expect(giteaTool!.name).toBe("gitea-committer_pull-request-write");
+      expect(giteaTool!.name.length).toBe(34);
+      expect(giteaTool!.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+      expect(`mcp_paperclip-assigned_${giteaTool!.name}`).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+
       for (const tool of tools) {
         expect(tool.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+        expect(`mcp_paperclip-assigned_${tool.name}`).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
       }
     } finally {
       await remote.close();
