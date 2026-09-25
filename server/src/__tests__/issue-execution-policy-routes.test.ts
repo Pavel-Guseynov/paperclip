@@ -10,7 +10,7 @@ const mockIssueService = vi.hoisted(() => ({
   assertCheckoutOwner: vi.fn(),
   update: vi.fn(),
   createChild: vi.fn(),
-  addComment: vi.fn(),
+  addComment: vi.fn(async (_id: string, body: string = "") => ({ id: "comment-1", body })),
   findMentionedAgents: vi.fn(),
   getRelationSummaries: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
@@ -53,10 +53,14 @@ const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
 })));
 const mockDbSelectFrom = vi.hoisted(() => vi.fn(() => ({ where: mockDbSelectWhere })));
 const mockDbSelect = vi.hoisted(() => vi.fn(() => ({ from: mockDbSelectFrom })));
+const mockDbInsert = vi.hoisted(() => vi.fn(() => ({
+  values: vi.fn(async () => []),
+})));
 const mockDb = vi.hoisted(() => ({
   select: mockDbSelect,
-  transaction: vi.fn(async (callback: (tx: { select: typeof mockDbSelect }) => Promise<unknown>) =>
-    callback({ select: mockDbSelect })),
+  insert: mockDbInsert,
+  transaction: vi.fn(async (callback: (tx: { select: typeof mockDbSelect; insert: typeof mockDbInsert }) => Promise<unknown>) =>
+    callback({ select: mockDbSelect, insert: mockDbInsert })),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
@@ -213,6 +217,7 @@ describe("issue execution policy routes", () => {
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByComment.mockResolvedValue([]);
     mockIssueApprovalService.listApprovalsForIssue.mockResolvedValue([]);
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
+    mockDbInsert.mockImplementation(() => ({ values: vi.fn(async () => []) }));
     mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
     mockDbSelectWhere.mockImplementation(() => ({
       for: () => ({
@@ -1203,6 +1208,322 @@ describe("issue execution policy routes", () => {
         action: "issue.monitor_scheduled",
         entityId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         details: expect.not.objectContaining({ externalRef: expect.anything() }),
+      }),
+    );
+  });
+
+  it("an agent run records an approval stage decision without cancelling itself and wakes the next participant", async () => {
+    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
+    const nextParticipantAgentId = "44444444-4444-4444-8444-444444444444";
+    const authorAgentId = "22222222-1111-4111-8111-111111111111";
+    const callingRunId = "55555555-5555-4555-8555-555555555555";
+    const policy = normalizeIssueExecutionPolicy({
+      stages: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          type: "review",
+          participants: [{ type: "agent", agentId: reviewerAgentId }],
+        },
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          type: "approval",
+          participants: [{ type: "agent", agentId: nextParticipantAgentId }],
+        },
+      ],
+    })!;
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: reviewerAgentId,
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1020",
+      title: "Review entering approval stage with calling run",
+      executionPolicy: policy,
+      executionRunId: callingRunId,
+      executionState: {
+        status: "pending",
+        currentStageId: "11111111-1111-4111-8111-111111111111",
+        currentStageIndex: 0,
+        currentStageType: "review",
+        currentParticipant: { type: "agent", agentId: reviewerAgentId },
+        returnAssignee: { type: "agent", agentId: authorAgentId },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockHeartbeatService.getRun.mockImplementation(async (id: string) =>
+      id === callingRunId ? ({ id: callingRunId, status: "running" } as any) : null,
+    );
+    mockHeartbeatService.getActiveRunForAgent.mockImplementation(async (agentId: string) =>
+      agentId === reviewerAgentId ? ({ id: callingRunId, status: "running", contextSnapshot: { issueId: issue.id } } as any) : null,
+    );
+    mockHeartbeatService.cancelRun.mockImplementation(async (id: string) => ({ id, status: "cancelled" } as any));
+
+    const app = await createApp({
+      type: "agent",
+      agentId: reviewerAgentId,
+      companyId: "company-1",
+      runId: callingRunId,
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issue.id}`)
+      .set("X-Paperclip-Run-Id", callingRunId)
+      .send({ status: "done", comment: "LGTM approved by reviewer" });
+
+    expect(res.status).toBe(200);
+    expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      nextParticipantAgentId,
+      expect.objectContaining({
+        reason: "execution_approval_requested",
+      }),
+    );
+  });
+
+  it("an agent run records a changes-requested stage decision without cancelling itself and wakes the return assignee", async () => {
+    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
+    const authorAgentId = "44444444-4444-4444-8444-444444444444";
+    const callingRunId = "55555555-5555-4555-8555-555555555555";
+    const policy = normalizeIssueExecutionPolicy({
+      stages: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          type: "review",
+          participants: [{ type: "agent", agentId: reviewerAgentId }],
+        },
+      ],
+    })!;
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: reviewerAgentId,
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1020",
+      title: "Review requesting changes with calling run",
+      executionPolicy: policy,
+      executionRunId: callingRunId,
+      executionState: {
+        status: "pending",
+        currentStageId: "11111111-1111-4111-8111-111111111111",
+        currentStageIndex: 0,
+        currentStageType: "review",
+        currentParticipant: { type: "agent", agentId: reviewerAgentId },
+        returnAssignee: { type: "agent", agentId: authorAgentId },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockHeartbeatService.getRun.mockImplementation(async (id: string) =>
+      id === callingRunId ? ({ id: callingRunId, status: "running" } as any) : null,
+    );
+    mockHeartbeatService.getActiveRunForAgent.mockImplementation(async (agentId: string) =>
+      agentId === reviewerAgentId ? ({ id: callingRunId, status: "running", contextSnapshot: { issueId: issue.id } } as any) : null,
+    );
+    mockHeartbeatService.cancelRun.mockImplementation(async (id: string) => ({ id, status: "cancelled" } as any));
+
+    const app = await createApp({
+      type: "agent",
+      agentId: reviewerAgentId,
+      companyId: "company-1",
+      runId: callingRunId,
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issue.id}`)
+      .set("X-Paperclip-Run-Id", callingRunId)
+      .send({ status: "in_progress", comment: "Please fix lint and add tests" });
+
+    expect(res.status).toBe(200);
+    expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      authorAgentId,
+      expect.objectContaining({
+        reason: "execution_changes_requested",
+      }),
+    );
+  });
+
+  it("an agent run records a stage decision and still stops a different active run on the issue", async () => {
+    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
+    const nextParticipantAgentId = "44444444-4444-4444-8444-444444444444";
+    const authorAgentId = "22222222-1111-4111-8111-111111111111";
+    const callingRunId = "55555555-5555-4555-8555-555555555555";
+    const differentRunId = "66666666-6666-4666-8666-666666666666";
+    const policy = normalizeIssueExecutionPolicy({
+      stages: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          type: "review",
+          participants: [{ type: "agent", agentId: reviewerAgentId }],
+        },
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          type: "approval",
+          participants: [{ type: "agent", agentId: nextParticipantAgentId }],
+        },
+      ],
+    })!;
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: reviewerAgentId,
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1020",
+      title: "Review entering approval stage with different active run",
+      executionPolicy: policy,
+      executionRunId: callingRunId,
+      executionState: {
+        status: "pending",
+        currentStageId: "11111111-1111-4111-8111-111111111111",
+        currentStageIndex: 0,
+        currentStageType: "review",
+        currentParticipant: { type: "agent", agentId: reviewerAgentId },
+        returnAssignee: { type: "agent", agentId: authorAgentId },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockHeartbeatService.getRun.mockImplementation(async (id: string) =>
+      id === callingRunId || id === differentRunId
+        ? ({ id, status: "running" } as any)
+        : null,
+    );
+    mockHeartbeatService.getActiveRunForAgent.mockImplementation(async (agentId: string) =>
+      agentId === reviewerAgentId ? ({ id: differentRunId, status: "running", contextSnapshot: { issueId: issue.id } } as any) : null,
+    );
+    mockHeartbeatService.cancelRun.mockImplementation(async (id: string) => ({ id, status: "cancelled" } as any));
+
+    const app = await createApp({
+      type: "agent",
+      agentId: reviewerAgentId,
+      companyId: "company-1",
+      runId: callingRunId,
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issue.id}`)
+      .set("X-Paperclip-Run-Id", callingRunId)
+      .send({ status: "done", comment: "LGTM approved by reviewer" });
+
+    expect(res.status).toBe(200);
+    expect(mockHeartbeatService.cancelRun).toHaveBeenCalledTimes(1);
+    expect(mockHeartbeatService.cancelRun).toHaveBeenCalledWith(
+      differentRunId,
+      "Cancelled before issue reassignment",
+      expect.objectContaining({
+        errorCode: "issue_reassigned",
+      }),
+    );
+    expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalledWith(callingRunId, expect.anything(), expect.anything());
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      nextParticipantAgentId,
+      expect.objectContaining({
+        reason: "execution_approval_requested",
+      }),
+    );
+  });
+
+  it("identifies calling run from agent token context when X-Paperclip-Run-Id is omitted", async () => {
+    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
+    const nextParticipantAgentId = "44444444-4444-4444-8444-444444444444";
+    const authorAgentId = "22222222-1111-4111-8111-111111111111";
+    const callingRunId = "55555555-5555-4555-8555-555555555555";
+    const policy = normalizeIssueExecutionPolicy({
+      stages: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          type: "review",
+          participants: [{ type: "agent", agentId: reviewerAgentId }],
+        },
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          type: "approval",
+          participants: [{ type: "agent", agentId: nextParticipantAgentId }],
+        },
+      ],
+    })!;
+    const issue = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      status: "in_review",
+      assigneeAgentId: reviewerAgentId,
+      assigneeUserId: null,
+      createdByUserId: "local-board",
+      identifier: "PAP-1020",
+      title: "Review entering approval stage with calling run from agent token",
+      executionPolicy: policy,
+      executionRunId: callingRunId,
+      executionState: {
+        status: "pending",
+        currentStageId: "11111111-1111-4111-8111-111111111111",
+        currentStageIndex: 0,
+        currentStageType: "review",
+        currentParticipant: { type: "agent", agentId: reviewerAgentId },
+        returnAssignee: { type: "agent", agentId: authorAgentId },
+        completedStageIds: [],
+        lastDecisionId: null,
+        lastDecisionOutcome: null,
+      },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+    mockHeartbeatService.getRun.mockImplementation(async (id: string) =>
+      id === callingRunId ? ({ id: callingRunId, status: "running" } as any) : null,
+    );
+    mockHeartbeatService.getActiveRunForAgent.mockImplementation(async (agentId: string) =>
+      agentId === reviewerAgentId ? ({ id: callingRunId, status: "running", contextSnapshot: { issueId: issue.id } } as any) : null,
+    );
+    mockHeartbeatService.cancelRun.mockImplementation(async (id: string) => ({ id, status: "cancelled" } as any));
+
+    const app = await createApp({
+      type: "agent",
+      agentId: reviewerAgentId,
+      companyId: "company-1",
+      runId: callingRunId,
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done", comment: "LGTM approved by reviewer" });
+
+    expect(res.status).toBe(200);
+    expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      nextParticipantAgentId,
+      expect.objectContaining({
+        reason: "execution_approval_requested",
       }),
     );
   });
