@@ -53,6 +53,15 @@ export async function migrateLegacyProfileToolNameEntries(
     const rawToolName = entry.toolName;
     if (!rawToolName) continue;
 
+    // Built-in fixtures and plugin tools have no catalog entry and must never be rewritten
+    if (
+      rawToolName.startsWith("mcp-stdio-fixture:") ||
+      rawToolName.startsWith("mcp-remote-fixture:") ||
+      rawToolName.includes("-plugin:")
+    ) {
+      continue;
+    }
+
     let targetCatalogName: string | null = null;
 
     const companyCatalog = catalog.filter((c) => c.companyId === entry.companyId);
