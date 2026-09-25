@@ -1,9 +1,9 @@
 regression test: gates gateway context tools and capabilities by token allowedActions
-head=4272b320005caea24a259c19b02bc343e06180a9 (fix/tool-gateway-context-tools-token-actions)
+head=736b368cec47445e2d2e1c1d806feed3e0a1feaa (fix/tool-gateway-context-tools-token-actions, prior: 4272b3200ef6a3c3deaccad91b2a9d855978fde1)
 base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
-stable-head=9d787c3c88fd36f788be177b949aa8a3e7fc9759 (stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions)
+stable-head=b3ea01a407e585acce86033e57fe890a08382a8e (stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions, prior: 9d787c3c880aeeb96efa7d7c596cd44014b97c59)
 stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
-main-merge-head=02bff55563914a84dcba9e25dca2ca59f77e682e (main)
+main-merge-head=f82e1b468fde1ae18fefbaf1efc27a924454e1eb (main, prior: 02bff55561eae6c8d985533dd553651ba1b5936b)
 
 regression-base exit=1: AssertionError: expected { tools: {}, resources: {}, prompts: {} } to deeply equal { tools: {} }
-regression-head exit=0: 72 passed (contribution branch) / 63 passed (stable branch) / 69 passed (fork main)
+regression-head exit=0: 72 passed (contribution branch) / 63 passed (stable branch) / 71 passed (fork main)

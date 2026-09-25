@@ -39,9 +39,9 @@ The first review found defects in content that came from the stable branches. Th
 | 11 | `fix/native-runner-darwin-lsof-unicode` | `c14cff271` | (new name) | `ea6107e61` | 4/22 fail | at the earlier head `66f851174` | ready (R3) |
 | 12 | `test/workspace-runtime-exposure-isolation` | `8ab66bdb3` | (new name) | `127a04737` | causal test fails | complete | ready (R2) |
 | 13 | `chore/pnpm-11-toolchain` | `c8a267aab` | (new name; old PR #13894) | `e3fe89cf5` | policy check fails on U | complete, plus pnpm policy and `sentry-contract` | ready (R3) |
-| 14 | `fix/tool-gateway-client-safe-tool-names` | `20df18689` | (new name) | `8496e273e` | 1/63 fail | complete | ready |
-| 15 | `fix/tool-gateway-context-tools-token-actions` | `9d787c3c8` | (new name) | `4272b3200` | 1/63 fail | complete | ready |
-| 16 | `fix/tool-profile-tool-name-identity` | `26636c2b5` | (new name) | `b947ac9bd` | 1/72 fail | complete | ready |
+| 14 | `fix/tool-gateway-client-safe-tool-names` | `6099ee048` | `8496e273e` | `21175f393` | 1/63 fail | complete | ready |
+| 15 | `fix/tool-gateway-context-tools-token-actions` | `b3ea01a40` | `4272b3200` | `736b368ce` | 1/63 fail | complete | ready |
+| 16 | `fix/tool-profile-tool-name-identity` | `f3f864e28` | `b947ac9bd` | `cdd35852c` | 1/72 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -188,28 +188,28 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 
 - Title: `fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition`
 - Conflicts against U: none.
-- Regression: `lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve` fails on U with `expected 'mcp-remote-fixture:echo' to match /^[A-Za-z0-9_-]{1,40}$/` and passes on the head (75/75 passed on contribution head, 66/66 on stable, 68/68 on fork main).
+- Regression: `lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve` fails on U with `expected 'mcp-remote-fixture:echo' to match /^[A-Za-z0-9_-]{1,40}$/` and passes on the head (77/77 passed on contribution head, 68/68 on stable, 71/71 on fork main).
 - Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
-- Duplicate check: searched GitHub issues and PRs; no existing report or PR for gateway tool name validation restrictions in strict MCP clients. #11372 and PR #12872 touch adjacent profile/display areas.
-- Backport: clean cherry-pick `20df18689` onto `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names`.
+- Dependency: Depends on Change 16 (`fix/tool-profile-tool-name-identity`). The dual lookup fallback `legacyNames.includes(entry.toolName)` was removed in favor of single catalog identity, and legacy profile entries are migrated to catalog identity via `migrateLegacyProfileToolNameEntries`.
+- Backport: merged `stable/v2026.916.1/fix/tool-profile-tool-name-identity` into `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names` (`6099ee048`).
 
 ### 15 Gateway context tools gated by token actions
 
 - Title: `fix(tool-gateway): gate context tools and capabilities by token allowedActions`
 - Conflicts against U: none.
-- Regression: `gates gateway context tools and capabilities by token allowedActions` fails on base with `expected { tools: {}, resources: {}, prompts: {} } to deeply equal { tools: {} }` and passes on the head (72/72 passed on contribution head, 63/63 on stable, 69/69 on fork main).
+- Regression: `gates gateway context tools and capabilities by token allowedActions` fails on base with `expected { tools: {}, resources: {}, prompts: {} } to deeply equal { tools: {} }` and passes on the head (72/72 passed on contribution head, 63/63 on stable, 71/71 on fork main).
+- Behavioral tests: Token with all six actions lists and calls all four context tools (`paperclip_list_resources`, `paperclip_read_resource`, `paperclip_list_prompts`, `paperclip_get_prompt`) returning 200 `isError: false`; token with subset actions lists only matching tools/capabilities and forbidden calls return 403 `gateway_token_action_denied`.
 - Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
-- Duplicate check: searched GitHub issues and PRs; no existing report or PR for gateway context tools gated by token actions.
-- Backport: clean cherry-pick `9d787c3c8` onto `stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions`.
+- Backport: clean cherry-pick `b3ea01a40` onto `stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions`.
 
 ### 16 Tool profile tool_name selector identity
 
 - Title: `fix(tool-access): use catalog tool name as single identity for tool_name profile selectors`
 - Conflicts against U: none.
 - Regression: `resolves tool_name profile selector against catalog upstream tool name` fails on base with `AssertionError: expected undefined to be defined` and passes on the head (73/73 passed on contribution head, 64/64 on stable, 71/71 on fork main).
+- Migration: Verified against real database (`tool_profile_entries`) across three distinct states: clean database (0 migrated), unmigrated database (legacy and client-safe entries converted to catalog tool name, fixture and plugin tools preserved untouched), and converted database (0 migrated, converted exactly once).
 - Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
-- Duplicate check: addresses and fixes upstream issue #11372 ("Exact tool-name profile entries compare against normalized gateway names and never match").
-- Backport: clean cherry-pick `26636c2b5` onto `stable/v2026.916.1/fix/tool-profile-tool-name-identity`.
+- Backport: clean cherry-pick `f3f864e28` onto `stable/v2026.916.1/fix/tool-profile-tool-name-identity`.
 
 ## Environment and baseline
 
@@ -715,23 +715,31 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 
 ### 14 `fix/tool-gateway-client-safe-tool-names`
 
-- Head: `8496e273edec72527b303c9f573c1e5368ce693a`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit (0 merges); diff vs U: 4 files changed, 609 insertions(+), 45 deletions(-).
+- Head: `21175f393c7a39bca4f61f63d32832d74f41f2fc`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 3 commits (1 merge); diff vs U: 7 files changed, 747 insertions(+), 46 deletions(-).
 - Commits (oldest first; author; cherry-pick source):
   - `8496e273e` pavel.guseynov: fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition
+  - `cdd35852c` pavel.guseynov: fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration
+  - `21175f393` pavel.guseynov: Merge branch 'fix/tool-profile-tool-name-identity' into fix/tool-gateway-client-safe-tool-names
 - Files:
   - M `packages/shared/src/types/tool-access.ts`
   - M `server/src/__tests__/tool-gateway.test.ts`
+  - M `server/src/index.ts`
+  - M `server/src/services/index.ts`
   - M `server/src/services/tool-access-policy.ts`
   - M `server/src/services/tool-gateway.ts`
+  - A `server/src/services/tool-profile-migration.ts`
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names`: none.
 - Stable-only commits (not on this branch):
   - `20df18689` fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition (cherry picked from `8496e273e`)
+  - `f3f864e28` fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration (cherry picked from `cdd35852c`)
+  - `6099ee048` Merge branch 'stable/v2026.916.1/fix/tool-profile-tool-name-identity' into stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names
 
 ### 15 `fix/tool-gateway-context-tools-token-actions`
 
-- Head: `4272b320005caea24a259c19b02bc343e06180a9`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit (0 merges); diff vs U: 3 files changed, 228 insertions(+), 30 deletions(-).
+- Head: `736b368cec47445e2d2e1c1d806feed3e0a1feaa`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 2 commits (0 merges); diff vs U: 3 files changed, 340 insertions(+), 142 deletions(-).
 - Commits (oldest first; author; cherry-pick source):
   - `4272b3200` pavel.guseynov: fix(tool-gateway): gate context tools and capabilities by token allowedActions
+  - `736b368ce` pavel.guseynov: test(tool-gateway): cover full 4-tool context execution and subset action denials
 - Files:
   - M `server/src/__tests__/tool-gateway.test.ts`
   - M `server/src/routes/tool-gateway.ts`
@@ -739,12 +747,14 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions`: none.
 - Stable-only commits (not on this branch):
   - `9d787c3c8` fix(tool-gateway): gate context tools and capabilities by token allowedActions (cherry picked from `4272b3200`)
+  - `b3ea01a40` test(tool-gateway): cover full 4-tool context execution and subset action denials (cherry picked from `736b368ce`)
 
 ### 16 `fix/tool-profile-tool-name-identity`
 
-- Head: `b947ac9bd4d8a75a25e55d3d33ed5b6cc0bbd96a`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit (0 merges); diff vs U: 5 files changed, 352 insertions(+), 11 deletions(-).
+- Head: `cdd35852c507446574f22a87cc175bb1f3b1288e`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 2 commits (0 merges); diff vs U: 5 files changed, 412 insertions(+), 14 deletions(-).
 - Commits (oldest first; author; cherry-pick source):
   - `b947ac9bd` pavel.guseynov: fix(tool-access): use catalog tool name as single identity for tool_name profile selectors
+  - `cdd35852c` pavel.guseynov: fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration
 - Files:
   - M `server/src/__tests__/tool-gateway.test.ts`
   - M `server/src/index.ts`
@@ -754,6 +764,7 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/tool-profile-tool-name-identity`: none.
 - Stable-only commits (not on this branch):
   - `26636c2b5` fix(tool-access): use catalog tool name as single identity for tool_name profile selectors (cherry picked from `b947ac9bd`)
+  - `f3f864e28` fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration (cherry picked from `cdd35852c`)
 
 
 

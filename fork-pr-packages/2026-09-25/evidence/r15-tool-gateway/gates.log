@@ -1,7 +1,7 @@
 === Gate Execution Summary for Change 15 ===
 
 Branch: fix/tool-gateway-context-tools-token-actions
-Head: 4272b320005caea24a259c19b02bc343e06180a9
+Head: 736b368cec47445e2d2e1c1d806feed3e0a1feaa (prior: 4272b3200ef6a3c3deaccad91b2a9d855978fde1)
 Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 1. pnpm -r typecheck
@@ -23,7 +23,7 @@ Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 ---
 
 Branch: stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions
-Head: 9d787c3c88fd36f788be177b949aa8a3e7fc9759
+Head: b3ea01a407e585acce86033e57fe890a08382a8e (prior: 9d787c3c880aeeb96efa7d7c596cd44014b97c59)
 Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 
 1. pnpm -r typecheck
@@ -42,8 +42,8 @@ Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 ---
 
 Branch: main (post-merge of stable branch)
-Head: 02bff55563914a84dcba9e25dca2ca59f77e682e
-Base: 8d8f333c6f4cc9a3dc5b88803f49e6e29fb65695
+Head: f82e1b468fde1ae18fefbaf1efc27a924454e1eb (prior: 02bff55561eae6c8d985533dd553651ba1b5936b)
+Base: daa2e1930db1be51d2e1ba945625ff68f6a394ec
 
 1. pnpm -r typecheck
    Exit: 0 (PASSED)
@@ -56,4 +56,5 @@ Base: 8d8f333c6f4cc9a3dc5b88803f49e6e29fb65695
 
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
-   Output: 69 passed.
+   Output: 71 passed.
+

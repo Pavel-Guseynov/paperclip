@@ -1,7 +1,7 @@
 === Gate Execution Summary for Change 14 ===
 
 Branch: fix/tool-gateway-client-safe-tool-names
-Head: 8496e273edec72527b303c9f573c1e5368ce693a
+Head: 21175f393c7a39bca4f61f63d32832d74f41f2fc (prior: 8496e273edec72527b303c9f573c1e5368ce693a)
 Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 1. pnpm -r typecheck
@@ -18,12 +18,12 @@ Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
-   Output: 75 passed (including regression test, tool dispatch, name stability, and legacy transitions for approvals, trust rules, and profile entries).
+   Output: 77 passed (including regression test, tool dispatch, name stability, legacy transitions for approvals/trust rules/profile entries via migration, and single catalog identity).
 
 ---
 
 Branch: stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names
-Head: 20df18689fcea010564c3d43a778d71c5f464d6d
+Head: 6099ee048fd281e584d61bfcd44938240ffdb5c0 (prior: 20df18689fcea010564c3d43a778d71c5f464d6d)
 Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 
 1. pnpm -r typecheck
@@ -37,14 +37,24 @@ Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
-   Output: 66 passed.
+   Output: 68 passed.
 
 ---
 
 Branch: main (post-merge of stable branch)
-Head: 8d8f333c631a0e194ea7a6c986c738e4a9089f2a
-Base: 6dab510707797b53ea06b12a84976c6ae3500366
+Head: daa2e1930db1be51d2e1ba945625ff68f6a394ec (final: f82e1b468fde1ae18fefbaf1efc27a924454e1eb)
+Base: b636ba34ab1a21f7dbbe04627b7b12fc224a1b0b
 
-1. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+1. pnpm -r typecheck
    Exit: 0 (PASSED)
-   Output: 68 passed.
+
+2. pnpm build
+   Exit: 0 (PASSED)
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+   Exit: 0 (PASSED)
+   Output: 71 passed.
+
