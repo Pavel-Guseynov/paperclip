@@ -5977,6 +5977,11 @@ rl.on("line", (line) => {
   it("preserves effect of stored profile tool_name entries across upgrade migration", async () => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
+
+    // 0. Clean database with no tool_name entries to convert
+    const initialCleanResult = await migrateLegacyProfileToolNameEntries(db);
+    expect(initialCleanResult.migratedEntries).toBe(0);
+
     const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
       body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
     }));
@@ -5990,8 +5995,9 @@ rl.on("line", (line) => {
       });
 
       const legacyToolName = `mcp.openobserve-${connection.id.replace(/-/g, "").slice(0, 8)}:searchsql`;
+      const clientSafeToolName = `openobserve_searchsql`;
 
-      // 1. Profile with entry written under pre-Change-14 legacy name
+      // 1. Profile with entries written under pre-Change-14 legacy name, Change 14 client-safe name, fixture, and plugin
       const [profile] = await db
         .insert(toolProfiles)
         .values({
@@ -6002,24 +6008,62 @@ rl.on("line", (line) => {
         })
         .returning();
 
-      await db.insert(toolProfileEntries).values({
-        companyId: company.id,
-        profileId: profile.id,
-        selectorType: "tool_name",
-        effect: "include",
-        toolName: legacyToolName,
-      });
+      const [legacyEntry, clientSafeEntry, fixtureEntry, pluginEntry] = await db
+        .insert(toolProfileEntries)
+        .values([
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: legacyToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: clientSafeToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: "mcp-stdio-fixture:status",
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: "demo-plugin:echo",
+          },
+        ])
+        .returning();
 
-      // Run upgrade migration
+      // Run upgrade migration on database with entries still to convert
       const migrationResult = await migrateLegacyProfileToolNameEntries(db);
-      expect(migrationResult.migratedEntries).toBeGreaterThanOrEqual(1);
+      expect(migrationResult.migratedEntries).toBe(2);
 
-      // Verify the entry in db is now migrated to catalog tool name
-      const [updatedEntry] = await db
+      // Verify entries in db: legacy and client-safe converted to catalog tool name, fixture and plugin preserved
+      const updatedEntries = await db
         .select()
         .from(toolProfileEntries)
         .where(eq(toolProfileEntries.profileId, profile.id));
-      expect(updatedEntry.toolName).toBe("searchsql");
+      const updatedLegacy = updatedEntries.find((e) => e.id === legacyEntry.id);
+      const updatedClientSafe = updatedEntries.find((e) => e.id === clientSafeEntry.id);
+      const updatedFixture = updatedEntries.find((e) => e.id === fixtureEntry.id);
+      const updatedPlugin = updatedEntries.find((e) => e.id === pluginEntry.id);
+
+      expect(updatedLegacy?.toolName).toBe("searchsql");
+      expect(updatedClientSafe?.toolName).toBe("searchsql");
+      expect(updatedFixture?.toolName).toBe("mcp-stdio-fixture:status");
+      expect(updatedPlugin?.toolName).toBe("demo-plugin:echo");
+
+      // Verify second run on already-converted database: converted exactly once (zero further migrations)
+      const secondRunResult = await migrateLegacyProfileToolNameEntries(db);
+      expect(secondRunResult.migratedEntries).toBe(0);
 
       // Verify profile summary reports tool as allowed
       const profileDetails = await toolAccessService(db).getProfile(profile.id, company.id);
