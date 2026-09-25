@@ -1,0 +1,22 @@
+FAIL src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gates gateway context tools and capabilities by token allowedActions
+AssertionError: expected { tools: {}, resources: {}, …(1) } to deeply equal { tools: {} }
+
+- Expected
++ Received
+
+  {
++   "prompts": {},
++   "resources": {},
+    "tools": {},
+  }
+
+ ❯ src/__tests__/tool-gateway.test.ts:5485:46
+    5483|       .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    5484|       .expect(200);
+    5485|     expect(initRun.body.result.capabilities).toEqual({ tools: {} });
+       |                                              ^
+    5486|     expect(initRun.body.result.capabilities.resources).toBeUndefined();
+    5487|     expect(initRun.body.result.capabilities.prompts).toBeUndefined();
+
+Test Files  1 failed (1)
+     Tests  1 failed | 62 skipped (63)

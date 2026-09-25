@@ -40,6 +40,7 @@ The first review found defects in content that came from the stable branches. Th
 | 12 | `test/workspace-runtime-exposure-isolation` | `8ab66bdb3` | (new name) | `127a04737` | causal test fails | complete | ready (R2) |
 | 13 | `chore/pnpm-11-toolchain` | `c8a267aab` | (new name; old PR #13894) | `e3fe89cf5` | policy check fails on U | complete, plus pnpm policy and `sentry-contract` | ready (R3) |
 | 14 | `fix/tool-gateway-client-safe-tool-names` | `20df18689` | (new name) | `8496e273e` | 1/63 fail | complete | ready |
+| 15 | `fix/tool-gateway-context-tools-token-actions` | `9d787c3c8` | (new name) | `4272b3200` | 1/63 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -190,6 +191,15 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
 - Duplicate check: searched GitHub issues and PRs; no existing report or PR for gateway tool name validation restrictions in strict MCP clients. #11372 and PR #12872 touch adjacent profile/display areas.
 - Backport: clean cherry-pick `20df18689` onto `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names`.
+
+### 15 Gateway context tools gated by token actions
+
+- Title: `fix(tool-gateway): gate context tools and capabilities by token allowedActions`
+- Conflicts against U: none.
+- Regression: `gates gateway context tools and capabilities by token allowedActions` fails on base with `expected { tools: {}, resources: {}, prompts: {} } to deeply equal { tools: {} }` and passes on the head (72/72 passed on contribution head, 63/63 on stable, 69/69 on fork main).
+- Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
+- Duplicate check: searched GitHub issues and PRs; no existing report or PR for gateway context tools gated by token actions.
+- Backport: clean cherry-pick `9d787c3c8` onto `stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions`.
 
 ## Environment and baseline
 
@@ -706,4 +716,18 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names`: none.
 - Stable-only commits (not on this branch):
   - `20df18689` fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition (cherry picked from `8496e273e`)
+
+### 15 `fix/tool-gateway-context-tools-token-actions`
+
+- Head: `4272b320005caea24a259c19b02bc343e06180a9`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit (0 merges); diff vs U: 3 files changed, 228 insertions(+), 30 deletions(-).
+- Commits (oldest first; author; cherry-pick source):
+  - `4272b3200` pavel.guseynov: fix(tool-gateway): gate context tools and capabilities by token allowedActions
+- Files:
+  - M `server/src/__tests__/tool-gateway.test.ts`
+  - M `server/src/routes/tool-gateway.ts`
+  - M `server/src/services/tool-gateway.ts`
+- Commits without a patch-equivalent on `stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions`: none.
+- Stable-only commits (not on this branch):
+  - `9d787c3c8` fix(tool-gateway): gate context tools and capabilities by token allowedActions (cherry picked from `4272b3200`)
+
 

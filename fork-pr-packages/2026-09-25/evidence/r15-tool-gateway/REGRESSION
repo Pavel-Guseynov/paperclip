@@ -1,0 +1,9 @@
+regression test: gates gateway context tools and capabilities by token allowedActions
+head=4272b320005caea24a259c19b02bc343e06180a9 (fix/tool-gateway-context-tools-token-actions)
+base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
+stable-head=9d787c3c88fd36f788be177b949aa8a3e7fc9759 (stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=02bff55563914a84dcba9e25dca2ca59f77e682e (main)
+
+regression-base exit=1: AssertionError: expected { tools: {}, resources: {}, prompts: {} } to deeply equal { tools: {} }
+regression-head exit=0: 72 passed (contribution branch) / 63 passed (stable branch) / 69 passed (fork main)

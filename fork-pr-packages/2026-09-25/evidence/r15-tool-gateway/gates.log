@@ -1,0 +1,59 @@
+=== Gate Execution Summary for Change 15 ===
+
+Branch: fix/tool-gateway-context-tools-token-actions
+Head: 4272b320005caea24a259c19b02bc343e06180a9
+Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+   Output: packages/shared, packages/db, server, ui, cli, packages/adapters/* all typecheck cleanly.
+
+2. pnpm build
+   Exit: 0 (PASSED)
+   Output: all packages built cleanly without errors.
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+   Output: design tokens gate passed.
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+   Exit: 0 (PASSED)
+   Output: 72 passed (including regression test, full token execution, and partial action tokens).
+
+---
+
+Branch: stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions
+Head: 9d787c3c88fd36f788be177b949aa8a3e7fc9759
+Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+
+2. pnpm build
+   Exit: 0 (PASSED)
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+   Exit: 0 (PASSED)
+   Output: 63 passed.
+
+---
+
+Branch: main (post-merge of stable branch)
+Head: 02bff55563914a84dcba9e25dca2ca59f77e682e
+Base: 8d8f333c6f4cc9a3dc5b88803f49e6e29fb65695
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+
+2. pnpm build
+   Exit: 0 (PASSED)
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+   Exit: 0 (PASSED)
+   Output: 69 passed.
