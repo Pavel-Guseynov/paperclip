@@ -1,0 +1,35 @@
+=== Vitest Execution on fix/tool-profile-tool-name-identity (b947ac9bd) ===
+
+Command: CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+Exit code: 0
+
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork/server
+
+ ✓ src/__tests__/tool-gateway.test.ts (73 tests) 8420ms
+
+ Test Files  1 passed (1)
+      Tests  73 passed (73)
+
+=== Vitest Execution on stable/v2026.916.1/fix/tool-profile-tool-name-identity (26636c2b5) ===
+
+Command: CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+Exit code: 0
+
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork/server
+
+ ✓ src/__tests__/tool-gateway.test.ts (64 tests) 6750ms
+
+ Test Files  1 passed (1)
+      Tests  64 passed (64)
+
+=== Vitest Execution on main (db82fd90d) ===
+
+Command: CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+Exit code: 0
+
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork/server
+
+ ✓ src/__tests__/tool-gateway.test.ts (71 tests) 8600ms
+
+ Test Files  1 passed (1)
+      Tests  71 passed (71)

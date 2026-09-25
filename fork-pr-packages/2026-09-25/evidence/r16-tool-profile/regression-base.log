@@ -1,0 +1,19 @@
+FAIL src/__tests__/tool-gateway.test.ts > tool gateway acceptance > resolves tool_name profile selector against catalog upstream tool name
+AssertionError: expected undefined to be defined
+
+- Expected:
+defined
+
++ Received:
+undefined
+
+ ❯ src/__tests__/tool-gateway.test.ts:5572:23
+   5570|     const allowed = access.allowedTools.find(
+   5571|       (t: any) => t.name === "searchsql" || t.name === "openobserve:searchsql",
+   5572|     );
+   5573|     expect(allowed).toBeDefined();
+       |                     ^
+   5574|     expect(access.deniedTools).toHaveLength(0);
+
+Test Files  1 failed (1)
+     Tests  1 failed | 72 passed (73)

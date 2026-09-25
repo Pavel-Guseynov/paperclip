@@ -13,3 +13,4 @@
 13	chore/pnpm-11-toolchain	refactor(toolchain): migrate the repository to pnpm 11.21.0
 14	fix/tool-gateway-client-safe-tool-names	fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition
 15	fix/tool-gateway-context-tools-token-actions	fix(tool-gateway): gate context tools and capabilities by token allowedActions
+16	fix/tool-profile-tool-name-identity	fix(tool-access): use catalog tool name as single identity for tool_name profile selectors
