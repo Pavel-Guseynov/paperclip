@@ -1,9 +1,9 @@
 regression test: resolves tool_name profile selector against catalog upstream tool name
-head=b947ac9bd4d8a75a25e55d3d33ed5b6cc0bbd96a (fix/tool-profile-tool-name-identity)
+head=90a9876ef7b356470f9462be5d38576b8a9cb097 (fix/tool-profile-tool-name-identity)
 base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
-stable-head=26636c2b5b92c8eb30dd89ee14cfcfcc14d92ca2 (stable/v2026.916.1/fix/tool-profile-tool-name-identity)
+stable-head=df5fc7841614b41d7787fa801fa01eabf6afd197 (stable/v2026.916.1/fix/tool-profile-tool-name-identity)
 stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
-main-merge-head=db82fd90df8156c4680e8c127dfd189d13f1de49 (main)
+main-merge-head=b5747f318ff96016d19019d84132226addd118e1 (main)
 
 regression-base exit=1: AssertionError: expected undefined to be defined
 regression-head exit=0: 73 passed (contribution branch) / 64 passed (stable branch) / 71 passed (fork main)

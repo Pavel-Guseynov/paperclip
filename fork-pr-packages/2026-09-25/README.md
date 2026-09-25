@@ -39,9 +39,9 @@ The first review found defects in content that came from the stable branches. Th
 | 11 | `fix/native-runner-darwin-lsof-unicode` | `c14cff271` | (new name) | `ea6107e61` | 4/22 fail | at the earlier head `66f851174` | ready (R3) |
 | 12 | `test/workspace-runtime-exposure-isolation` | `8ab66bdb3` | (new name) | `127a04737` | causal test fails | complete | ready (R2) |
 | 13 | `chore/pnpm-11-toolchain` | `c8a267aab` | (new name; old PR #13894) | `e3fe89cf5` | policy check fails on U | complete, plus pnpm policy and `sentry-contract` | ready (R3) |
-| 14 | `fix/tool-gateway-client-safe-tool-names` | `6099ee048` | `8496e273e` | `21175f393` | 1/63 fail | complete | ready |
+| 14 | `fix/tool-gateway-client-safe-tool-names` | `31abc189b` | `21175f393` | `b743738d2` | 1/63 fail | complete | ready |
 | 15 | `fix/tool-gateway-context-tools-token-actions` | `b3ea01a40` | `4272b3200` | `736b368ce` | 1/63 fail | complete | ready |
-| 16 | `fix/tool-profile-tool-name-identity` | `f3f864e28` | `b947ac9bd` | `cdd35852c` | 1/72 fail | complete | ready |
+| 16 | `fix/tool-profile-tool-name-identity` | `df5fc7841` | `cdd35852c` | `90a9876ef` | 1/72 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -191,7 +191,7 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Regression: `lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve` fails on U with `expected 'mcp-remote-fixture:echo' to match /^[A-Za-z0-9_-]{1,40}$/` and passes on the head (77/77 passed on contribution head, 68/68 on stable, 71/71 on fork main).
 - Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
 - Dependency: Depends on Change 16 (`fix/tool-profile-tool-name-identity`). The dual lookup fallback `legacyNames.includes(entry.toolName)` was removed in favor of single catalog identity, and legacy profile entries are migrated to catalog identity via `migrateLegacyProfileToolNameEntries`.
-- Backport: merged `stable/v2026.916.1/fix/tool-profile-tool-name-identity` into `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names` (`6099ee048`).
+- Backport: merged `stable/v2026.916.1/fix/tool-profile-tool-name-identity` into `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names` (`2197760a5`) and added live contract tests (`31abc189b`).
 
 ### 15 Gateway context tools gated by token actions
 
@@ -209,7 +209,7 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Regression: `resolves tool_name profile selector against catalog upstream tool name` fails on base with `AssertionError: expected undefined to be defined` and passes on the head (73/73 passed on contribution head, 64/64 on stable, 71/71 on fork main).
 - Migration: Verified against real database (`tool_profile_entries`) across three distinct states: clean database (0 migrated), unmigrated database (legacy and client-safe entries converted to catalog tool name, fixture and plugin tools preserved untouched), and converted database (0 migrated, converted exactly once).
 - Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
-- Backport: clean cherry-pick `f3f864e28` onto `stable/v2026.916.1/fix/tool-profile-tool-name-identity`.
+- Backport: clean cherry-pick `df5fc7841` (-x `90a9876ef`) onto `stable/v2026.916.1/fix/tool-profile-tool-name-identity`.
 
 ## Environment and baseline
 
@@ -715,13 +715,17 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 
 ### 14 `fix/tool-gateway-client-safe-tool-names`
 
-- Head: `21175f393c7a39bca4f61f63d32832d74f41f2fc`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 3 commits (1 merge); diff vs U: 7 files changed, 747 insertions(+), 46 deletions(-).
+- Head: `b743738d2bd2e70764b57eb70ef5430e774cabfd`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 6 commits (2 merges); diff vs U: 7 files changed, 810 insertions(+), 46 deletions(-).
 - Commits (oldest first; author; cherry-pick source):
   - `8496e273e` pavel.guseynov: fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition
   - `cdd35852c` pavel.guseynov: fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration
   - `21175f393` pavel.guseynov: Merge branch 'fix/tool-profile-tool-name-identity' into fix/tool-gateway-client-safe-tool-names
+  - `90a9876ef` pavel.guseynov: fix(tool-profile): recognize real Change 14 names and mock migration in startup tests
+  - `c55b8f1b2` pavel.guseynov: Merge branch 'fix/tool-profile-tool-name-identity' into fix/tool-gateway-client-safe-tool-names
+  - `b743738d2` pavel.guseynov: test(tool-gateway): assert client-safe tool names and lengths for harness-mcp-openobserve and gitea-committer
 - Files:
   - M `packages/shared/src/types/tool-access.ts`
+  - M `server/src/__tests__/server-startup-feedback-export.test.ts`
   - M `server/src/__tests__/tool-gateway.test.ts`
   - M `server/src/index.ts`
   - M `server/src/services/index.ts`
@@ -733,6 +737,9 @@ For each change, the commits (with authors and cherry-pick sources), the changed
   - `20df18689` fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition (cherry picked from `8496e273e`)
   - `f3f864e28` fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration (cherry picked from `cdd35852c`)
   - `6099ee048` Merge branch 'stable/v2026.916.1/fix/tool-profile-tool-name-identity' into stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names
+  - `df5fc7841` fix(tool-profile): recognize real Change 14 names and mock migration in startup tests (cherry picked from `90a9876ef`)
+  - `2197760a5` Merge branch 'stable/v2026.916.1/fix/tool-profile-tool-name-identity' into stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names
+  - `31abc189b` test(tool-gateway): assert client-safe tool names and lengths for harness-mcp-openobserve and gitea-committer
 
 ### 15 `fix/tool-gateway-context-tools-token-actions`
 
@@ -751,11 +758,13 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 
 ### 16 `fix/tool-profile-tool-name-identity`
 
-- Head: `cdd35852c507446574f22a87cc175bb1f3b1288e`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 2 commits (0 merges); diff vs U: 5 files changed, 412 insertions(+), 14 deletions(-).
+- Head: `90a9876ef7b356470f9462be5d38576b8a9cb097`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 3 commits (0 merges); diff vs U: 6 files changed, 442 insertions(+), 14 deletions(-).
 - Commits (oldest first; author; cherry-pick source):
   - `b947ac9bd` pavel.guseynov: fix(tool-access): use catalog tool name as single identity for tool_name profile selectors
   - `cdd35852c` pavel.guseynov: fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration
+  - `90a9876ef` pavel.guseynov: fix(tool-profile): recognize real Change 14 names and mock migration in startup tests
 - Files:
+  - M `server/src/__tests__/server-startup-feedback-export.test.ts`
   - M `server/src/__tests__/tool-gateway.test.ts`
   - M `server/src/index.ts`
   - M `server/src/services/index.ts`
@@ -765,6 +774,8 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Stable-only commits (not on this branch):
   - `26636c2b5` fix(tool-access): use catalog tool name as single identity for tool_name profile selectors (cherry picked from `b947ac9bd`)
   - `f3f864e28` fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration (cherry picked from `cdd35852c`)
+  - `df5fc7841` fix(tool-profile): recognize real Change 14 names and mock migration in startup tests (cherry picked from `90a9876ef`)
+
 
 
 

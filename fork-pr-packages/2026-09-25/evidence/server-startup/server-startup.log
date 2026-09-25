@@ -1,0 +1,123 @@
+=== SERVER STARTUP AND MIGRATION PROOF ===
+Initial profile entries count: 7
+
+--- STARTING SERVER (RUN 1) ---
+[18:54:59] INFO: Using external PostgreSQL via DATABASE_URL/config
+[18:54:59] INFO: Backfilled principal access compatibility records {"agentMembershipsInserted":0,"humanGrantsInserted":12}
+[18:54:59] INFO: Migrated legacy tool profile selector entries to catalog tool names {"scannedEntries":7,"migratedEntries":5}
+[18:54:59] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[18:54:59] INFO: plugin job coordinator started — listening to lifecycle events {"service":"plugin-job-coordinator"}
+[18:54:59] INFO: plugin job scheduler started {"service":"plugin-job-scheduler","tickIntervalMs":30000,"maxConcurrentJobs":10}
+[18:54:59] INFO: initializing plugin tool dispatcher {"service":"plugin-tool-dispatcher"}
+[18:54:59] INFO: plugin-dev-watcher: initialized {"service":"plugin-dev-watcher","resolvesInstalledPlugins":true}
+[18:54:59] INFO: Server listener bound on 127.0.0.1:3197; startup recovery in progress
+[18:54:59] INFO: bundled plugin bundle not present; skipping auto-install {"pluginKey":"paperclip.kubernetes-sandbox-provider","pluginPath":"/app/packages/plugins/sandbox-providers/kubernetes"}
+[18:54:59] INFO: plugin-loader: loading all ready plugins {"service":"plugin-loader"}
+[18:54:59] INFO: plugin-loader: no ready plugins to load {"service":"plugin-loader"}
+[18:54:59] INFO: loaded tools from ready plugins {"service":"plugin-tool-dispatcher","readyPlugins":0,"registeredTools":0}
+[18:54:59] DEBUG: subscribed to lifecycle events {"service":"plugin-tool-dispatcher"}
+[18:54:59] INFO: plugin tool dispatcher initialized {"service":"plugin-tool-dispatcher","totalTools":0}
+[18:54:59] INFO: worktree run-execution cutoff state {"state":"disarmed","cutoff":null}
+[18:55:00] INFO: startup reap of orphaned heartbeat runs complete {"reaped":0,"runIds":[]}
+[18:55:00] WARN: startup tool connection health sweep found failing connections {"checked":3,"healthy":0,"failed":3,"failedConnectionIds":["c1111111-eede-4684-a1c9-6417445744e7","83ca4510-864c-4426-8829-697a4516f883","c2222222-7c5c-47cb-af2f-96b1e768c2b5"]}
+
+██████╗  █████╗ ██████╗ ███████╗██████╗  ██████╗██╗     ██╗██████╗ 
+██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║██╔══██╗
+██████╔╝███████║██████╔╝█████╗  ██████╔╝██║     ██║     ██║██████╔╝
+██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║██╔═══╝ 
+██║     ██║  ██║██║     ███████╗██║  ██║╚██████╗███████╗██║██║     
+╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝╚═╝     
+  ───────────────────────────────────────────────────────
+Mode             external-postgres  |  static-ui
+Deploy           local_trusted (private)
+Bind             loopback (127.0.0.1)
+Auth             ready
+Server           3197
+API              http://127.0.0.1:3197/api (health: http://127.0.0.1:3197/api/health)
+UI               http://127.0.0.1:3197
+Database         postgres://paperclip:***@127.0.0.1:58083/paperclip
+Migrations       already applied
+Agent JWT        set
+Heartbeat        enabled (30000ms)
+DB Backup        enabled (every 60m, keep 7d)
+Backup Dir       /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups
+Config           /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/config.json
+  ───────────────────────────────────────────────────────
+
+Server started on port 3197, apiUrl: http://127.0.0.1:3197
+[18:55:00] INFO: Automatic database backups enabled {"intervalMinutes":60,"retentionSource":"instance-settings-db","backupDir":"/var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups"}
+[18:55:00] INFO: Server startup recovery complete on 127.0.0.1:3197
+Health check status: 200 {"status":"ok","version":"2026.916.1+119.git.b5747f318","serverVersion":"2026.916.1+119.git.b5747f318","commit":"b5747f318ff96016d19019d84132226addd118e1","deploymentMode":"local_trusted","deploymentExposure":"private","localAiLoginSupported":true,"authReady":true,"bootstrapStatus":"ready","bootstrapInviteActive":false,"features":{"companyDeletionEnabled":true},"serverInfo":{"processStartedAt":"2026-09-25T13:54:57.498Z","git":{"available":true,"fullSha":"b5747f318ff96016d19019d84132226addd118e1","shortSha":"b5747f318","branchName":"main","subject":"Merge branch 'stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names'","committedAt":"2026-09-25T13:42:46.000Z","localChanges":{"available":true,"hasLocalChanges":true,"stagedFileCount":0,"unstagedFileCount":0,"untrackedFileCount":1}}},"startupRecovery":{"phase":"ready","updatedAt":"2026-09-25T13:55:00.089Z"},"nativeRecovery":{},"databaseBackup":{"enabled":true,"status":"warning","backupDir":"/var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups","maxAgeHours":26,"latestBackup":null,"lastFailure":null,"warnings":[{"code":"database_backup_missing","message":"No .sql.gz database backups found in /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups."}]},"warnings":[{"code":"database_backup_missing","message":"No .sql.gz database backups found in /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups."}]}
+
+Entries after Run 1 migration:
+  selectorType=tool_name, toolName=bash, appId=null, catId=null
+  selectorType=tool_name, toolName=plugin_web_search, appId=null, catId=null
+  selectorType=tool_name, toolName=searchsql, appId=null, catId=null
+  selectorType=tool_name, toolName=searchsql, appId=null, catId=null
+  selectorType=tool_name, toolName=pull-request-write, appId=null, catId=null
+  selectorType=tool_name, toolName=searchsql, appId=null, catId=null
+  selectorType=tool_name, toolName=searchsql, appId=null, catId=null
+Run 1 Migrated entries: 5 / 5 expected
+Run 1 Preserved non-MCP entries: 2 / 2 expected
+
+--- SHUTTING DOWN SERVER (RUN 1) ---
+[18:55:00] INFO: graceful heartbeat run drain complete {"signal":"SIGTERM","drain":{"interrupted":0,"interruptedRunIds":[],"retryRunIds":[],"retrySuspendedRunIds":[]}}
+[18:55:00] INFO: plugin job scheduler stopped {"service":"plugin-job-scheduler","activeJobCount":0}
+[18:55:00] INFO: plugin job coordinator stopped {"service":"plugin-job-coordinator"}
+Server shut down successfully.
+
+--- STARTING SERVER RESTART (RUN 2) ---
+[18:55:00] INFO: Using external PostgreSQL via DATABASE_URL/config
+[18:55:00] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[18:55:00] WARN: setPluginEventBus called more than once, replacing existing bus
+[18:55:00] INFO: plugin job coordinator started — listening to lifecycle events {"service":"plugin-job-coordinator"}
+[18:55:00] INFO: plugin job scheduler started {"service":"plugin-job-scheduler","tickIntervalMs":30000,"maxConcurrentJobs":10}
+[18:55:00] INFO: initializing plugin tool dispatcher {"service":"plugin-tool-dispatcher"}
+[18:55:00] INFO: plugin-dev-watcher: initialized {"service":"plugin-dev-watcher","resolvesInstalledPlugins":true}
+[18:55:00] INFO: Server listener bound on 127.0.0.1:3197; startup recovery in progress
+[18:55:00] INFO: bundled plugin bundle not present; skipping auto-install {"pluginKey":"paperclip.kubernetes-sandbox-provider","pluginPath":"/app/packages/plugins/sandbox-providers/kubernetes"}
+[18:55:00] INFO: plugin-loader: loading all ready plugins {"service":"plugin-loader"}
+[18:55:00] INFO: plugin-loader: no ready plugins to load {"service":"plugin-loader"}
+[18:55:00] INFO: loaded tools from ready plugins {"service":"plugin-tool-dispatcher","readyPlugins":0,"registeredTools":0}
+[18:55:00] DEBUG: subscribed to lifecycle events {"service":"plugin-tool-dispatcher"}
+[18:55:00] INFO: plugin tool dispatcher initialized {"service":"plugin-tool-dispatcher","totalTools":0}
+[18:55:00] INFO: worktree run-execution cutoff state {"state":"disarmed","cutoff":null}
+[18:55:00] INFO: startup reap of orphaned heartbeat runs complete {"reaped":0,"runIds":[]}
+
+██████╗  █████╗ ██████╗ ███████╗██████╗  ██████╗██╗     ██╗██████╗ 
+██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝██║     ██║██╔══██╗
+██████╔╝███████║██████╔╝█████╗  ██████╔╝██║     ██║     ██║██████╔╝
+██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝  ██╔══██╗██║     ██║     ██║██╔═══╝ 
+██║     ██║  ██║██║     ███████╗██║  ██║╚██████╗███████╗██║██║     
+╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝╚═╝     
+  ───────────────────────────────────────────────────────
+Mode             external-postgres  |  static-ui
+Deploy           local_trusted (private)
+Bind             loopback (127.0.0.1)
+Auth             ready
+Server           3197
+API              http://127.0.0.1:3197/api (health: http://127.0.0.1:3197/api/health)
+UI               http://127.0.0.1:3197
+Database         postgres://paperclip:***@127.0.0.1:58083/paperclip
+Migrations       already applied
+Agent JWT        set
+Heartbeat        enabled (30000ms)
+DB Backup        enabled (every 60m, keep 7d)
+Backup Dir       /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups
+Config           /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/config.json
+  ───────────────────────────────────────────────────────
+
+Server restarted on port 3197, apiUrl: http://127.0.0.1:3197
+[18:55:00] INFO: Automatic database backups enabled {"intervalMinutes":60,"retentionSource":"instance-settings-db","backupDir":"/var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups"}
+[18:55:00] INFO: Server startup recovery complete on 127.0.0.1:3197
+Restart health check status: 200 {"status":"ok","version":"2026.916.1+119.git.b5747f318","serverVersion":"2026.916.1+119.git.b5747f318","commit":"b5747f318ff96016d19019d84132226addd118e1","deploymentMode":"local_trusted","deploymentExposure":"private","localAiLoginSupported":true,"authReady":true,"bootstrapStatus":"ready","bootstrapInviteActive":false,"features":{"companyDeletionEnabled":true},"serverInfo":{"processStartedAt":"2026-09-25T13:54:57.498Z","git":{"available":true,"fullSha":"b5747f318ff96016d19019d84132226addd118e1","shortSha":"b5747f318","branchName":"main","subject":"Merge branch 'stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names'","committedAt":"2026-09-25T13:42:46.000Z","localChanges":{"available":true,"hasLocalChanges":true,"stagedFileCount":0,"unstagedFileCount":0,"untrackedFileCount":1}}},"startupRecovery":{"phase":"ready","updatedAt":"2026-09-25T13:55:00.319Z"},"nativeRecovery":{},"databaseBackup":{"enabled":true,"status":"warning","backupDir":"/var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups","maxAgeHours":26,"latestBackup":null,"lastFailure":null,"warnings":[{"code":"database_backup_missing","message":"No .sql.gz database backups found in /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups."}]},"warnings":[{"code":"database_backup_missing","message":"No .sql.gz database backups found in /var/folders/fn/9l2056cn3fg5jbqbbr70sv2r0000gn/T/paperclip-server-proof-home-jpTejS/instances/default/data/backups."}]}
+Run 2 Migrated entries: 5 / 5 expected
+Run 2 Preserved non-MCP entries: 2 / 2 expected
+
+--- SHUTTING DOWN SERVER (RUN 2) ---
+[18:55:00] INFO: graceful heartbeat run drain complete {"signal":"SIGTERM","drain":{"interrupted":0,"interruptedRunIds":[],"retryRunIds":[],"retrySuspendedRunIds":[]}}
+[18:55:00] INFO: plugin job scheduler stopped {"service":"plugin-job-scheduler","activeJobCount":0}
+[18:55:00] INFO: plugin job coordinator stopped {"service":"plugin-job-coordinator"}
+Server restart shut down successfully.
+
+=== PROOF PASSED: Server starts, migrates legacy & Change 14 entries once, and restart converts nothing ===

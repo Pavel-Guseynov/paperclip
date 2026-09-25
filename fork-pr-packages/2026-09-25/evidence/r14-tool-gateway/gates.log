@@ -1,7 +1,7 @@
 === Gate Execution Summary for Change 14 ===
 
 Branch: fix/tool-gateway-client-safe-tool-names
-Head: 21175f393c7a39bca4f61f63d32832d74f41f2fc (prior: 8496e273edec72527b303c9f573c1e5368ce693a)
+Head: b743738d2bd2e70764b57eb70ef5430e774cabfd (prior: 21175f393c7a39bca4f61f63d32832d74f41f2fc, 8496e273edec72527b303c9f573c1e5368ce693a)
 Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 1. pnpm -r typecheck
@@ -18,12 +18,12 @@ Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
-   Output: 77 passed (including regression test, tool dispatch, name stability, legacy transitions for approvals/trust rules/profile entries via migration, and single catalog identity).
+   Output: 77 passed (including regression tests for client-safe tool names, harness-mcp-openobserve, gitea-committer, prefix <= 64, tool dispatch, name stability, legacy transitions for approvals/trust rules/profile entries via migration, and single catalog identity).
 
 ---
 
 Branch: stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names
-Head: 6099ee048fd281e584d61bfcd44938240ffdb5c0 (prior: 20df18689fcea010564c3d43a778d71c5f464d6d)
+Head: 31abc189bf0c662d4ba4069be7a5ef0cf073ace0 (prior: 6099ee048fd281e584d61bfcd44938240ffdb5c0, 20df18689fcea010564c3d43a778d71c5f464d6d)
 Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 
 1. pnpm -r typecheck
@@ -42,8 +42,8 @@ Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 ---
 
 Branch: main (post-merge of stable branch)
-Head: daa2e1930db1be51d2e1ba945625ff68f6a394ec (final: f82e1b468fde1ae18fefbaf1efc27a924454e1eb)
-Base: b636ba34ab1a21f7dbbe04627b7b12fc224a1b0b
+Head: b5747f318ff96016d19019d84132226addd118e1 (prior: f82e1b468fde1ae18fefbaf1efc27a924454e1eb, daa2e1930db1be51d2e1ba945625ff68f6a394ec)
+Base: 8c3620c9d7df9d266e709bf0b7c768c8535a2608
 
 1. pnpm -r typecheck
    Exit: 0 (PASSED)
@@ -57,4 +57,3 @@ Base: b636ba34ab1a21f7dbbe04627b7b12fc224a1b0b
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
    Output: 71 passed.
-

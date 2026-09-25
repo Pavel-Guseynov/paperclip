@@ -1,7 +1,7 @@
 === Gate Execution Summary for Change 16 ===
 
 Branch: fix/tool-profile-tool-name-identity
-Head: cdd35852c507446574f22a87cc175bb1f3b1288e (prior: b947ac9bd4d8a75a25e55d3d33ed5b6cc0bbd96a)
+Head: 90a9876ef7b356470f9462be5d38576b8a9cb097 (prior: cdd35852c507446574f22a87cc175bb1f3b1288e, b947ac9bd4d8a75a25e55d3d33ed5b6cc0bbd96a)
 Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 1. pnpm -r typecheck
@@ -18,12 +18,12 @@ Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
 
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
-   Output: 73 passed (including regression test for tool_name identity and 3-state DB migration test).
+   Output: 73 passed (including regression test for tool_name identity, real Change 14 names recognition, and 3-state DB migration test).
 
 ---
 
 Branch: stable/v2026.916.1/fix/tool-profile-tool-name-identity
-Head: f3f864e288e219130517cb7f5b9e33b53e18056c (prior: 26636c2b5b92c8eb30dd89ee14cfcfcc14d92ca2)
+Head: df5fc7841614b41d7787fa801fa01eabf6afd197 (prior: f3f864e288e219130517cb7f5b9e33b53e18056c, 26636c2b5b92c8eb30dd89ee14cfcfcc14d92ca2)
 Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 
 1. pnpm -r typecheck
@@ -42,8 +42,8 @@ Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
 ---
 
 Branch: main (post-merge of stable branch)
-Head: b636ba34ab1a21f7dbbe04627b7b12fc224a1b0b (final: f82e1b468fde1ae18fefbaf1efc27a924454e1eb)
-Base: db82fd90df8156c4680e8c127dfd189d13f1de49
+Head: b5747f318ff96016d19019d84132226addd118e1 (prior: f82e1b468fde1ae18fefbaf1efc27a924454e1eb, b636ba34ab1a21f7dbbe04627b7b12fc224a1b0b)
+Base: f82e1b468fde1ae18fefbaf1efc27a924454e1eb
 
 1. pnpm -r typecheck
    Exit: 0 (PASSED)
@@ -57,4 +57,3 @@ Base: db82fd90df8156c4680e8c127dfd189d13f1de49
 4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
    Exit: 0 (PASSED)
    Output: 71 passed.
-

@@ -3,7 +3,7 @@ head=736b368cec47445e2d2e1c1d806feed3e0a1feaa (fix/tool-gateway-context-tools-to
 base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
 stable-head=b3ea01a407e585acce86033e57fe890a08382a8e (stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions, prior: 9d787c3c880aeeb96efa7d7c596cd44014b97c59)
 stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
-main-merge-head=f82e1b468fde1ae18fefbaf1efc27a924454e1eb (main, prior: 02bff55561eae6c8d985533dd553651ba1b5936b)
+main-merge-head=b5747f318ff96016d19019d84132226addd118e1 (main, prior: f82e1b468fde1ae18fefbaf1efc27a924454e1eb, 02bff55561eae6c8d985533dd553651ba1b5936b)
 
 regression-base exit=1: AssertionError: expected { tools: {}, resources: {}, prompts: {} } to deeply equal { tools: {} }
 regression-head exit=0: 72 passed (contribution branch) / 63 passed (stable branch) / 71 passed (fork main)
