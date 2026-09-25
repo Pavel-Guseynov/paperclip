@@ -1,0 +1,20 @@
+regression tests (server/src/__tests__/issue-execution-policy-routes.test.ts):
+- an agent run records an approval stage decision without cancelling itself and wakes the next participant
+- an agent run records a changes-requested stage decision without cancelling itself and wakes the return assignee
+- an agent run records a stage decision and still stops a different active run on the issue
+- identifies calling run from agent token context when X-Paperclip-Run-Id is omitted
+
+head=7259b6efa64139d084236ea28b8738672979945f (fix/stage-decision-keeps-calling-run)
+base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
+stable-head=40d9dab4bff1d6166050c01764fcf785cdf6549a (stable/v2026.916.1/fix/stage-decision-keeps-calling-run)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=b6a5e2e0a61e247d77abd54c8e23e25f423a2f9f (main)
+
+regression-base exit=1:
+- Tests 1, 2, 4: AssertionError: expected "spy" to not be called at all, but actually been called 1 times (cancelRun called with errorCode "issue_reassigned" on the calling run)
+- Test 3: AssertionError: expected "spy" to be called 1 times, but got 2 times (cancelled both the calling run and the different active run)
+
+regression-head exit=0:
+- Contribution head: 23 passed (exit 0)
+- Stable head: 23 passed (exit 0)
+- Fork main merge head: 27 passed (exit 0)

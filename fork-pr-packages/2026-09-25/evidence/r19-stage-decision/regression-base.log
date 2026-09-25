@@ -1,0 +1,38 @@
+FAIL src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > an agent run records an approval stage decision without cancelling itself and wakes the next participant
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+- Expected:
+"spy" to not be called at all
+
++ Received:
+"spy" called 1 times with arguments:
+  "55555555-5555-4555-8555-555555555555",
+  "Cancelled before issue reassignment",
+  {
+    "errorCode": "issue_reassigned",
+    "eventMessage": "run cancelled before issue reassignment",
+    "eventPayload": {
+      "issueId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    },
+    "resultJson": {
+      "reassignmentStopConfirmed": true,
+    },
+  }
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1286:44
+   1284|     expect(res.status).toBe(200);
+   1285|     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+       |                                            ^
+   1286|     expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+
+FAIL src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > an agent run records a changes-requested stage decision without cancelling itself and wakes the return assignee
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+FAIL src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > an agent run records a stage decision and still stops a different active run on the issue
+AssertionError: expected "spy" to be called 1 times, but got 2 times
+
+FAIL src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > identifies calling run from agent token context when X-Paperclip-Run-Id is omitted
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Test Files  1 failed (1)
+     Tests  4 failed | 19 passed (23)

@@ -1,0 +1,13 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork/server
+
+ ✓ src/__tests__/issue-execution-policy-routes.test.ts (23 tests) 11122ms
+     ✓ reauthorizes a terminal verdict against the review policy held under the update lock  6542ms
+     ✓ an agent run records an approval stage decision without cancelling itself and wakes the next participant
+     ✓ an agent run records a changes-requested stage decision without cancelling itself and wakes the return assignee
+     ✓ an agent run records a stage decision and still stops a different active run on the issue
+     ✓ identifies calling run from agent token context when X-Paperclip-Run-Id is omitted
+
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+   Start at  23:51:30
+   Duration  12.17s (transform 5.44s, setup 121ms, import 806ms, tests 11.12s, environment 0ms)

@@ -42,6 +42,7 @@ The first review found defects in content that came from the stable branches. Th
 | 14 | `fix/tool-gateway-client-safe-tool-names` | `31abc189b` | `21175f393` | `b743738d2` | 1/63 fail | complete | ready |
 | 15 | `fix/tool-gateway-context-tools-token-actions` | `b3ea01a40` | `4272b3200` | `736b368ce` | 1/63 fail | complete | ready |
 | 16 | `fix/tool-profile-tool-name-identity` | `df5fc7841` | `cdd35852c` | `90a9876ef` | 1/72 fail | complete | ready |
+| 19 | `fix/stage-decision-keeps-calling-run` | `40d9dab4b` | (none) | `7259b6efa` | 4/23 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -775,6 +776,18 @@ For each change, the commits (with authors and cherry-pick sources), the changed
   - `26636c2b5` fix(tool-access): use catalog tool name as single identity for tool_name profile selectors (cherry picked from `b947ac9bd`)
   - `f3f864e28` fix(tool-profile): preserve fixture/plugin tools and harden multi-state profile migration (cherry picked from `cdd35852c`)
   - `df5fc7841` fix(tool-profile): recognize real Change 14 names and mock migration in startup tests (cherry picked from `90a9876ef`)
+
+### 19 `fix/stage-decision-keeps-calling-run`
+
+- Head: `7259b6efa64139d084236ea28b8738672979945f`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit; diff vs U: 2 files changed, 362 insertions(+), 14 deletions(-).
+- Commits (oldest first; author; cherry-pick source):
+  - `7259b6efa` pavel.guseynov: fix(issues): do not cancel calling run when recording stage decision
+- Files:
+  - M `server/src/__tests__/issue-execution-policy-routes.test.ts`
+  - M `server/src/routes/issues.ts`
+- Commits without a patch-equivalent on `stable/v2026.916.1/fix/stage-decision-keeps-calling-run`: none.
+- Stable-only commits (not on this branch):
+  - `40d9dab4b` fix(issues): do not cancel calling run when recording stage decision (cherry picked from `7259b6efa`)
 
 
 

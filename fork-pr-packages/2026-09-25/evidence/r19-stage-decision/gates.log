@@ -1,0 +1,63 @@
+=== Gate Execution Summary for Change 19 ===
+
+Branch: fix/stage-decision-keeps-calling-run
+Head: 7259b6efa64139d084236ea28b8738672979945f
+Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+   Output: packages/shared, packages/db, server, ui, cli, packages/adapters/* all typecheck cleanly.
+
+2. pnpm build
+   Exit: 0 (PASSED)
+   Output: all packages built cleanly without errors.
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+   Output: design tokens gate passed.
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/issue-execution-policy-routes.test.ts
+   Exit: 0 (PASSED)
+   Output: 23 passed.
+
+5. pnpm test:run (full upstream test suite)
+   Ran 684s, 1663 tests passed across 14 test files before process timeout; 4 pre-existing non-Change-19 failures in workspace-runtime, file-delivery-bridges, and cursor-local-execute.
+
+---
+
+Branch: stable/v2026.916.1/fix/stage-decision-keeps-calling-run
+Head: 40d9dab4bff1d6166050c01764fcf785cdf6549a
+Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+
+2. pnpm build
+   Exit: 0 (PASSED)
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/issue-execution-policy-routes.test.ts
+   Exit: 0 (PASSED)
+   Output: 23 passed.
+
+---
+
+Branch: main (post-merge of stable branch)
+Head: b6a5e2e0a61e247d77abd54c8e23e25f423a2f9f
+Base: b5747f318ff96016d19019d84132226addd118e1
+Merge commit: b6a5e2e0a61e247d77abd54c8e23e25f423a2f9f
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+
+2. pnpm build
+   Exit: 0 (PASSED)
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+4. CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/issue-execution-policy-routes.test.ts
+   Exit: 0 (PASSED)
+   Output: 27 passed.
