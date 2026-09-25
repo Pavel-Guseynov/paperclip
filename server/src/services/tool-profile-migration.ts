@@ -91,7 +91,7 @@ export async function migrateLegacyProfileToolNameEntries(
         targetCatalogName = catMatch.toolName;
       }
     } else {
-      // 2. Client-safe or gateway format without colon (e.g. Change 14 client-safe format `<appSlug>_<toolSlug>`)
+      // 2. Client-safe or gateway format without colon (e.g. Change 14 client-safe format `<appSlug>_<toolSlug>`, disambiguated `<base>_<connId>`, or report fixtures)
       for (const cat of companyCatalog) {
         const app = cat.applicationId ? appsById.get(cat.applicationId) : null;
         const conn = cat.connectionId ? connsById.get(cat.connectionId) : null;
@@ -99,10 +99,20 @@ export async function migrateLegacyProfileToolNameEntries(
           .toLowerCase()
           .replace(/[^a-z0-9_-]/g, "");
         const toolSlug = cat.toolName.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+
+        // Change 14 disambiguated tool names append _<shortStableId(8)> or _<shortStableId(5)>_<counter>
+        const withoutCollisionSuffix = rawToolName.replace(/_[a-z0-9]{5,8}(?:_[0-9]+)?$/i, "");
+
         if (
           rawToolName === `${appSlug}_${toolSlug}` ||
           rawToolName.endsWith(`_${toolSlug}`) ||
-          rawToolName.endsWith(`_${cat.toolName}`)
+          rawToolName.endsWith(`_${cat.toolName}`) ||
+          rawToolName.includes(`_${toolSlug}_`) ||
+          rawToolName.includes(`_${cat.toolName}_`) ||
+          withoutCollisionSuffix === `${appSlug}_${toolSlug}` ||
+          withoutCollisionSuffix.endsWith(`_${toolSlug}`) ||
+          withoutCollisionSuffix.endsWith(`_${cat.toolName}`) ||
+          (toolSlug.length > 8 && withoutCollisionSuffix.includes(`_${toolSlug.slice(0, 8)}`))
         ) {
           targetCatalogName = cat.toolName;
           break;
