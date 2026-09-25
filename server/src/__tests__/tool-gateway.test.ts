@@ -5535,156 +5535,268 @@ rl.on("line", (line) => {
     const agent = await createAgent(db, company.id);
     const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
     const profile = await allowToolsForAgent(db, company.id, agent.id, ["mcp-stdio-fixture:runtime_status"]);
-    const gateway = createTestToolGatewayService(db);
-    const namedGateway = await gateway.createNamedGateway({
-      companyId: company.id,
-      body: {
-        name: `Context gate gateway ${randomUUID()}`,
+
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => {
+      const method = body?.method;
+      if (method === "resources/list") {
+        return { body: { jsonrpc: "2.0", id: body?.id, result: { resources: [{ uri: "notes://one", name: "Note one", mimeType: "text/plain" }] } } };
+      }
+      if (method === "resources/read") {
+        return { body: { jsonrpc: "2.0", id: body?.id, result: { contents: [{ uri: String((body?.params as Record<string, unknown>)?.uri), mimeType: "text/plain", text: "resource body" }] } } };
+      }
+      if (method === "prompts/list") {
+        return { body: { jsonrpc: "2.0", id: body?.id, result: { prompts: [{ name: "summarize", title: "Summarize note" }] } } };
+      }
+      if (method === "prompts/get") {
+        return { body: { jsonrpc: "2.0", id: body?.id, result: { description: "Summary prompt", messages: [{ role: "user", content: { type: "text", text: "Summarize it" } }] } } };
+      }
+      return { body: { jsonrpc: "2.0", id: body?.id, result: {} } };
+    });
+
+    try {
+      const assigned = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "context-app",
+        connectionName: "Assigned context",
+        toolName: "search_notes",
+        riskLevel: "read",
+      });
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
         profileId: profile.id,
-        defaultProfileMode: "gateway_only",
-      },
-    });
+        selectorType: "connection",
+        effect: "include",
+        connectionId: assigned.connection.id,
+      });
 
-    const app = createGatewayRouteApp(db, gateway);
+      const gateway = createTestToolGatewayService(db);
+      const namedGateway = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: {
+          name: `Context gate gateway ${randomUUID()}`,
+          profileId: profile.id,
+          defaultProfileMode: "gateway_only",
+        },
+      });
 
-    // 1. Run-scoped token with only tools/list and tools/call
-    const runToken = await gateway.createNamedGatewayToken({
-      companyId: company.id,
-      gatewayId: namedGateway.id,
-      body: {
-        name: "Run token",
-        subjectType: "heartbeat_run",
-        subjectId: run.id,
-        allowedActions: ["tools/list", "tools/call"],
-      },
-      actor: { agentId: agent.id },
-    });
+      const app = createGatewayRouteApp(db, gateway);
 
-    // initialize: must not advertise resources or prompts capabilities
-    const initRun = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${runToken.token}`)
-      .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
-      .expect(200);
-    expect(initRun.body.result.capabilities).toEqual({ tools: {} });
-    expect(initRun.body.result.capabilities.resources).toBeUndefined();
-    expect(initRun.body.result.capabilities.prompts).toBeUndefined();
+      // 1. Run-scoped token with only tools/list and tools/call
+      const runToken = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: {
+          name: "Run token",
+          subjectType: "heartbeat_run",
+          subjectId: run.id,
+          allowedActions: ["tools/list", "tools/call"],
+        },
+        actor: { agentId: agent.id },
+      });
 
-    // tools/list: must not include any of the four context tools
-    const listRun = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${runToken.token}`)
-      .send({ jsonrpc: "2.0", id: 2, method: "tools/list" })
-      .expect(200);
-    const runToolNames = listRun.body.result.tools.map((t: { name: string }) => t.name);
-    expect(runToolNames).not.toContain("paperclip_list_resources");
-    expect(runToolNames).not.toContain("paperclip_read_resource");
-    expect(runToolNames).not.toContain("paperclip_list_prompts");
-    expect(runToolNames).not.toContain("paperclip_get_prompt");
+      // initialize: must not advertise resources or prompts capabilities
+      const initRun = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${runToken.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+        .expect(200);
+      expect(initRun.body.result.capabilities).toEqual({ tools: {} });
+      expect(initRun.body.result.capabilities.resources).toBeUndefined();
+      expect(initRun.body.result.capabilities.prompts).toBeUndefined();
 
-    // 2. Token with all six actions (or default token)
-    const fullToken = await gateway.createNamedGatewayToken({
-      companyId: company.id,
-      gatewayId: namedGateway.id,
-      body: {
-        name: "Full token",
-        allowedActions: [
-          "tools/list",
-          "tools/call",
-          "resources/list",
-          "resources/read",
-          "prompts/list",
-          "prompts/get",
-        ],
-      },
-    });
+      // tools/list: must not include any of the four context tools
+      const listRun = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${runToken.token}`)
+        .send({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+        .expect(200);
+      const runToolNames = listRun.body.result.tools.map((t: { name: string }) => t.name);
+      expect(runToolNames).not.toContain("paperclip_list_resources");
+      expect(runToolNames).not.toContain("paperclip_read_resource");
+      expect(runToolNames).not.toContain("paperclip_list_prompts");
+      expect(runToolNames).not.toContain("paperclip_get_prompt");
 
-    const initFull = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${fullToken.token}`)
-      .send({ jsonrpc: "2.0", id: 3, method: "initialize" })
-      .expect(200);
-    expect(initFull.body.result.capabilities).toMatchObject({
-      tools: {},
-      resources: {},
-      prompts: {},
-    });
+      // calling context tool with run-scoped token is denied with 403
+      const runCallDenied = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${runToken.token}`)
+        .send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "paperclip_list_resources", arguments: {} } })
+        .expect(403);
+      expect(runCallDenied.body.error.data.reasonCode).toBe("gateway_token_action_denied");
 
-    const listFull = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${fullToken.token}`)
-      .send({ jsonrpc: "2.0", id: 4, method: "tools/list" })
-      .expect(200);
-    const fullToolNames = listFull.body.result.tools.map((t: { name: string }) => t.name);
-    expect(fullToolNames).toContain("paperclip_list_resources");
-    expect(fullToolNames).toContain("paperclip_read_resource");
-    expect(fullToolNames).toContain("paperclip_list_prompts");
-    expect(fullToolNames).toContain("paperclip_get_prompt");
+      // 2. Token with all six actions (or default token)
+      const fullToken = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: {
+          name: "Full token",
+          allowedActions: [
+            "tools/list",
+            "tools/call",
+            "resources/list",
+            "resources/read",
+            "prompts/list",
+            "prompts/get",
+          ],
+        },
+      });
 
-    // Full token can call the context tools without action denial
-    const callFull = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${fullToken.token}`)
-      .send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "paperclip_list_resources", arguments: {} } })
-      .expect(200);
-    expect(callFull.body.result.isError).toBe(false);
+      const initFull = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${fullToken.token}`)
+        .send({ jsonrpc: "2.0", id: 4, method: "initialize" })
+        .expect(200);
+      expect(initFull.body.result.capabilities).toMatchObject({
+        tools: {},
+        resources: {},
+        prompts: {},
+      });
 
-    // 3. Token with some of the actions: only prompts/list
-    const promptListToken = await gateway.createNamedGatewayToken({
-      companyId: company.id,
-      gatewayId: namedGateway.id,
-      body: {
-        name: "Prompt list token",
-        allowedActions: ["tools/list", "tools/call", "prompts/list"],
-      },
-    });
+      const listFull = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${fullToken.token}`)
+        .send({ jsonrpc: "2.0", id: 5, method: "tools/list" })
+        .expect(200);
+      const fullToolNames = listFull.body.result.tools.map((t: { name: string }) => t.name);
+      expect(fullToolNames).toContain("paperclip_list_resources");
+      expect(fullToolNames).toContain("paperclip_read_resource");
+      expect(fullToolNames).toContain("paperclip_list_prompts");
+      expect(fullToolNames).toContain("paperclip_get_prompt");
 
-    const initPrompt = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${promptListToken.token}`)
-      .send({ jsonrpc: "2.0", id: 6, method: "initialize" })
-      .expect(200);
-    expect(initPrompt.body.result.capabilities.prompts).toBeDefined();
-    expect(initPrompt.body.result.capabilities.resources).toBeUndefined();
+      // Full token lists resources and calls paperclip_list_resources
+      const callListRes = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${fullToken.token}`)
+        .send({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "paperclip_list_resources", arguments: {} } })
+        .expect(200);
+      expect(callListRes.body.result.isError).toBe(false);
+      const returnedResources = JSON.parse(callListRes.body.result.content[0].text).resources;
+      expect(returnedResources).toHaveLength(1);
+      const resourceUri = returnedResources[0].uri;
 
-    const listPrompt = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${promptListToken.token}`)
-      .send({ jsonrpc: "2.0", id: 7, method: "tools/list" })
-      .expect(200);
-    const promptToolNames = listPrompt.body.result.tools.map((t: { name: string }) => t.name);
-    expect(promptToolNames).toContain("paperclip_list_prompts");
-    expect(promptToolNames).not.toContain("paperclip_get_prompt");
-    expect(promptToolNames).not.toContain("paperclip_list_resources");
-    expect(promptToolNames).not.toContain("paperclip_read_resource");
+      // Full token calls paperclip_read_resource with returned URI
+      const callReadRes = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${fullToken.token}`)
+        .send({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "paperclip_read_resource", arguments: { uri: resourceUri } } })
+        .expect(200);
+      expect(callReadRes.body.result.isError).toBe(false);
 
-    // 4. Token with only resources/read
-    const resourceReadToken = await gateway.createNamedGatewayToken({
-      companyId: company.id,
-      gatewayId: namedGateway.id,
-      body: {
-        name: "Resource read token",
-        allowedActions: ["tools/list", "tools/call", "resources/read"],
-      },
-    });
+      // Full token calls paperclip_list_prompts
+      const callListPrompts = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${fullToken.token}`)
+        .send({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "paperclip_list_prompts", arguments: {} } })
+        .expect(200);
+      expect(callListPrompts.body.result.isError).toBe(false);
+      const returnedPrompts = JSON.parse(callListPrompts.body.result.content[0].text).prompts;
+      expect(returnedPrompts).toHaveLength(1);
+      const promptName = returnedPrompts[0].name;
 
-    const initResource = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${resourceReadToken.token}`)
-      .send({ jsonrpc: "2.0", id: 8, method: "initialize" })
-      .expect(200);
-    expect(initResource.body.result.capabilities.resources).toBeDefined();
-    expect(initResource.body.result.capabilities.prompts).toBeUndefined();
+      // Full token calls paperclip_get_prompt with returned name
+      const callGetPrompt = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${fullToken.token}`)
+        .send({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "paperclip_get_prompt", arguments: { name: promptName } } })
+        .expect(200);
+      expect(callGetPrompt.body.result.isError).toBe(false);
 
-    const listResource = await request(app)
-      .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
-      .set("authorization", `Bearer ${resourceReadToken.token}`)
-      .send({ jsonrpc: "2.0", id: 9, method: "tools/list" })
-      .expect(200);
-    const resourceToolNames = listResource.body.result.tools.map((t: { name: string }) => t.name);
-    expect(resourceToolNames).toContain("paperclip_read_resource");
-    expect(resourceToolNames).not.toContain("paperclip_list_resources");
-    expect(resourceToolNames).not.toContain("paperclip_list_prompts");
-    expect(resourceToolNames).not.toContain("paperclip_get_prompt");
+      // 3. Token with some of the actions: only prompts/list
+      const promptListToken = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: {
+          name: "Prompt list token",
+          allowedActions: ["tools/list", "tools/call", "prompts/list"],
+        },
+      });
+
+      const initPrompt = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${promptListToken.token}`)
+        .send({ jsonrpc: "2.0", id: 10, method: "initialize" })
+        .expect(200);
+      expect(initPrompt.body.result.capabilities.prompts).toBeDefined();
+      expect(initPrompt.body.result.capabilities.resources).toBeUndefined();
+
+      const listPrompt = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${promptListToken.token}`)
+        .send({ jsonrpc: "2.0", id: 11, method: "tools/list" })
+        .expect(200);
+      const promptToolNames = listPrompt.body.result.tools.map((t: { name: string }) => t.name);
+      expect(promptToolNames).toContain("paperclip_list_prompts");
+      expect(promptToolNames).not.toContain("paperclip_get_prompt");
+      expect(promptToolNames).not.toContain("paperclip_list_resources");
+      expect(promptToolNames).not.toContain("paperclip_read_resource");
+
+      // Permitted prompt list succeeds; forbidden prompt get and resources are denied with 403
+      const callPromptAllowed = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${promptListToken.token}`)
+        .send({ jsonrpc: "2.0", id: 12, method: "tools/call", params: { name: "paperclip_list_prompts", arguments: {} } })
+        .expect(200);
+      expect(callPromptAllowed.body.result.isError).toBe(false);
+
+      const callPromptDenied = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${promptListToken.token}`)
+        .send({ jsonrpc: "2.0", id: 13, method: "tools/call", params: { name: "paperclip_get_prompt", arguments: { name: promptName } } })
+        .expect(403);
+      expect(callPromptDenied.body.error.data.reasonCode).toBe("gateway_token_action_denied");
+
+      const callResourceDenied = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${promptListToken.token}`)
+        .send({ jsonrpc: "2.0", id: 14, method: "tools/call", params: { name: "paperclip_list_resources", arguments: {} } })
+        .expect(403);
+      expect(callResourceDenied.body.error.data.reasonCode).toBe("gateway_token_action_denied");
+
+      // 4. Token with only resources/read
+      const resourceReadToken = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: {
+          name: "Resource read token",
+          allowedActions: ["tools/list", "tools/call", "resources/read"],
+        },
+      });
+
+      const initResource = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${resourceReadToken.token}`)
+        .send({ jsonrpc: "2.0", id: 15, method: "initialize" })
+        .expect(200);
+      expect(initResource.body.result.capabilities.resources).toBeDefined();
+      expect(initResource.body.result.capabilities.prompts).toBeUndefined();
+
+      const listResource = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${resourceReadToken.token}`)
+        .send({ jsonrpc: "2.0", id: 16, method: "tools/list" })
+        .expect(200);
+      const resourceToolNames = listResource.body.result.tools.map((t: { name: string }) => t.name);
+      expect(resourceToolNames).toContain("paperclip_read_resource");
+      expect(resourceToolNames).not.toContain("paperclip_list_resources");
+      expect(resourceToolNames).not.toContain("paperclip_list_prompts");
+      expect(resourceToolNames).not.toContain("paperclip_get_prompt");
+
+      // Permitted resource read succeeds; forbidden resource list is denied with 403
+      const callResourceReadAllowed = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${resourceReadToken.token}`)
+        .send({ jsonrpc: "2.0", id: 17, method: "tools/call", params: { name: "paperclip_read_resource", arguments: { uri: resourceUri } } })
+        .expect(200);
+      expect(callResourceReadAllowed.body.result.isError).toBe(false);
+
+      const callResourceListDenied = await request(app)
+        .post(`/api/tool-gateway/gateways/${namedGateway.id}/mcp`)
+        .set("authorization", `Bearer ${resourceReadToken.token}`)
+        .send({ jsonrpc: "2.0", id: 18, method: "tools/call", params: { name: "paperclip_list_resources", arguments: {} } })
+        .expect(403);
+      expect(callResourceListDenied.body.error.data.reasonCode).toBe("gateway_token_action_denied");
+    } finally {
+      await remote.close();
+    }
   });
 });
