@@ -1,0 +1,29 @@
+=== fix/tool-gateway-client-safe-tool-names (head 8496e273edec72527b303c9f573c1e5368ce693a) ===
+$ CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+
+ ✓ src/__tests__/tool-gateway.test.ts (75 tests) 2083ms
+
+ Test Files  1 passed (1)
+      Tests  75 passed (75)
+   Start at  14:00:23
+   Duration  2.08s (transform 3.01s, setup 76ms, import 785ms, tests 807ms, environment 0ms)
+
+=== stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names (head 20df18689fcea010564c3d43a778d71c5f464d6d) ===
+$ CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+
+ ✓ src/__tests__/tool-gateway.test.ts (66 tests) 1985ms
+
+ Test Files  1 passed (1)
+      Tests  66 passed (66)
+   Start at  14:04:12
+   Duration  1.98s (transform 2.85s, setup 75ms, import 760ms, tests 780ms, environment 0ms)
+
+=== main (head 8d8f333c631a0e194ea7a6c986c738e4a9089f2a) ===
+$ CI=true pnpm --filter @paperclipai/server exec vitest run src/__tests__/tool-gateway.test.ts
+
+ ✓ src/__tests__/tool-gateway.test.ts (68 tests) 2012ms
+
+ Test Files  1 passed (1)
+      Tests  68 passed (68)
+   Start at  14:07:45
+   Duration  2.01s (transform 2.90s, setup 76ms, import 770ms, tests 790ms, environment 0ms)

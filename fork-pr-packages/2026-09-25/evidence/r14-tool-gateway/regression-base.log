@@ -1,0 +1,19 @@
+FAIL src/__tests__/tool-gateway.test.ts > tool gateway > lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve
+AssertionError: expected 'mcp-remote-fixture:echo' to match /^[A-Za-z0-9_-]{1,40}$/
+
+- Expected:
+/^[A-Za-z0-9_-]{1,40}$/
+
++ Received:
+"mcp-remote-fixture:echo"
+
+ ❯ src/__tests__/tool-gateway.test.ts:2571:25
+   2569|       expect(tools.length).toBeGreaterThan(0);
+   2570|       for (const tool of tools) {
+   2571|         expect(tool.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+       |                           ^
+   2572|         expect(tool.name).toBe("harness-mcp-openobserve_echo");
+   2573|       }
+
+Test Files  1 failed (1)
+     Tests  1 failed | 62 passed (63)

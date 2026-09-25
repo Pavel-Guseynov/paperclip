@@ -39,6 +39,7 @@ The first review found defects in content that came from the stable branches. Th
 | 11 | `fix/native-runner-darwin-lsof-unicode` | `c14cff271` | (new name) | `ea6107e61` | 4/22 fail | at the earlier head `66f851174` | ready (R3) |
 | 12 | `test/workspace-runtime-exposure-isolation` | `8ab66bdb3` | (new name) | `127a04737` | causal test fails | complete | ready (R2) |
 | 13 | `chore/pnpm-11-toolchain` | `c8a267aab` | (new name; old PR #13894) | `e3fe89cf5` | policy check fails on U | complete, plus pnpm policy and `sentry-contract` | ready (R3) |
+| 14 | `fix/tool-gateway-client-safe-tool-names` | `20df18689` | (new name) | `8496e273e` | 1/63 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -180,6 +181,15 @@ For each change, the commits (with authors and cherry-pick sources), the changed
   2. `pr.yml` runs `pr-trusted.yml@master`. That file pins pnpm 9.15.4, so this branch's workflow pins cannot apply to its own CI.
 - Supersedes #13894. #13894 was built on `d554c4789`, which is not an ancestor of U, and it carried four leaked hunks: the older lsof decoder, the Nix PATH entry, a `vitest.config.ts` `testTimeout`, and a fixture rewrite. #13894 was left untouched.
 - Backport: `49d6f1fed` needs backport. `72300cd3c` adapts stable `c8a267aab`. Stable-only: the four leaked hunks in `c8a267aab`.
+
+### 14 Client-safe gateway tool names
+
+- Title: `fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition`
+- Conflicts against U: none.
+- Regression: `lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve` fails on U with `expected 'mcp-remote-fixture:echo' to match /^[A-Za-z0-9_-]{1,40}$/` and passes on the head (75/75 passed on contribution head, 66/66 on stable, 68/68 on fork main).
+- Gates: complete. `pnpm -r typecheck` (0), `pnpm build` (0), `pnpm check:tokens && pnpm check:token-gates` (0), and `tool-gateway.test.ts` pass cleanly.
+- Duplicate check: searched GitHub issues and PRs; no existing report or PR for gateway tool name validation restrictions in strict MCP clients. #11372 and PR #12872 touch adjacent profile/display areas.
+- Backport: clean cherry-pick `20df18689` onto `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names`.
 
 ## Environment and baseline
 
@@ -682,4 +692,18 @@ For each change, the commits (with authors and cherry-pick sources), the changed
   - `e3fe89cf5` test(toolchain): cover the pnpm 11 policy check with fixture repositories
 - Stable-only commits (not on this branch):
   - `c8a267aab` chore(toolchain): migrate repository to pnpm 11.21.0 (#8827)
+
+### 14 `fix/tool-gateway-client-safe-tool-names`
+
+- Head: `8496e273edec72527b303c9f573c1e5368ce693a`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit (0 merges); diff vs U: 4 files changed, 609 insertions(+), 45 deletions(-).
+- Commits (oldest first; author; cherry-pick source):
+  - `8496e273e` pavel.guseynov: fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition
+- Files:
+  - M `packages/shared/src/types/tool-access.ts`
+  - M `server/src/__tests__/tool-gateway.test.ts`
+  - M `server/src/services/tool-access-policy.ts`
+  - M `server/src/services/tool-gateway.ts`
+- Commits without a patch-equivalent on `stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names`: none.
+- Stable-only commits (not on this branch):
+  - `20df18689` fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition (cherry picked from `8496e273e`)
 

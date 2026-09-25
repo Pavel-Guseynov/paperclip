@@ -1,0 +1,9 @@
+regression test: lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve
+head=8496e273edec72527b303c9f573c1e5368ce693a (fix/tool-gateway-client-safe-tool-names)
+base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
+stable-head=20df18689fcea010564c3d43a778d71c5f464d6d (stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=8d8f333c631a0e194ea7a6c986c738e4a9089f2a (main)
+
+regression-base exit=1: AssertionError: expected 'mcp-remote-fixture:echo' to match /^[A-Za-z0-9_-]{1,40}$/
+regression-head exit=0: 75 passed (contribution branch) / 66 passed (stable branch) / 68 passed (fork main)

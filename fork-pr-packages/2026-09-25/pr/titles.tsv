@@ -11,3 +11,4 @@
 11	fix/native-runner-darwin-lsof-unicode	fix(native-runner): decode hex-escaped lsof paths without corrupting Unicode
 12	test/workspace-runtime-exposure-isolation	test(server): isolate workspace runtime port reservations between tests
 13	chore/pnpm-11-toolchain	refactor(toolchain): migrate the repository to pnpm 11.21.0
+14	fix/tool-gateway-client-safe-tool-names	fix(tool-gateway): assign client-safe tool names and preserve legacy tool transition
