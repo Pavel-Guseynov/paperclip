@@ -543,11 +543,7 @@ function profileEntryMatches(entry: typeof toolProfileEntries.$inferSelect, ctx:
   if (entry.selectorType === "application") return entry.applicationId === ctx.applicationId;
   if (entry.selectorType === "connection") return entry.connectionId === ctx.connectionId;
   if (entry.selectorType === "catalog_entry") return entry.catalogEntryId === ctx.catalogEntryId;
-  if (entry.selectorType === "tool_name") {
-    if (!entry.toolName) return false;
-    const legacyNames = ctx.legacyToolNames ?? (ctx.legacyToolName ? [ctx.legacyToolName] : []);
-    return entry.toolName === ctx.toolName || legacyNames.includes(entry.toolName);
-  }
+  if (entry.selectorType === "tool_name") return Boolean(entry.toolName && entry.toolName === (ctx.upstreamToolName ?? ctx.toolName));
   if (entry.selectorType === "risk_level") return entry.riskLevel === ctx.riskLevel;
   return false;
 }
