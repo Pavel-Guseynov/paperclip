@@ -6,6 +6,7 @@ import {
   humanizeConnectionDisplayName,
   type PermissionKey,
   type ToolConnectionLifecycleEventType,
+  type ToolMcpGatewayTokenAction,
 } from "@paperclipai/shared";
 import {
   createToolMcpGatewaySchema,
@@ -71,17 +72,25 @@ async function handleMcpGatewayProtocol(
     const body = (req.body ?? {}) as { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> };
     const id = body.id ?? null;
     if (body.method === "initialize") {
-      await toolGateway.initializeNamedGatewayProtocol({
+      const session = await toolGateway.initializeNamedGatewayProtocol({
         ...locator,
         bearerToken: token,
         callerHeaders: headers,
       });
+      const allowedActions = session.gatewayTokenAllowedActions;
+      const capabilities: Record<string, unknown> = { tools: {} };
+      if (!allowedActions || allowedActions.includes("resources/list") || allowedActions.includes("resources/read")) {
+        capabilities.resources = {};
+      }
+      if (!allowedActions || allowedActions.includes("prompts/list") || allowedActions.includes("prompts/get")) {
+        capabilities.prompts = {};
+      }
       res.json({
         jsonrpc: "2.0",
         id,
         result: {
           protocolVersion: "2025-03-26",
-          capabilities: { tools: {}, resources: {}, prompts: {} },
+          capabilities,
           serverInfo: { name: "Paperclip MCP Gateway", version: "1.0.0" },
           _meta: {
             "paperclip/mcp-app-ui": "unsupported",
@@ -96,42 +105,67 @@ async function handleMcpGatewayProtocol(
       return;
     }
     if (body.method === "tools/list") {
-      const tools = await toolGateway.listToolsForNamedGateway({
+      const { tools, allowedActions } = await toolGateway.listToolsForNamedGateway({
         ...locator,
         bearerToken: token,
         callerHeaders: headers,
       });
+      const contextTools: Array<{
+        action: ToolMcpGatewayTokenAction;
+        tool: {
+          name: string;
+          description: string;
+          inputSchema: Record<string, unknown>;
+        };
+      }> = [
+        {
+          action: "resources/list",
+          tool: {
+            name: "paperclip_list_resources",
+            description: "List resources from fully assigned MCP connections.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
+        },
+        {
+          action: "resources/read",
+          tool: {
+            name: "paperclip_read_resource",
+            description: "Read a resource URI returned by paperclip_list_resources.",
+            inputSchema: { type: "object", required: ["uri"], properties: { uri: { type: "string" } }, additionalProperties: false },
+          },
+        },
+        {
+          action: "prompts/list",
+          tool: {
+            name: "paperclip_list_prompts",
+            description: "List prompts from fully assigned MCP connections.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
+        },
+        {
+          action: "prompts/get",
+          tool: {
+            name: "paperclip_get_prompt",
+            description: "Get a prompt returned by paperclip_list_prompts.",
+            inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" }, arguments: { type: "object" } }, additionalProperties: false },
+          },
+        },
+      ];
+      const activeContextTools = contextTools
+        .filter((entry) => !allowedActions || allowedActions.includes(entry.action))
+        .map((entry) => entry.tool);
       res.json({
         jsonrpc: "2.0",
         id,
         result: {
           tools: [
             ...tools.map((tool) => ({
-            name: tool.name,
-            title: tool.displayName,
-            description: tool.description,
-            inputSchema: tool.parametersSchema ?? { type: "object", properties: {} },
+              name: tool.name,
+              title: tool.displayName,
+              description: tool.description,
+              inputSchema: tool.parametersSchema ?? { type: "object", properties: {} },
             })),
-            {
-              name: "paperclip_list_resources",
-              description: "List resources from fully assigned MCP connections.",
-              inputSchema: { type: "object", properties: {}, additionalProperties: false },
-            },
-            {
-              name: "paperclip_read_resource",
-              description: "Read a resource URI returned by paperclip_list_resources.",
-              inputSchema: { type: "object", required: ["uri"], properties: { uri: { type: "string" } }, additionalProperties: false },
-            },
-            {
-              name: "paperclip_list_prompts",
-              description: "List prompts from fully assigned MCP connections.",
-              inputSchema: { type: "object", properties: {}, additionalProperties: false },
-            },
-            {
-              name: "paperclip_get_prompt",
-              description: "Get a prompt returned by paperclip_list_prompts.",
-              inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" }, arguments: { type: "object" } }, additionalProperties: false },
-            },
+            ...activeContextTools,
           ],
         },
       });

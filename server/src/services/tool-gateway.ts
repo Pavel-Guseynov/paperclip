@@ -2,7 +2,7 @@ import { COGNEE_STDIO_TEMPLATE, cogneeCloudUrl, callCogneeCloud } from "./cognee
 import { HttpError } from "../errors.js";
 import { claimSlackRateLimitRetry } from "./connectors/slack-retry.js";
 import { resolveSlackTaskAuthority } from "./connectors/slack-authority.js";
-import { SLACK_TOOLS } from "@paperclipai/shared";
+import { SLACK_TOOLS, TOOL_MCP_GATEWAY_TOKEN_ACTIONS } from "@paperclipai/shared";
 import { slackToolsForSession } from "./connectors/slack-catalog.js";
 import { executeSlackTool } from "./connectors/slack.js";
 import { githubGuestBotConnectionForSession, githubBotToolsForSession } from "./chat-github-tools.js";
@@ -8752,7 +8752,10 @@ export function createToolGatewayService(
       gatewayPublicId?: string | null;
       bearerToken: string;
       callerHeaders?: Record<string, string | string[] | undefined>;
-    }): Promise<ToolGatewayDescriptor[]> {
+    }): Promise<ToolGatewayDescriptor[] & {
+      tools: ToolGatewayDescriptor[];
+      allowedActions: ToolMcpGatewayTokenAction[];
+    }> {
       const session = await namedGatewaySessionFromBearer({
         gatewayId: input.gatewayId ?? null,
         gatewayPublicId: input.gatewayPublicId ?? null,
@@ -8776,7 +8779,10 @@ export function createToolGatewayService(
           visibleTools: tools.map((tool) => tool.name),
         },
       });
-      return tools;
+      return Object.assign([...tools], {
+        tools,
+        allowedActions: session.gatewayTokenAllowedActions ?? [...TOOL_MCP_GATEWAY_TOKEN_ACTIONS],
+      });
     },
 
     async executeContextForNamedGateway(input: {
