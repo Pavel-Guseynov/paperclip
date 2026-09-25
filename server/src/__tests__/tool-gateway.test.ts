@@ -52,7 +52,7 @@ import {
   signToolArguments,
   summarizeToolValue,
 } from "../services/tool-content-guards.js";
-import { createToolGatewayService, ToolGatewayHttpError } from "../services/tool-gateway.js";
+import { createToolGatewayService, ToolGatewayHttpError, formatClientSafeGatewayToolBaseName } from "../services/tool-gateway.js";
 import type { ComposioClient } from "../services/composio.js";
 import { secretService } from "../services/secrets.js";
 import { createKvDemoHttpServer, type KvDemoHttpServer } from "../../../packages/kv-demo-mcp-server/src/http.js";
@@ -421,19 +421,7 @@ rl.on("line", (line) => {
 }
 
 function expectedConnectedToolName(input: { applicationKey: string | null; connectionId: string; toolName: string }) {
-  const applicationSegment = (input.applicationKey ?? "mcp")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "mcp";
-  const toolSegment = input.toolName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "tool";
-  return `mcp.${applicationSegment}-${input.connectionId.replace(/-/g, "").slice(0, 8)}:${toolSegment}`;
+  return formatClientSafeGatewayToolBaseName(input.applicationKey, input.toolName, 40);
 }
 
 function expectGatewayError(error: unknown, status: number, reasonCode: string) {
@@ -1431,7 +1419,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     const tools = await gateway.listToolsForSession(session.token);
     const connectedTool = tools.find((tool) => tool.providerType === "mcp_remote_http");
     expect(connectedTool).toMatchObject({
-      name: expect.stringMatching(/^mcp\.kv-demo-[0-9a-f]{8}:kv-set$/),
+      name: "kv-demo_kv_set",
       displayName: "Set KV value",
       providerType: "mcp_remote_http",
       risk: "write",
@@ -2072,8 +2060,8 @@ rl.on("line", (line) => {
     ].sort());
     expect(new Set(connectedTools.map((tool) => tool.name)).size).toBe(2);
     expect(connectedTools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
-      expect.stringMatching(new RegExp(`^mcp\\.kv-demo-${first.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set$`)),
-      expect.stringMatching(new RegExp(`^mcp\\.kv-demo-${second.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set$`)),
+      "kv-demo_kv_set",
+      `kv-demo_kv_set_${second.connection.id.replace(/-/g, "").slice(0, 8)}`,
     ]));
   });
 
@@ -5445,4 +5433,381 @@ rl.on("line", (line) => {
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
   });
+
+  it("lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve", async () => {
+    const company = await createCompany(db);
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+      body: {
+        jsonrpc: "2.0",
+        id: body?.id,
+        result: { content: [{ type: "text", text: "query ok" }], structuredContent: { ok: true } },
+      },
+    }));
+    try {
+      const { application, connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "harness-mcp-openobserve",
+        toolName: "searchsql",
+        title: "Search SQL",
+        riskLevel: "read",
+      });
+      const [profile] = await db.insert(toolProfiles).values({
+        companyId: company.id,
+        profileKey: `openobserve-${randomUUID()}`,
+        name: `OpenObserve Profile ${randomUUID()}`,
+        defaultAction: "deny",
+      }).returning();
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "application",
+        applicationId: application.id,
+        effect: "include",
+      });
+      const gateway = createTestToolGatewayService(db);
+      const created = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: { name: "OpenObserve Gateway", profileId: profile.id },
+      });
+      const token = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: created.id,
+        body: { name: "Antigravity", clientLabel: "agy" },
+      });
+      const app = createGatewayRouteApp(db, gateway);
+      const res = await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+        .expect(200);
+
+      const tools = res.body.result.tools as Array<{ name: string }>;
+      expect(tools.length).toBeGreaterThan(0);
+      const openobserveTool = tools.find((t) => t.name.includes("searchsql") || t.name.includes("openobserve"));
+      expect(openobserveTool).toBeDefined();
+      expect(openobserveTool!.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+      for (const tool of tools) {
+        expect(tool.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+      }
+    } finally {
+      await remote.close();
+    }
+  });
+
+  it("calls a tool through the named gateway using its client-safe tool name", async () => {
+    const company = await createCompany(db);
+    let calledWithMethod: string | null = null;
+    let calledWithParams: unknown = null;
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => {
+      calledWithMethod = body?.method ?? null;
+      calledWithParams = body?.params ?? null;
+      return {
+        body: {
+          jsonrpc: "2.0",
+          id: body?.id,
+          result: { content: [{ type: "text", text: "query executed" }], structuredContent: { rows: [] } },
+        },
+      };
+    });
+    try {
+      await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "harness-mcp-openobserve",
+        toolName: "searchsql",
+        title: "Search SQL",
+        riskLevel: "read",
+      });
+      const [profile] = await db.insert(toolProfiles).values({
+        companyId: company.id,
+        profileKey: `openobserve-${randomUUID()}`,
+        name: `OpenObserve Profile ${randomUUID()}`,
+        defaultAction: "allow",
+      }).returning();
+      const gateway = createTestToolGatewayService(db);
+      const created = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: { name: "OpenObserve Exec Gateway", profileId: profile.id },
+      });
+      const token = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: created.id,
+        body: { name: "Antigravity", clientLabel: "agy" },
+      });
+      const app = createGatewayRouteApp(db, gateway);
+      const listRes = await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+        .expect(200);
+
+      const target = listRes.body.result.tools.find((t: { name: string }) => t.name.includes("searchsql"));
+      expect(target).toBeDefined();
+      expect(target.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+
+      const callRes = await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: target.name, arguments: { query: "SELECT 1" } },
+        })
+        .expect(200);
+
+      expect(callRes.body.result).toMatchObject({
+        content: [{ type: "text", text: "query executed" }],
+      });
+      expect(calledWithMethod).toBe("tools/call");
+      expect(calledWithParams).toMatchObject({
+        name: "searchsql",
+        arguments: { query: "SELECT 1" },
+      });
+    } finally {
+      await remote.close();
+    }
+  });
+
+  it("preserves tool names when a second connection of the same application is added", async () => {
+    const company = await createCompany(db);
+    const remote1 = await startFakeRemoteMcpServer(async ({ body }) => ({
+      body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "conn1" }] } },
+    }));
+    const remote2 = await startFakeRemoteMcpServer(async ({ body }) => ({
+      body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "conn2" }] } },
+    }));
+    try {
+      await createRemoteMcpTool(db, company.id, {
+        url: remote1.url,
+        applicationKey: "harness-mcp-openobserve",
+        connectionName: "OpenObserve Production",
+        toolName: "searchsql",
+      });
+      const [profile] = await db.insert(toolProfiles).values({
+        companyId: company.id,
+        profileKey: `stability-${randomUUID()}`,
+        name: `Stability Profile ${randomUUID()}`,
+        defaultAction: "allow",
+      }).returning();
+      const gateway = createTestToolGatewayService(db);
+      const created = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: { name: "Stability Gateway", profileId: profile.id },
+      });
+      const token = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: created.id,
+        body: { name: "Agy", clientLabel: "agy" },
+      });
+      const app = createGatewayRouteApp(db, gateway);
+
+      const list1 = await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+        .expect(200);
+
+      const tool1Before = list1.body.result.tools.find((t: { name: string }) => t.name.includes("searchsql"));
+      expect(tool1Before).toBeDefined();
+      const originalName = tool1Before.name;
+      expect(originalName).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+
+      // Add a second connection with the same application key and tool
+      await createRemoteMcpTool(db, company.id, {
+        url: remote2.url,
+        applicationKey: "harness-mcp-openobserve",
+        connectionName: "OpenObserve Staging",
+        toolName: "searchsql",
+      });
+
+      const list2 = await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+        .expect(200);
+
+      const toolsAfter = list2.body.result.tools.filter((t: { name: string }) => t.name.includes("searchsql"));
+      expect(toolsAfter).toHaveLength(2);
+
+      // Connection 1's tool MUST NOT be renamed
+      const tool1After = toolsAfter.find((t: { name: string }) => t.name === originalName);
+      expect(tool1After).toBeDefined();
+
+      // Connection 2's tool gets a disambiguated name that also matches ^[A-Za-z0-9_-]{1,40}$
+      const tool2 = toolsAfter.find((t: { name: string }) => t.name !== originalName);
+      expect(tool2).toBeDefined();
+      expect(tool2.name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+      expect(tool2.name.length).toBeLessThanOrEqual(40);
+
+      // Both can be called
+      await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: originalName, arguments: {} } })
+        .expect(200);
+
+      await request(app)
+        .post(created.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: tool2.name, arguments: {} } })
+        .expect(200);
+    } finally {
+      await remote1.close();
+      await remote2.close();
+    }
+  });
+
+  it("preserves effect of approvals, trust rules, and profile entries created under legacy tool names", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { issue, run } = await createIssueAndRun(db, company.id, agent.id);
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+      body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
+    }));
+    try {
+      const { application, connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "openobserve",
+        toolName: "searchsql",
+        title: "Search SQL",
+        riskLevel: "write",
+      });
+      // The old legacy tool name format:
+      const legacyToolName = `mcp.openobserve-${connection.id.replace(/-/g, "").slice(0, 8)}:searchsql`;
+
+      // 1. Profile entry created under legacy name
+      const [profile] = await db.insert(toolProfiles).values({
+        companyId: company.id,
+        profileKey: `legacy-profile-${randomUUID()}`,
+        name: `Legacy Profile ${randomUUID()}`,
+        defaultAction: "deny",
+      }).returning();
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "tool_name",
+        effect: "include",
+        toolName: legacyToolName,
+      });
+      await db.insert(toolProfileBindings).values({
+        companyId: company.id,
+        profileId: profile.id,
+        targetType: "agent",
+        targetId: agent.id,
+      });
+
+      // 2. Trust rule / policy created under legacy name
+      await db.insert(toolPolicies).values({
+        companyId: company.id,
+        name: "Legacy Trust Rule",
+        policyType: "trust_rule",
+        selectors: {
+          toolName: legacyToolName,
+        },
+      });
+
+      // 3. Require approval policy created under legacy name
+      await db.insert(toolPolicies).values({
+        companyId: company.id,
+        name: "Require approval for searchsql",
+        policyType: "require_approval",
+        selectors: {
+          toolName: legacyToolName,
+        },
+        priority: 100,
+      });
+
+      const gateway = createTestToolGatewayService(db, {
+        toolActionSigningSecret: testToolActionSigningSecret,
+      });
+      const session = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+      });
+
+      // Execute tool to naturally create invocation and actionRequest with valid snapshot
+      const legacyParams = { query: "SELECT legacy" };
+      await gateway
+        .executeTool({
+          sessionToken: session.token,
+          tool: "openobserve_searchsql",
+          parameters: legacyParams,
+        })
+        .then(
+          () => {
+            throw new Error("Expected call to require approval");
+          },
+          (error) => expectGatewayError(error, 409, "approval_required"),
+        );
+
+      const [actionRequest] = await db
+        .select()
+        .from(toolActionRequests)
+        .where(eq(toolActionRequests.companyId, company.id));
+      const [invocation] = await db
+        .select()
+        .from(toolInvocations)
+        .where(eq(toolInvocations.companyId, company.id));
+
+      const signedPayload = readSignedToolArgumentsPayload({
+        signedArguments: actionRequest.signedArguments,
+        invocationId: invocation.id,
+        toolName: invocation.toolName,
+        signingSecret: testToolActionSigningSecret,
+      });
+
+      // Now simulate that this invocation and action request were created prior to upgrade under the legacy tool name
+      const legacyCanonical = canonicalToolArguments(legacyParams);
+      const legacySummary = summarizeToolValue(legacyParams);
+      const legacySnapshot = {
+        ...signedPayload!.approvalSnapshot!,
+        gatewayToolName: legacyToolName,
+      };
+
+      await db
+        .update(toolInvocations)
+        .set({
+          toolName: legacyToolName,
+        })
+        .where(eq(toolInvocations.id, invocation.id));
+
+      await db
+        .update(toolActionRequests)
+        .set({
+          signedArguments: signToolArguments({
+            invocationId: invocation.id,
+            toolName: legacyToolName,
+            canonicalArguments: legacyCanonical,
+            approvalSnapshot: legacySnapshot,
+            executionOnApprove: true,
+            signingSecret: testToolActionSigningSecret,
+          }),
+          canonicalArgumentsHash: legacySummary.sha256,
+          canonicalArgumentsSummary: legacySummary,
+          updatedAt: new Date(),
+        })
+        .where(eq(toolActionRequests.id, actionRequest.id));
+
+      // Approving the action request must succeed and execute the tool
+      const approvedResult = await gateway.approveActionRequest({
+        companyId: company.id,
+        actionRequestId: actionRequest.id,
+        actor: { userId: "board-user" },
+      });
+
+      expect(approvedResult).toMatchObject({
+        status: "executed",
+      });
+
+      const [completedInvocation] = await db
+        .select()
+        .from(toolInvocations)
+        .where(eq(toolInvocations.id, invocation.id));
+      expect(completedInvocation.status).toBe("succeeded");
+    } finally {
+      await remote.close();
+    }
+  });
 });
+
