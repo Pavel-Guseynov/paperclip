@@ -249,6 +249,7 @@ export interface ConnectedMcpGatewayMetadata {
   catalogEntryId: string;
   transport: "mcp_remote" | "local_stdio";
   gatewayToolName: string;
+  legacyGatewayToolName?: string | null;
   upstreamToolName: string;
   catalogName: string;
   inputSchema: Record<string, unknown>;
@@ -272,6 +273,7 @@ export interface ToolGatewayDescriptor extends AgentToolDescriptor {
   connectionId?: string | null;
   catalogEntryId?: string | null;
   upstreamToolName?: string | null;
+  legacyToolName?: string | null;
   providerMetadata?: ConnectedMcpGatewayMetadata | Record<string, unknown>;
 }
 
@@ -734,6 +736,83 @@ function slugSegment(
   return slug || fallback;
 }
 
+export function clientSafeSlug(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const slug = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+  return slug || fallback;
+}
+
+export function formatClientSafeGatewayToolBaseName(
+  rawApp: string | null | undefined,
+  rawTool: string,
+  maxLength: number = 40,
+): string {
+  const appSlug = clientSafeSlug(rawApp, "mcp");
+  const toolSlug = clientSafeSlug(rawTool, "tool");
+  if (appSlug.length + 1 + toolSlug.length <= maxLength) {
+    return `${appSlug}_${toolSlug}`;
+  }
+  const available = Math.max(3, maxLength - 1);
+  const maxHalf = Math.floor(available / 2);
+  let trimmedApp: string;
+  let trimmedTool: string;
+  if (appSlug.length <= maxHalf) {
+    trimmedApp = appSlug;
+    trimmedTool =
+      toolSlug.slice(0, available - appSlug.length).replace(/[-_]+$/, "") ||
+      "tool";
+  } else if (toolSlug.length <= maxHalf) {
+    trimmedTool = toolSlug;
+    trimmedApp =
+      appSlug.slice(0, available - toolSlug.length).replace(/[-_]+$/, "") ||
+      "mcp";
+  } else {
+    trimmedApp = appSlug.slice(0, maxHalf).replace(/[-_]+$/, "") || "mcp";
+    const remainingForTool = available - trimmedApp.length;
+    trimmedTool =
+      toolSlug.slice(0, remainingForTool).replace(/[-_]+$/, "") || "tool";
+  }
+  return `${trimmedApp}_${trimmedTool}`;
+}
+
+export function formatDisambiguatedGatewayToolName(
+  rawApp: string | null | undefined,
+  rawTool: string,
+  suffix: string,
+  maxLength: number = 40,
+): string {
+  const cleanSuffix = clientSafeSlug(suffix, "1");
+  const budgetForBase = Math.max(3, maxLength - 1 - cleanSuffix.length);
+  const base = formatClientSafeGatewayToolBaseName(
+    rawApp,
+    rawTool,
+    budgetForBase,
+  );
+  return `${base}_${cleanSuffix}`;
+}
+
+export function formatLegacyGatewayToolName(input: {
+  applicationKey: string | null | undefined;
+  connectionName: string | null | undefined;
+  applicationName: string | null | undefined;
+  connectionId: string;
+  toolName: string;
+}): string {
+  const applicationSegment = slugSegment(
+    input.applicationKey ?? input.connectionName ?? input.applicationName,
+    "mcp",
+  );
+  const connectionNamespace = `${applicationSegment}-${shortStableId(input.connectionId)}`;
+  const toolSlug = slugSegment(input.toolName, "tool");
+  return `mcp.${connectionNamespace}:${toolSlug}`;
+}
+
 function shortStableId(id: string): string {
   return id.replace(/-/g, "").slice(0, 8);
 }
@@ -786,7 +865,21 @@ function approvalSnapshotsMatch(
   const reviewedRecord = normalizeSignedApprovalSnapshot(reviewed);
   if (!reviewedRecord && !live) return true;
   if (!reviewedRecord || !live) return false;
-  return stableSerialize(reviewedRecord) === stableSerialize(live);
+  if (stableSerialize(reviewedRecord) === stableSerialize(live)) return true;
+  if (
+    typeof reviewedRecord.gatewayToolName === "string" &&
+    typeof live.gatewayToolName === "string" &&
+    reviewedRecord.gatewayToolName !== live.gatewayToolName
+  ) {
+    const normalizedReviewed = {
+      ...reviewedRecord,
+      gatewayToolName: live.gatewayToolName,
+    };
+    if (stableSerialize(normalizedReviewed) === stableSerialize(live)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 type ConnectedCredentialVersionSnapshot = {
@@ -1234,24 +1327,89 @@ export function createToolGatewayService(
         (connection.transport === "local_stdio" &&
           application.type === "mcp_stdio"),
     );
-    const baseNames = eligibleRows.map(
-      ({ catalogEntry, connection, application }) => {
-        const applicationKey = application.applicationKey ?? null;
-        const connectionNamespace = `${slugSegment(applicationKey ?? connection.name ?? application.name, "mcp")}-${shortStableId(connection.id)}`;
-        const toolSlug = slugSegment(catalogEntry.toolName, "tool");
-        return `mcp.${connectionNamespace}:${toolSlug}`;
-      },
-    );
-    const baseNameCounts = baseNames.reduce<Map<string, number>>(
-      (counts, name) => {
-        counts.set(name, (counts.get(name) ?? 0) + 1);
-        return counts;
-      },
-      new Map(),
-    );
+    // Stable, deterministic assignment of client-safe tool names.
+    // Order eligible rows by (connection.createdAt ASC, connection.id ASC, catalogEntry.createdAt ASC, catalogEntry.id ASC)
+    // so that adding a new connection or tool NEVER renames an existing tool.
+    const sortedRows = [...eligibleRows].sort((a, b) => {
+      const aConnTime = a.connection.createdAt
+        ? new Date(a.connection.createdAt).getTime()
+        : 0;
+      const bConnTime = b.connection.createdAt
+        ? new Date(b.connection.createdAt).getTime()
+        : 0;
+      if (aConnTime !== bConnTime) return aConnTime - bConnTime;
+      const connComp = a.connection.id.localeCompare(b.connection.id);
+      if (connComp !== 0) return connComp;
+      const aCatTime = a.catalogEntry.createdAt
+        ? new Date(a.catalogEntry.createdAt).getTime()
+        : 0;
+      const bCatTime = b.catalogEntry.createdAt
+        ? new Date(b.catalogEntry.createdAt).getTime()
+        : 0;
+      if (aCatTime !== bCatTime) return aCatTime - bCatTime;
+      return a.catalogEntry.id.localeCompare(b.catalogEntry.id);
+    });
+
+    const claimedNames = new Set<string>();
+    const assignedNamesByCatalogEntryId = new Map<
+      string,
+      { gatewayToolName: string; legacyToolName: string }
+    >();
+
+    for (const { catalogEntry, connection, application } of sortedRows) {
+      const applicationKey = application.applicationKey ?? null;
+      const rawApp = applicationKey ?? connection.name ?? application.name;
+      const baseName = formatClientSafeGatewayToolBaseName(
+        rawApp,
+        catalogEntry.toolName,
+        40,
+      );
+      let gatewayToolName = baseName;
+      if (claimedNames.has(gatewayToolName)) {
+        gatewayToolName = formatDisambiguatedGatewayToolName(
+          rawApp,
+          catalogEntry.toolName,
+          shortStableId(connection.id),
+          40,
+        );
+        if (claimedNames.has(gatewayToolName)) {
+          gatewayToolName = formatDisambiguatedGatewayToolName(
+            rawApp,
+            catalogEntry.toolName,
+            shortStableId(catalogEntry.id),
+            40,
+          );
+        }
+        let counter = 2;
+        while (claimedNames.has(gatewayToolName)) {
+          const counterSuffix = `${shortStableId(catalogEntry.id).slice(0, 5)}_${counter}`;
+          gatewayToolName = formatDisambiguatedGatewayToolName(
+            rawApp,
+            catalogEntry.toolName,
+            counterSuffix,
+            40,
+          );
+          counter++;
+        }
+      }
+      claimedNames.add(gatewayToolName);
+
+      const legacyToolName = formatLegacyGatewayToolName({
+        applicationKey,
+        connectionName: connection.name,
+        applicationName: application.name,
+        connectionId: connection.id,
+        toolName: catalogEntry.toolName,
+      });
+
+      assignedNamesByCatalogEntryId.set(catalogEntry.id, {
+        gatewayToolName,
+        legacyToolName,
+      });
+    }
 
     return eligibleRows.map(
-      ({ catalogEntry, connection, application }, index) => {
+      ({ catalogEntry, connection, application }) => {
         if (
           connection.transport !== "mcp_remote" &&
           connection.transport !== "local_stdio"
@@ -1260,11 +1418,8 @@ export function createToolGatewayService(
             `Non-MCP connection ${connection.id} cannot be exposed through the MCP gateway`,
           );
         }
-        const baseName = baseNames[index]!;
-        const gatewayToolName =
-          baseNameCounts.get(baseName)! > 1
-            ? `${baseName}-${shortStableId(catalogEntry.id)}`
-            : baseName;
+        const { gatewayToolName, legacyToolName } =
+          assignedNamesByCatalogEntryId.get(catalogEntry.id)!;
         const applicationKey = application.applicationKey ?? null;
         const inputSchema = projectedConnectionToolInputSchema(
           connection,
@@ -1282,6 +1437,7 @@ export function createToolGatewayService(
           catalogEntryId: catalogEntry.id,
           transport: connection.transport,
           gatewayToolName,
+          legacyGatewayToolName: legacyToolName,
           upstreamToolName: catalogEntry.toolName,
           catalogName: catalogEntry.name,
           inputSchema,
@@ -1297,6 +1453,7 @@ export function createToolGatewayService(
         };
         return {
           name: gatewayToolName,
+          legacyToolName,
           displayName: catalogEntry.title ?? catalogEntry.toolName,
           description:
             catalogEntry.description ??
@@ -2581,6 +2738,15 @@ export function createToolGatewayService(
     const actorType = input.actorType ?? (input.agentId ? "agent" : "system");
     const actorId =
       input.actorId ?? input.agentId ?? input.gatewayId ?? input.companyId;
+    const legacyToolNames: string[] = [];
+    if (input.tool.legacyToolName) {
+      legacyToolNames.push(input.tool.legacyToolName);
+      if (input.tool.catalogEntryId) {
+        legacyToolNames.push(
+          `${input.tool.legacyToolName}-${shortStableId(input.tool.catalogEntryId)}`,
+        );
+      }
+    }
     return {
       companyId: input.companyId,
       actor: {
@@ -2596,6 +2762,8 @@ export function createToolGatewayService(
       },
       request: {
         toolName: input.tool.name,
+        legacyToolName: input.tool.legacyToolName ?? null,
+        legacyToolNames,
         applicationId: input.tool.applicationId ?? null,
         applicationKey: input.tool.applicationKey ?? null,
         connectionId: input.tool.connectionId ?? null,
@@ -2643,7 +2811,15 @@ export function createToolGatewayService(
           (candidate.providerType !== "paperclip_self" &&
             candidate.providerType !== "paperclip_plugin"),
       )
-      .find((candidate) => candidate.name === toolName);
+      .find(
+        (candidate) =>
+          candidate.name === toolName ||
+          (candidate.legacyToolName &&
+            (candidate.legacyToolName === toolName ||
+              (candidate.catalogEntryId &&
+                `${candidate.legacyToolName}-${shortStableId(candidate.catalogEntryId)}` ===
+                  toolName))),
+      );
     if (!tool) {
       throw new ToolGatewayHttpError(
         404,
