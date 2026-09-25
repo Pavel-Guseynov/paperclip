@@ -1576,6 +1576,8 @@ export interface ToolAccessDecisionInput {
     upstreamToolName?: string | null;
     riskLevel?: ToolRiskLevel | string | null;
     toolName: string;
+    legacyToolName?: string | null;
+    legacyToolNames?: string[] | null;
     arguments?: unknown;
     idempotencyKey?: string | null;
     sideEffecting?: boolean;
