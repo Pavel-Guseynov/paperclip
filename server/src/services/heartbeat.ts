@@ -9482,6 +9482,15 @@ export function heartbeatService(
       const result = await scheduleBoundedRetryForRun(run, agent);
       return result.outcome === "scheduled" ? result.run : null;
     },
+    releaseEnvironmentLeasesForRun: async (run) => {
+      await releaseEnvironmentLeasesForRun({
+        runId: run.id,
+        companyId: run.companyId,
+        agentId: run.agentId,
+        status: run.status,
+        failureReason: "terminalized_in_stale_lock_sweep",
+      });
+    },
   });
   const runDispatch = createRunDispatch(db);
 
@@ -10081,6 +10090,33 @@ export function heartbeatService(
   }) {
     const leaseOwnerRun = await getRun(input.runId);
     if (leaseOwnerRun && isNativeRunnerOwnershipHeld(leaseOwnerRun)) return;
+    if (
+      leaseOwnerRun &&
+      ((typeof leaseOwnerRun.processPid === "number" && isProcessAlive(leaseOwnerRun.processPid)) ||
+        (typeof leaseOwnerRun.processGroupId === "number" && isProcessGroupAlive(leaseOwnerRun.processGroupId)) ||
+        runningProcesses.has(input.runId))
+    ) {
+      return;
+    }
+    if (leaseOwnerRun && leaseOwnerRun.runtimeMode === "native") {
+      const coordinator = await db
+        .select({
+          phase: nativeRunFinalizations.phase,
+          resultId: nativeRunFinalizations.resultId,
+          attempt: nativeRunFinalizations.attempt,
+        })
+        .from(nativeRunFinalizations)
+        .where(eq(nativeRunFinalizations.runId, leaseOwnerRun.id))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      const nativeResumeOwnsRun =
+        coordinator?.resultId === null &&
+        (coordinator.phase === "retryable_failure" ||
+          (coordinator.phase === "observed" && coordinator.attempt > 0));
+      if (nativeResumeOwnsRun) {
+        return;
+      }
+    }
     if (input.providerResourceDisposition === "destroy") {
       const closeResult = await (
         options.closeWarmNativeSessionsForRun ??
@@ -18314,7 +18350,10 @@ export function heartbeatService(
     const cutoff = new Date(Date.now() - opts.backoffMs);
 
     const rows = await db
-      .select({ lease: environmentLeases })
+      .select({
+        lease: environmentLeases,
+        run: heartbeatRuns,
+      })
       .from(environmentLeases)
       .leftJoin(
         heartbeatRuns,
@@ -18336,7 +18375,19 @@ export function heartbeatService(
       .limit(ORPHANED_ACTIVE_LEASE_SWEEP_PAGE_SIZE);
 
     let recovered = 0;
-    for (const { lease } of rows) {
+    for (const { lease, run } of rows) {
+      if (run) {
+        if (isNativeRunnerOwnershipHeld(run)) {
+          continue;
+        }
+        const processAlive =
+          (typeof run.processPid === "number" && isProcessAlive(run.processPid)) ||
+          (typeof run.processGroupId === "number" && isProcessGroupAlive(run.processGroupId)) ||
+          runningProcesses.has(run.id);
+        if (processAlive) {
+          continue;
+        }
+      }
       // A provider resource id names one physical sandbox. A different lease
       // row can still hold that same resource in a live status, so this sweep
       // must not tear down a sandbox that a different lease still owns.
@@ -18364,6 +18415,15 @@ export function heartbeatService(
           await deferOrphanedActiveLease(lease.id);
           continue;
         }
+      }
+
+      if (!lease.provider || lease.provider === "local") {
+        await environmentsSvc.releaseLease(lease.id, "released", {
+          failureReason: "orphaned_active_lease_recovered",
+          cleanupStatus: "success",
+        });
+        recovered += 1;
+        continue;
       }
 
       // Keep the row's existing updatedAt value. The select above already
@@ -18463,6 +18523,15 @@ export function heartbeatService(
         : null;
       const lease = await environmentsSvc.getLeaseById(row.id);
       if (!lease) continue;
+
+      if (!lease.provider || lease.provider === "local") {
+        await environmentsSvc.releaseLease(lease.id, "released", {
+          failureReason: "pending_cleanup_local_resolved",
+          cleanupStatus: "success",
+        });
+        destroyed += 1;
+        continue;
+      }
 
       // An orphan ephemeral lease keeps its provider, its provider lease id, and
       // its sandbox config in the lease row. A failed acquire records it, and its
@@ -28920,6 +28989,13 @@ export function heartbeatService(
           level: "warn",
           message: options.eventMessage ?? "run cancelled",
           ...(options.eventPayload ? { payload: options.eventPayload } : {}),
+        });
+        await releaseEnvironmentLeasesForRun({
+          runId: cancelled.id,
+          companyId: cancelled.companyId,
+          agentId: cancelled.agentId,
+          status: cancelled.status,
+          failureReason: options.eventMessage ?? reason,
         });
         await releaseIssueExecutionAndPromote(cancelled, {
           suppressImmediateRecovery: options.suppressImmediateRecovery,
