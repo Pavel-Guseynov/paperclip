@@ -72,6 +72,8 @@ import type {
   ToolMcpGatewayTokenCreated,
   ToolMcpGatewayWithTokens,
   UpdateToolMcpGateway,
+  ToolMcpGatewayDefaultProfileMode,
+  ToolRiskLevel,
 } from "@paperclipai/shared";
 import {
   isGitHubConnectorProfileId,
@@ -104,7 +106,11 @@ import {
   REMOTE_URL_SECRET_CONFIG_PATH,
   remoteUrlCredentialMatchesPublicUrl,
 } from "./remote-url-credentials.js";
-import { toolAccessPolicyService } from "./tool-access-policy.js";
+import {
+  toolAccessPolicyService,
+  createToolEvaluationContextCache,
+  type ToolEvaluationContextCache,
+} from "./tool-access-policy.js";
 import { commitToolActionReview } from "./tool-action-review.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import {
@@ -286,6 +292,7 @@ export interface ToolGatewaySession {
   gatewayPublicId?: string | null;
   gatewayName?: string | null;
   gatewayProfileId?: string | null;
+  defaultProfileMode?: ToolMcpGatewayDefaultProfileMode | null;
   gatewayTokenId?: string | null;
   gatewayTokenAllowedActions?: ToolMcpGatewayTokenAction[];
   actorType?: "agent" | "user" | "system" | "plugin";
@@ -1173,50 +1180,13 @@ export function createToolGatewayService(
     return [...BUILTIN_TOOLS, ...pluginTools()];
   }
 
-  async function connectedMcpToolsForCompany(
-    companyId: string,
-  ): Promise<ToolGatewayDescriptor[]> {
-    const rows = await db
-      .select({
-        catalogEntry: toolCatalogEntries,
-        connection: toolConnections,
-        application: toolApplications,
-      })
-      .from(toolCatalogEntries)
-      .innerJoin(
-        toolConnections,
-        eq(toolCatalogEntries.connectionId, toolConnections.id),
-      )
-      .innerJoin(
-        toolApplications,
-        eq(toolConnections.applicationId, toolApplications.id),
-      )
-      .where(
-        and(
-          eq(toolCatalogEntries.companyId, companyId),
-          eq(toolCatalogEntries.entryKind, "tool"),
-          eq(toolCatalogEntries.status, "active"),
-          isNull(toolCatalogEntries.quarantinedAt),
-          eq(toolConnections.companyId, companyId),
-          inArray(toolConnections.transport, ["mcp_remote", "local_stdio"]),
-          eq(toolConnections.status, "active"),
-          eq(toolConnections.enabled, true),
-          // A personal connection has no company-level credential to probe. A
-          // credential-less health sweep can therefore mark it as errored even
-          // while the responsible user's grant is valid. Keep its cached active
-          // catalog discoverable; execution resolves and validates that user's
-          // grant, and a successful call restores the shared health indicator.
-          or(
-            inArray(toolConnections.healthStatus, ["ok", "healthy"]),
-            eq(toolConnections.credentialPolicy, "per_user"),
-          ),
-          eq(toolApplications.companyId, companyId),
-          inArray(toolApplications.type, ["mcp_http", "mcp_stdio"]),
-          eq(toolApplications.status, "active"),
-        ),
-      )
-      .orderBy(toolConnections.name, toolCatalogEntries.name);
-
+  function mapRowsToToolGatewayDescriptors(
+    rows: Array<{
+      catalogEntry: typeof toolCatalogEntries.$inferSelect;
+      connection: typeof toolConnections.$inferSelect;
+      application: typeof toolApplications.$inferSelect;
+    }>,
+  ): ToolGatewayDescriptor[] {
     const eligibleRows = rows.filter(
       ({ connection, application }) =>
         (connection.transport === "mcp_remote" &&
@@ -1308,6 +1278,205 @@ export function createToolGatewayService(
         };
       },
     );
+  }
+
+  async function connectedMcpToolsForCompany(
+    companyId: string,
+    cache?: ToolEvaluationContextCache,
+  ): Promise<ToolGatewayDescriptor[]> {
+    const rows = await db
+      .select({
+        catalogEntry: toolCatalogEntries,
+        connection: toolConnections,
+        application: toolApplications,
+      })
+      .from(toolCatalogEntries)
+      .innerJoin(
+        toolConnections,
+        eq(toolCatalogEntries.connectionId, toolConnections.id),
+      )
+      .innerJoin(
+        toolApplications,
+        eq(toolConnections.applicationId, toolApplications.id),
+      )
+      .where(
+        and(
+          eq(toolCatalogEntries.companyId, companyId),
+          eq(toolCatalogEntries.entryKind, "tool"),
+          eq(toolCatalogEntries.status, "active"),
+          isNull(toolCatalogEntries.quarantinedAt),
+          eq(toolConnections.companyId, companyId),
+          inArray(toolConnections.transport, ["mcp_remote", "local_stdio"]),
+          eq(toolConnections.status, "active"),
+          eq(toolConnections.enabled, true),
+          // A personal connection has no company-level credential to probe. A
+          // credential-less health sweep can therefore mark it as errored even
+          // while the responsible user's grant is valid. Keep its cached active
+          // catalog discoverable; execution resolves and validates that user's
+          // grant, and a successful call restores the shared health indicator.
+          or(
+            inArray(toolConnections.healthStatus, ["ok", "healthy"]),
+            eq(toolConnections.credentialPolicy, "per_user"),
+          ),
+          eq(toolApplications.companyId, companyId),
+          inArray(toolApplications.type, ["mcp_http", "mcp_stdio"]),
+          eq(toolApplications.status, "active"),
+        ),
+      )
+      .orderBy(toolConnections.name, toolCatalogEntries.name);
+
+    if (cache) {
+      for (const row of rows) {
+        cache.primeCatalogEntry(row.catalogEntry);
+        cache.primeConnection(row.connection);
+        cache.primeApplication(row.application);
+      }
+    }
+    return mapRowsToToolGatewayDescriptors(rows);
+  }
+
+  async function connectedMcpToolsForProfile(
+    companyId: string,
+    profileId: string,
+    cache?: ToolEvaluationContextCache,
+  ): Promise<ToolGatewayDescriptor[]> {
+    const entries = cache
+      ? await cache.getProfileEntries([profileId])
+      : await db
+          .select()
+          .from(toolProfileEntries)
+          .where(
+            and(
+              eq(toolProfileEntries.companyId, companyId),
+              eq(toolProfileEntries.profileId, profileId),
+            ),
+          );
+    const includeEntries = entries.filter((e) => e.effect === "include");
+    if (includeEntries.length === 0) return [];
+
+    const connectionIds = includeEntries
+      .map((e) => e.connectionId)
+      .filter((id): id is string => Boolean(id));
+    const applicationIds = includeEntries
+      .map((e) => e.applicationId)
+      .filter((id): id is string => Boolean(id));
+    const catalogEntryIds = includeEntries
+      .map((e) => e.catalogEntryId)
+      .filter((id): id is string => Boolean(id));
+    const toolNames = includeEntries
+      .map((e) => e.toolName)
+      .filter((name): name is string => Boolean(name));
+    const riskLevels = includeEntries
+      .map((e) => e.riskLevel)
+      .filter((level): level is ToolRiskLevel => Boolean(level));
+
+    const selectorOrConditions = [];
+    if (connectionIds.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.connectionId, connectionIds));
+    }
+    if (applicationIds.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.applicationId, applicationIds));
+    }
+    if (catalogEntryIds.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.id, catalogEntryIds));
+    }
+    if (toolNames.length > 0) {
+      const candidateToolNames = new Set(toolNames);
+      for (const name of toolNames) {
+        if (name.includes(":")) {
+          const parts = name.split(":");
+          const prefix = parts[0]!;
+          const slug = parts[1]!;
+          candidateToolNames.add(slug);
+          candidateToolNames.add(slug.replace(/-/g, "_"));
+          const prefixParts = prefix.split("-");
+          const shortId = prefixParts[prefixParts.length - 1];
+          if (shortId && /^[0-9a-f]{8}$/i.test(shortId)) {
+            selectorOrConditions.push(
+              sql`replace(${toolConnections.id}::text, '-', '') LIKE ${shortId.toLowerCase() + "%"}`,
+            );
+          }
+        }
+      }
+      selectorOrConditions.push(inArray(toolCatalogEntries.toolName, [...candidateToolNames]));
+      selectorOrConditions.push(inArray(toolCatalogEntries.name, [...candidateToolNames]));
+    }
+    if (riskLevels.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.riskLevel, riskLevels));
+    }
+    if (selectorOrConditions.length === 0) return [];
+
+    const rows = await db
+      .select({
+        catalogEntry: toolCatalogEntries,
+        connection: toolConnections,
+        application: toolApplications,
+      })
+      .from(toolCatalogEntries)
+      .innerJoin(
+        toolConnections,
+        eq(toolCatalogEntries.connectionId, toolConnections.id),
+      )
+      .innerJoin(
+        toolApplications,
+        eq(toolConnections.applicationId, toolApplications.id),
+      )
+      .where(
+        and(
+          eq(toolCatalogEntries.companyId, companyId),
+          eq(toolCatalogEntries.entryKind, "tool"),
+          eq(toolCatalogEntries.status, "active"),
+          isNull(toolCatalogEntries.quarantinedAt),
+          eq(toolConnections.companyId, companyId),
+          inArray(toolConnections.transport, ["mcp_remote", "local_stdio"]),
+          eq(toolConnections.status, "active"),
+          eq(toolConnections.enabled, true),
+          or(
+            inArray(toolConnections.healthStatus, ["ok", "healthy"]),
+            eq(toolConnections.credentialPolicy, "per_user"),
+          ),
+          eq(toolApplications.companyId, companyId),
+          inArray(toolApplications.type, ["mcp_http", "mcp_stdio"]),
+          eq(toolApplications.status, "active"),
+          or(...selectorOrConditions),
+        ),
+      )
+      .orderBy(toolConnections.name, toolCatalogEntries.name);
+
+    if (cache) {
+      for (const row of rows) {
+        cache.primeCatalogEntry(row.catalogEntry);
+        cache.primeConnection(row.connection);
+        cache.primeApplication(row.application);
+      }
+    }
+    const descriptors = mapRowsToToolGatewayDescriptors(rows);
+    return descriptors.filter((tool) => toolMatchesProfileIncludes(tool, includeEntries));
+  }
+
+  function toolMatchesProfileIncludes(
+    tool: ToolGatewayDescriptor,
+    includeEntries: Array<typeof toolProfileEntries.$inferSelect>,
+  ): boolean {
+    return includeEntries.some((entry) => {
+      if (entry.selectorType === "connection") {
+        return Boolean(entry.connectionId && tool.connectionId === entry.connectionId);
+      }
+      if (entry.selectorType === "application") {
+        return Boolean(entry.applicationId && tool.applicationId === entry.applicationId);
+      }
+      if (entry.selectorType === "catalog_entry") {
+        return Boolean(entry.catalogEntryId && tool.catalogEntryId === entry.catalogEntryId);
+      }
+      if (entry.selectorType === "tool_name") {
+        const name = tool.upstreamToolName ?? tool.name;
+        return entry.toolName === name || entry.toolName === tool.name;
+      }
+      if (entry.selectorType === "risk_level") {
+        return entry.riskLevel === tool.risk;
+      }
+      return false;
+    });
   }
 
   async function connectedMcpToolsForConnection(
@@ -2816,14 +2985,51 @@ export function createToolGatewayService(
     if (session.agentId) {
       await assertAgentInCompany(session.companyId, session.agentId);
     }
-    const allConnectedTools = await connectedMcpToolsForCompany(
-      session.companyId,
+    const cache = createToolEvaluationContextCache(db, session.companyId);
+    let gatewayProfile: typeof toolProfiles.$inferSelect | null = null;
+    let gatewayProfileEntries: Array<typeof toolProfileEntries.$inferSelect> = [];
+    if (session.gatewayProfileId) {
+      gatewayProfile = await cache.getProfile(session.gatewayProfileId);
+      if (gatewayProfile) {
+        gatewayProfileEntries = await cache.getProfileEntries([gatewayProfile.id]);
+      }
+    }
+    const isRestrictedGatewayProfile = Boolean(
+      gatewayProfile && gatewayProfile.defaultAction !== "allow",
     );
+
+    let allConnectedTools: ToolGatewayDescriptor[];
+    if (isRestrictedGatewayProfile && session.gatewayProfileId) {
+      allConnectedTools = await connectedMcpToolsForProfile(
+        session.companyId,
+        session.gatewayProfileId,
+        cache,
+      );
+    } else {
+      allConnectedTools = await connectedMcpToolsForCompany(
+        session.companyId,
+        cache,
+      );
+    }
+
     const onDemandTargets = allConnectedTools.filter(isOnDemandRemoteTool);
-    const tools = [
-      ...allTools(),
-      ...allConnectedTools.filter((tool) => !isOnDemandRemoteTool(tool)),
-    ].filter(
+
+    let baseTools: ToolGatewayDescriptor[];
+    if (isRestrictedGatewayProfile && gatewayProfile) {
+      const includeEntries = gatewayProfileEntries.filter((e) => e.effect === "include");
+      const builtins = allTools().filter((tool) => toolMatchesProfileIncludes(tool, includeEntries));
+      baseTools = [
+        ...builtins,
+        ...allConnectedTools.filter((tool) => !isOnDemandRemoteTool(tool)),
+      ];
+    } else {
+      baseTools = [
+        ...allTools(),
+        ...allConnectedTools.filter((tool) => !isOnDemandRemoteTool(tool)),
+      ];
+    }
+
+    const tools = baseTools.filter(
       (tool) =>
         session.agentId ||
         (tool.providerType !== "paperclip_self" &&
@@ -2833,6 +3039,7 @@ export function createToolGatewayService(
       tools.map(async (tool) => {
         const decision = await policyService.decide(
           policyInputForTool({ session, tool }),
+          cache,
         );
         return { tool, decision };
       }),
@@ -2860,6 +3067,7 @@ export function createToolGatewayService(
         onDemandTargets.map(async (tool) => {
           const decision = await policyService.decide(
             policyInputForTool({ session, tool }),
+            cache,
           );
           return { tool, decision };
         }),
@@ -6872,6 +7080,7 @@ export function createToolGatewayService(
       gatewayPublicId: row.gateway.gatewayPublicId,
       gatewayName: row.gateway.name,
       gatewayProfileId: row.gateway.profileId,
+      defaultProfileMode: row.gateway.defaultProfileMode,
       gatewayTokenId: row.token.id || tokenId,
       gatewayTokenAllowedActions: normalizeGatewayTokenActions(
         row.token.allowedActions,
