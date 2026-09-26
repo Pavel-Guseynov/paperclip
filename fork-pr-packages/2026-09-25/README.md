@@ -45,6 +45,7 @@ The first review found defects in content that came from the stable branches. Th
 | 19 | `fix/stage-decision-keeps-calling-run` | `40d9dab4b` | (none) | `7259b6efa` | 4/23 fail | complete | ready |
 | 20 | `fix/antigravity-conversation-continuation` | `e1751a913` | (none) | `f0f648ff8` | 4/6 fail | complete | ready |
 | 21 | `fix/shutdown-waits-for-adapter-run-stops` | `a1396163b` | (none) | `d0d4996d4` | 3/3 fail | complete | ready |
+| 22 | `fix/release-cancelled-interrupted-run-leases` | `b0c523691` | (none) | `46e8948a8` | 5/5 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -819,6 +820,21 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/shutdown-waits-for-adapter-run-stops`: none.
 - Stable-only commits (not on this branch):
   - `a1396163b` fix(server): wait for in-flight adapter runs to settle during graceful shutdown (cherry picked from `d0d4996d4`)
+
+### 22 `fix/release-cancelled-interrupted-run-leases`
+
+- Head: `46e8948a8df775fa11e3d48e070a20188c91d61f`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit; diff vs U: 5 files changed, 557 insertions(+), 4 deletions(-).
+- Commits (oldest first; author; cherry-pick source):
+  - `46e8948a8` pavel.guseynov: fix(environments): release environment leases of terminal runs
+- Files:
+  - A `server/src/__tests__/release-cancelled-interrupted-run-leases.test.ts`
+  - M `server/src/services/environment-runtime.ts`
+  - M `server/src/services/environments.ts`
+  - M `server/src/services/heartbeat.ts`
+  - M `server/src/services/recovery/service.ts`
+- Commits without a patch-equivalent on `stable/v2026.916.1/fix/release-cancelled-interrupted-run-leases`: none.
+- Stable-only commits (not on this branch):
+  - `b0c523691` fix(environments): release environment leases of terminal runs (cherry picked from `46e8948a8`)
 
 
 

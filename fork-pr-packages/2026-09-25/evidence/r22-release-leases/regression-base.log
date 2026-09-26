@@ -1,0 +1,108 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ❯ |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts (5 tests | 5 failed) 2096ms
+   ❯ release-cancelled-interrupted-run-leases (5)
+     × a legacy run cancelled while its execution runs in this process releases its lease, reproducing run 5661c208's path 156ms
+     × a run cancelled with no in-process execution releases its lease 51ms
+     × a run terminalized by the stale-lock sweep's backstop after its owning server process died releases its lease 41ms
+     × a lease already stranded on a terminal run with no live process is released by the supported sweep 40ms
+     × a lease whose run's process is still alive is not released 42ms
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  06:16:13
+   Duration  7.74s (transform 3.50s, setup 55ms, import 5.51s, tests 2.10s, environment 0ms)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > release-cancelled-interrupted-run-leases > a legacy run cancelled while its execution runs in this process releases its lease, reproducing run 5661c208's path
+AssertionError: expected 'active' to match /released|expired/
+
+- Expected:
+/released|expired/
+
++ Received:
+"active"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:206:26
+    204|       .where(eq(environmentLeases.id, fixture.leaseId));
+    205|
+    206|     expect(lease.status).toMatch(/released|expired/);
+       |                          ^
+    207|     expect(lease.releasedAt).toBeInstanceOf(Date);
+    208|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > release-cancelled-interrupted-run-leases > a run cancelled with no in-process execution releases its lease
+AssertionError: expected 'active' to match /released|expired/
+
+- Expected:
+/released|expired/
+
++ Received:
+"active"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:262:26
+    260|       .where(eq(environmentLeases.id, fixture.leaseId));
+    261|
+    262|     expect(lease.status).toMatch(/released|expired/);
+       |                          ^
+    263|     expect(lease.releasedAt).toBeInstanceOf(Date);
+    264|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > release-cancelled-interrupted-run-leases > a run terminalized by the stale-lock sweep's backstop after its owning server process died releases its lease
+AssertionError: expected 'active' to match /released|expired/
+
+- Expected:
+/released|expired/
+
++ Received:
+"active"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:321:26
+    319|       .where(eq(environmentLeases.id, fixture.leaseId));
+    320|
+    321|     expect(lease.status).toMatch(/released|expired/);
+       |                          ^
+    322|     expect(lease.releasedAt).toBeInstanceOf(Date);
+    323|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > release-cancelled-interrupted-run-leases > a lease already stranded on a terminal run with no live process is released by the supported sweep
+AssertionError: expected 'pending_cleanup' to match /released|expired/
+
+- Expected:
+/released|expired/
+
++ Received:
+"pending_cleanup"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:372:26
+    370|       .where(eq(environmentLeases.id, fixture.leaseId));
+    371|
+    372|     expect(lease.status).toMatch(/released|expired/);
+       |                          ^
+    373|     expect(lease.releasedAt).toBeInstanceOf(Date);
+    374|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > release-cancelled-interrupted-run-leases > a lease whose run's process is still alive is not released
+AssertionError: expected 'pending_cleanup' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pending_cleanup"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:422:26
+    420|
+    421|     // Must NOT be released because the process is alive
+    422|     expect(lease.status).toBe("active");
+       |                          ^
+    423|     expect(lease.releasedAt).toBeNull();
+    424|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯

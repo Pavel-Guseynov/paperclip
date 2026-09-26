@@ -17,3 +17,4 @@
 19	fix/stage-decision-keeps-calling-run	fix(issues): do not cancel calling run when recording stage decision
 20	fix/antigravity-conversation-continuation	fix(conversation): support declared adapter conversation continuation
 21	fix/shutdown-waits-for-adapter-run-stops	fix(server): wait for in-flight adapter runs to settle during graceful shutdown
+22	fix/release-cancelled-interrupted-run-leases	fix(environments): release environment leases of terminal runs

@@ -1,0 +1,23 @@
+=== pnpm check:token-gates ===
+check-token-gates summary
+  Files scanned:                 1068
+  Allowlist entries loaded:      33
+  Allowlisted issues skipped:    109
+
+  Gate 1 (color literals):       CLEAN
+  Gate 2 (arbitrary bracket vals): CLEAN
+  Gate 3 (raw font-size):        CLEAN
+  Gate 4 (legacy hsl(var())):    CLEAN
+
+All gates clean.
+
+=== pnpm -r typecheck ===
+exit code 0
+
+=== pnpm build ===
+exit code 0
+
+=== vitest run server/src/__tests__/release-cancelled-interrupted-run-leases.test.ts ===
+✓ |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts (5 tests) 2357ms
+Test Files  1 passed (1)
+Tests  5 passed (5)

@@ -1,0 +1,14 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ✓ |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts (5 tests) 2357ms
+   ✓ release-cancelled-interrupted-run-leases (5)
+     ✓ a legacy run cancelled while its execution runs in this process releases its lease, reproducing run 5661c208's path 169ms
+     ✓ a run cancelled with no in-process execution releases its lease 67ms
+     ✓ a run terminalized by the stale-lock sweep's backstop after its owning server process died releases its lease 42ms
+     ✓ a lease already stranded on a terminal run with no live process is released by the supported sweep 34ms
+     ✓ a lease whose run's process is still alive is not released 44ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  06:25:48
+   Duration  9.06s (transform 3.74s, setup 96ms, import 6.51s, tests 2.36s, environment 0ms)

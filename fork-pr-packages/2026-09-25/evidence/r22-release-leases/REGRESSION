@@ -1,0 +1,29 @@
+regression tests (server/src/__tests__/release-cancelled-interrupted-run-leases.test.ts):
+- a legacy run cancelled while its execution runs in this process releases its lease, reproducing run 5661c208's path
+- a run cancelled with no in-process execution releases its lease
+- a run terminalized by the stale-lock sweep's backstop after its owning server process died releases its lease
+- a lease already stranded on a terminal run with no live process is released by the supported sweep
+- a lease whose run's process is still alive is not released
+
+head=46e8948a8df775fa11e3d48e070a20188c91d61f (fix/release-cancelled-interrupted-run-leases)
+base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
+stable-head=b0c5236914c74a18f1c8819872d885599c1337ad (stable/v2026.916.1/fix/release-cancelled-interrupted-run-leases)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=deea922ed3b16143437c709592fba5e83fae5b20 (main)
+
+regression-base exit=1:
+- Test 1 failed: `AssertionError: expected 'active' to match /released|expired/`
+  - On base, in `cancelRunInternal`, `cancelled` was written and `releaseIssueExecutionAndPromote` called, but `releaseEnvironmentLeasesForRun` / `releaseRunLeases` was never called. The lease remained `active` with `releasedAt: null`.
+- Test 2 failed: `AssertionError: expected 'active' to match /released|expired/`
+  - On base, cancelling a run with no in-process execution also did not release its environment lease, leaving it `active`.
+- Test 3 failed: `AssertionError: expected 'active' to match /released|expired/`
+  - On base, `recoveryService.terminalizeOrphanedRunningRunCandidate` marked the run `interrupted` in the stale-lock sweep backstop, but never invoked lease release, stranding the lease in `active`.
+- Test 4 failed: `AssertionError: expected 'pending_cleanup' to match /released|expired/`
+  - On base, `sweepOrphanedActiveLeases` marked the lease `pending_cleanup`. However, `sweepPendingCleanupLeases` threw on `local` driver (`Environment driver "local" does not support orphan sandbox teardown`) and stranded the lease in `failed` with `releasedAt: null`.
+- Test 5 failed: `AssertionError: expected 'pending_cleanup' to be 'active'`
+  - On base, `sweepOrphanedActiveLeases` did not check process liveness before transitioning active leases, transitioning leases of active running processes to `pending_cleanup`.
+
+regression-head exit=0:
+- Contribution head: 5 passed (exit 0)
+- Stable head: 5 passed (exit 0)
+- Fork main merge head: 5 passed (exit 0)
