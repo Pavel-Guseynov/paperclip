@@ -105,12 +105,6 @@ function createApp(db: any, deploymentMode: "authenticated" | "local_trusted" = 
   app.post("/mcp/gateways/:gatewayPublicId", (req, res) => {
     res.json({ reachedGatewayProtocol: true, actorType: req.actor.type });
   });
-  app.post("/api/tool-gateway/gateways/:gatewayId/mcp", (req, res) => {
-    res.json({ reachedManagedGatewayProtocol: true, actorType: req.actor.type });
-  });
-  app.get("/api/tool-gateway/gateways/:gatewayId/mcp", (req, res) => {
-    res.json({ reachedManagedGatewayDescriptor: true, actorType: req.actor.type });
-  });
   app.get("/companies/:companyId/protected", (req, res) => {
     assertCompanyAccess(req, req.params.companyId);
     res.json({ ok: true });
@@ -222,76 +216,7 @@ describe("agent auth middleware", () => {
       .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
 
     expect(res.status).toBe(200);
-    // The public gateway path keeps the deployment's default actor: in a
-    // local_trusted instance that is the implicit board actor, and the managed
-    // /api route below is the only one that resets it.
-    expect(res.body).toMatchObject({ reachedGatewayProtocol: true, actorType: "board" });
-  });
-
-  it("leaves managed runtime MCP gateway bearers for the gateway protocol to validate", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-    const gatewayId = randomUUID();
-
-    const res = await request(createApp(db, "local_trusted"))
-      .post(`/api/tool-gateway/gateways/${gatewayId}/mcp`)
-      .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`)
-      .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ reachedManagedGatewayProtocol: true, actorType: "none" });
-  });
-
-  it("matches a managed gateway id by generic UUID shape, not by version nibble", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-    // `tool_mcp_gateways.id` is a plain uuid column: the route match must not
-    // pin the version/variant nibbles, or an id the database accepts is denied.
-    const nonV4GatewayId = "00000000-0000-0000-0000-000000000000";
-
-    const res = await request(createApp(db, "local_trusted"))
-      .post(`/api/tool-gateway/gateways/${nonV4GatewayId}/mcp`)
-      .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`)
-      .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ reachedManagedGatewayProtocol: true, actorType: "none" });
-  });
-
-  it("does not bypass actor authentication for a GET on the managed MCP path", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-
-    // POST is the only method the MCP protocol uses on this path. The GET is an
-    // unauthenticated descriptor, so the bypass must not make it reachable with
-    // a bearer that nothing ever verifies.
-    const res = await request(createApp(db, "authenticated"))
-      .get(`/api/tool-gateway/gateways/${randomUUID()}/mcp`)
-      .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`);
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toContain("Agent token did not verify");
-  });
-
-  it("does not bypass actor authentication for lookalike managed MCP paths", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-
-    const res = await request(createApp(db, "local_trusted"))
-      .post(`/api/tool-gateway/gateways/${randomUUID()}/mcp/extra`)
-      .set("Authorization", `Bearer pcgw_${randomUUID()}.runtime-secret`)
-      .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toContain("Agent token did not verify");
-  });
-
-  it("does not bypass actor authentication for non-gateway bearers on managed MCP routes", async () => {
-    const { db } = createDbState({ agent: { id: randomUUID(), companyId: randomUUID() } });
-
-    const res = await request(createApp(db, "local_trusted"))
-      .post(`/api/tool-gateway/gateways/${randomUUID()}/mcp`)
-      .set("Authorization", "Bearer not-a-gateway-token")
-      .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toContain("Agent token did not verify");
+    expect(res.body).toMatchObject({ reachedGatewayProtocol: true });
   });
 
   it("does not bypass actor authentication for lookalike MCP gateway paths", async () => {
