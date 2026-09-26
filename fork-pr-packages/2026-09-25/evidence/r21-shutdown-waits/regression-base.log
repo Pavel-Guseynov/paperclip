@@ -1,0 +1,64 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ❯ |@paperclipai/server| src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts (3 tests | 3 failed) 22ms
+   ❯ shutdown waits for adapter run stops (3)
+     × an in-flight execution that needs longer than 5 s, but less than the deadline, to finish its stop settles before the database closes and before exit 5ms
+     × an execution that outlives the deadline produces the overrun failure record, and shutdown still completes 1ms
+     × no queued or deferred run is dispatched during the wait 15ms
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown waits for adapter run stops > an in-flight execution that needs longer than 5 s, but less than the deadline, to finish its stop settles before the database closes and before exit
+AssertionError: expected 'timed_out' to be 'drained' // Object.is equality
+
+Expected: "drained"
+Received: "timed_out"
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:56:27
+     54|
+     55|       const drainResult = await drainPromise;
+     56|       expect(drainResult).toBe("drained");
+       |                           ^
+     57|       expect(executionSettled).toBe(true);
+     58|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown waits for adapter run stops > an execution that outlives the deadline produces the overrun failure record, and shutdown still completes
+AssertionError: expected "vi.fn()" to be called with arguments: [ ObjectContaining{…}, …(1) ]
+
+Number of calls: 0
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:103:25
+    101|
+    102|       // Verify overrun failure record: logged as an error naming the …
+    103|       expect(log.error).toHaveBeenCalledWith(
+       |                         ^
+    104|         expect.objectContaining({
+    105|           signal: "SIGTERM",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown waits for adapter run stops > no queued or deferred run is dispatched during the wait
+AssertionError: expected undefined to be false // Object.is equality
+
+- Expected:
+false
+
++ Received:
+undefined
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:144:48
+    142|
+    143|     // Before shutdown drain, shutdown is not in progress
+    144|     expect(heartbeat.isShutdownInProgress?.()).toBe(false);
+       |                                                ^
+    145|
+    146|     // Invoke drainRunningRunsForShutdown to start graceful shutdown
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  05:42:23
+   Duration  5.18s

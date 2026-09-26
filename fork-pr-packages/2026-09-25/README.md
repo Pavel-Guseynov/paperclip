@@ -44,6 +44,7 @@ The first review found defects in content that came from the stable branches. Th
 | 16 | `fix/tool-profile-tool-name-identity` | `df5fc7841` | `cdd35852c` | `90a9876ef` | 1/72 fail | complete | ready |
 | 19 | `fix/stage-decision-keeps-calling-run` | `40d9dab4b` | (none) | `7259b6efa` | 4/23 fail | complete | ready |
 | 20 | `fix/antigravity-conversation-continuation` | `e1751a913` | (none) | `f0f648ff8` | 4/6 fail | complete | ready |
+| 21 | `fix/shutdown-waits-for-adapter-run-stops` | `a1396163b` | (none) | `d0d4996d4` | 3/3 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -802,6 +803,23 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/antigravity-conversation-continuation`: none.
 - Stable-only commits (not on this branch):
   - `e1751a913` fix(conversation): support declared adapter conversation continuation (cherry picked from `f0f648ff8`)
+
+### 21 `fix/shutdown-waits-for-adapter-run-stops`
+
+- Head: `d0d4996d466cc641130a56bd818e776280bf2f80`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit; diff vs U: 6 files changed, 197 insertions(+), 6 deletions(-).
+- Commits (oldest first; author; cherry-pick source):
+  - `d0d4996d4` pavel.guseynov: fix(server): wait for in-flight adapter runs to settle during graceful shutdown
+- Files:
+  - M `packages/shared/src/config-schema.ts`
+  - M `server/src/config.ts`
+  - M `server/src/index.ts`
+  - M `server/src/services/heartbeat.ts`
+  - M `server/src/shutdown.ts`
+  - A `server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts`
+- Commits without a patch-equivalent on `stable/v2026.916.1/fix/shutdown-waits-for-adapter-run-stops`: none.
+- Stable-only commits (not on this branch):
+  - `a1396163b` fix(server): wait for in-flight adapter runs to settle during graceful shutdown (cherry picked from `d0d4996d4`)
+
 
 
 

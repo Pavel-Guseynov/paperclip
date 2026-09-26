@@ -1,0 +1,23 @@
+regression tests (server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts):
+- an in-flight execution that needs longer than 5 s, but less than the deadline, to finish its stop settles before the database closes and before exit
+- an execution that outlives the deadline produces the overrun failure record, and shutdown still completes
+- no queued or deferred run is dispatched during the wait
+
+head=d0d4996d466cc641130a56bd818e776280bf2f80 (fix/shutdown-waits-for-adapter-run-stops)
+base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
+stable-head=a1396163b56de0e41f7ad0686bb2f368c139faa5 (stable/v2026.916.1/fix/shutdown-waits-for-adapter-run-stops)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=40cf6290a454fb2e0d6bcd0d6b76231112586ff7 (main)
+
+regression-base exit=1:
+- Test 1 failed: `AssertionError: expected 'timed_out' to be 'drained'`
+  - On base, `drainRunExecutionFinalizersForShutdown` hardcoded a 5,000 ms timeout (`timeoutMs ?? 5_000`). An execution needing longer than 5 s (e.g. antigravity_local ~40 s graceful stop) was cut off after 5 s while the server closed the database underneath it.
+- Test 2 failed: `AssertionError: expected "vi.fn()" to be called with arguments` (0 calls)
+  - On base, timing out only logged an `info` message (`bounded heartbeat execution finalizer drain timed out`) without reporting an overrun error failure record naming `pendingRunIds` and `pendingRunCount`.
+- Test 3 failed: `AssertionError: expected undefined to be false`
+  - On base, `drainRunningRunsForShutdown` did not track shutdown state in `shutdownInProgress`, so `isShutdownInProgress` was not exposed, and queued/deferred runs were not suppressed during graceful shutdown.
+
+regression-head exit=0:
+- Contribution head: 3 passed (exit 0)
+- Stable head: 3 passed (exit 0)
+- Fork main merge head: 3 passed (exit 0)

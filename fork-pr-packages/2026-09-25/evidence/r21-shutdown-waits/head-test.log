@@ -1,0 +1,12 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ✓ |@paperclipai/server| src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts (3 tests) 20ms
+   ✓ shutdown waits for adapter run stops (3)
+     ✓ an in-flight execution that needs longer than 5 s, but less than the deadline, to finish its stop settles before the database closes and before exit 3ms
+     ✓ an execution that outlives the deadline produces the overrun failure record, and shutdown still completes 1ms
+     ✓ no queued or deferred run is dispatched during the wait 16ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  05:39:52
+   Duration  6.28s (transform 4.26s, setup 77ms, import 6.10s, tests 20ms, environment 0ms)

@@ -1,0 +1,30 @@
+=== pnpm check:tokens && pnpm check:token-gates ===
+✓ No forbidden tokens found.
+check-token-gates summary
+  Files scanned:                 1018
+  Allowlist entries loaded:      33
+  Allowlisted issues skipped:    109
+
+  Gate 1 (color literals):       CLEAN
+  Gate 2 (arbitrary bracket vals): CLEAN
+  Gate 3 (raw font-size):        CLEAN
+  Gate 4 (legacy hsl(var())):    CLEAN
+
+All gates clean.
+
+=== pnpm typecheck ===
+exit code 0
+
+=== pnpm build ===
+exit code 0
+
+=== vitest run server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts ===
+✓ |@paperclipai/server| src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts (3 tests) 20ms
+Test Files  1 passed (1)
+Tests  3 passed (3)
+
+=== vitest run server/src/shutdown.test.ts server/src/__tests__/heartbeat-task-drain.test.ts ===
+✓ |@paperclipai/server| src/shutdown.test.ts (18 tests) 135ms
+✓ |@paperclipai/server| src/__tests__/heartbeat-task-drain.test.ts (5 tests) 3ms
+Test Files  2 passed (2)
+Tests  23 passed (23)

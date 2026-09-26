@@ -16,3 +16,4 @@
 16	fix/tool-profile-tool-name-identity	fix(tool-access): use catalog tool name as single identity for tool_name profile selectors
 19	fix/stage-decision-keeps-calling-run	fix(issues): do not cancel calling run when recording stage decision
 20	fix/antigravity-conversation-continuation	fix(conversation): support declared adapter conversation continuation
+21	fix/shutdown-waits-for-adapter-run-stops	fix(server): wait for in-flight adapter runs to settle during graceful shutdown
