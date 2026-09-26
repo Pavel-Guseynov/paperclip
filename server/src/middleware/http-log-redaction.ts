@@ -15,8 +15,8 @@ export const HTTP_OBJECT_MARKER = "[HttpObject]";
 export const UNREADABLE_MARKER = "[Unreadable]";
 
 /**
- * The depth bound every redactor shares. Log records are shallow; anything
- * deeper is a cyclic or hostile structure that must not pin the logger.
+ * The depth bound every redactor shares. Deeper objects are omitted or replaced
+ * with a marker because their contents cannot be safely inspected within it.
  */
 export const REDACTION_MAX_DEPTH = 6;
 
@@ -330,10 +330,10 @@ function sanitizeErrorRecord(
 const SERIALIZER_OWNED_KEYS: ReadonlySet<string> = new Set(["req", "res", "err"]);
 
 /**
- * Censors credential-named fields anywhere inside a log record, at any nesting
- * depth. The input is returned unchanged when it holds no credential name, so
- * an ordinary log record is scanned but never cloned. A key matches only a
- * name from `isKnownCredentialName` — that is, a credential header or field
+ * Censors credential-named fields inside a log record and replaces subtrees at
+ * the inspection limit. The input is returned unchanged when no field needs
+ * redaction, so an ordinary shallow record is scanned but never cloned. A key
+ * matches only a name from `isKnownCredentialName` — a credential header or field
  * name in any separator spelling, never the over-matching header pattern — so
  * diagnostic fields keep their values. `Error` instances are left to the `err`
  * serializer. This never throws: a record a logger cannot read must not take
@@ -404,9 +404,8 @@ function redactFieldsValue(
     }
   }
   if (seen.has(value)) return CIRCULAR_MARKER;
-  // Stop descending rather than dropping: a record deeper than the bound keeps
-  // its diagnostic value, exactly as it would without this pass.
-  if (depth >= REDACTION_MAX_DEPTH) return value;
+  // Never send an uninspected subtree to the sink: it may contain credentials.
+  if (depth >= REDACTION_MAX_DEPTH) return HEADER_REDACTION_MARKER;
 
   let keys: readonly (string | number)[];
   try {
@@ -429,8 +428,11 @@ function redactFieldsValue(
       : {};
     for (const key of keys) {
       if (typeof key === "string" && isKnownCredentialName(key)) {
-        out[key] = HEADER_REDACTION_MARKER;
-        changed = true;
+        const entry = readFieldValue(value, key);
+        out[key] = entry === VALUE_REDACTION_MARKER
+          ? VALUE_REDACTION_MARKER
+          : HEADER_REDACTION_MARKER;
+        if (out[key] !== entry) changed = true;
         continue;
       }
       const entry = readFieldValue(value, key);

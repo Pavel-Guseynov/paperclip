@@ -1023,8 +1023,74 @@ describe("HTTP logger redaction", () => {
     expect(errorRecord.err.message).toBe("connection failed for [REDACTED]");
   });
 
-  // Guard: this also holds on upstream master. It fails on any redactor that
-  // walks every log record by key name or caps its depth.
+  it.each(["child", "grandchild", "setBindings"] as const)(
+    "redacts nested credentials from %s bindings without losing safe context",
+    (bindingKind) => {
+      const chunks: string[] = [];
+      const root = productionLogger(chunks);
+      const bindings = {
+        context: {
+          gatewayToken: GATEWAY_TOKEN,
+          nested: [{ "X-Paperclip-Tool-Gateway-Token": SESSION_TOKEN }],
+          runId: RUN_ID,
+        },
+      };
+      const child = bindingKind === "grandchild"
+        ? root.child({ service: "tool-gateway" }).child(bindings)
+        : bindingKind === "child"
+          ? root.child(bindings)
+          : root.child({ service: "tool-gateway" });
+      if (bindingKind === "setBindings") child.setBindings(bindings);
+
+      child.info({ phase: "invoke" }, "gateway invocation");
+
+      expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+      expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+      const [record] = logRecords(chunks);
+      expect(record.context).toEqual({
+        gatewayToken: "[Redacted]",
+        nested: [{ "X-Paperclip-Tool-Gateway-Token": "[Redacted]" }],
+        runId: RUN_ID,
+      });
+      expect(record.phase).toBe("invoke");
+      expect(bindings.context.gatewayToken).toBe(GATEWAY_TOKEN);
+    },
+  );
+
+  it.each(["record", "child"] as const)(
+    "redacts %s subtrees beyond the inspection limit",
+    (source) => {
+      const chunks: string[] = [];
+      const root = productionLogger(chunks);
+      const fields = {
+        phase: "invoke",
+        context: { a: { b: { c: { d: { e: { gatewayToken: GATEWAY_TOKEN } } } } } },
+      };
+
+      if (source === "child") root.child(fields).info("gateway invocation");
+      else root.info(fields, "gateway invocation");
+
+      expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+      const [record] = logRecords(chunks);
+      expect(record.context.a.b.c.d.e).toBe("[Redacted]");
+      expect(record.phase).toBe("invoke");
+      expect(fields.context.a.b.c.d.e.gatewayToken).toBe(GATEWAY_TOKEN);
+    },
+  );
+
+  it("replaces malformed child output with a content-free diagnostic", () => {
+    const chunks: string[] = [];
+    const child = productionLogger(chunks).child({ 'invalid"key': GATEWAY_TOKEN });
+
+    expect(() => child.info("gateway invocation")).not.toThrow();
+
+    expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+    expect(logRecords(chunks)).toEqual([
+      { level: 50, msg: "Log record could not be safely redacted" },
+    ]);
+  });
+
+  // Safe diagnostics remain intact within the bounded inspection depth.
   it("leaves non-credential log fields, deep structures, and numeric values intact", () => {
     const chunks: string[] = [];
     const log = productionLogger(chunks);
