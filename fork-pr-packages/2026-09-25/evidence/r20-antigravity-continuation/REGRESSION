@@ -1,0 +1,26 @@
+regression tests (server/src/__tests__/antigravity-conversation-continuation.test.ts):
+- an interrupted antigravity_local run carries the continuation policy and creates no reconciliation hold
+- the same for an acknowledged-cancelled antigravity_local run
+- a failed or timed_out antigravity_local run is continued, not held
+- the continued wake reuses the stored session
+- a run of an adapter that stays unlisted or undeclared is still held
+- a listed adapter's behavior is unchanged
+
+head=f0f648ff8389a0d053d625fa651ecbac3e9546a0 (fix/antigravity-conversation-continuation)
+base=efce9356b553a08f77a5877bb0ceac68d2cc4ad8 (master)
+stable-head=e1751a913e571f85316c65db63c4d965172bf3f5 (stable/v2026.916.1/fix/antigravity-conversation-continuation)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=21fcc970d88a50e724c22c6b8e3dc6f067af8f2e (main)
+
+regression-base exit=1:
+- Tests 1, 2, 3, 4 failed: AssertionError: expected false to be true
+  - Test 1: line 104 `expect(usedConversation).toBe(true)` failed because `antigravity_local` was not recognized as a conversation adapter; interrupted run lacked `conversationContinuation: "continue_conversation_v1"` and triggered board reconciliation hold.
+  - Test 2: line 176 `expect(isConversationAdapter("antigravity_local")).toBe(true)` failed.
+  - Test 3: line 214 `expect(isConversationAdapter("antigravity_local")).toBe(true)` failed.
+  - Test 4: line 239 `expect(isConversationAdapter("antigravity_local")).toBe(true)` failed.
+- Tests 5, 6 passed (unlisted/undeclared adapter still held; listed adapters claude_local/codex_local unchanged).
+
+regression-head exit=0:
+- Contribution head: 6 passed (exit 0)
+- Stable head: 6 passed (exit 0)
+- Fork main merge head: 6 passed (exit 0)

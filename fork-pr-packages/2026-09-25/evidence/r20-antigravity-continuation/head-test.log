@@ -1,0 +1,15 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ✓ |@paperclipai/server| src/__tests__/antigravity-conversation-continuation.test.ts (6 tests) 2422ms
+   ✓ antigravity_local conversation continuation (6)
+     ✓ an interrupted antigravity_local run carries the continuation policy and creates no reconciliation hold 118ms
+     ✓ the same for an acknowledged-cancelled antigravity_local run 3ms
+     ✓ a failed or timed_out antigravity_local run is continued, not held 0ms
+     ✓ the continued wake reuses the stored session 7ms
+     ✓ a run of an adapter that stays unlisted or undeclared is still held 9ms
+     ✓ a listed adapter's behavior is unchanged 0ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  04:15:06
+   Duration  33.45s (transform 20.01s, setup 144ms, import 30.78s, tests 2.42s, environment 0ms)

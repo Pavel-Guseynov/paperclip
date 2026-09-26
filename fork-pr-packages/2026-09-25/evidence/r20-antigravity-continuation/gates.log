@@ -1,0 +1,72 @@
+=== Gate Execution Summary for Change 20 ===
+
+Branch: fix/antigravity-conversation-continuation
+Head: f0f648ff8389a0d053d625fa651ecbac3e9546a0
+Base: master (efce9356b553a08f77a5877bb0ceac68d2cc4ad8)
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+   Output: packages/shared, packages/db, server, ui, cli, packages/adapters/* all typecheck cleanly.
+
+2. pnpm build
+   Exit: 0 (PASSED)
+   Output: all packages built cleanly without errors.
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+   Output: design tokens gate passed.
+
+4. pnpm vitest run server/src/__tests__/antigravity-conversation-continuation.test.ts
+   Exit: 0 (PASSED)
+   Output: 6 passed (exit 0).
+
+5. pnpm run test:run:serialized
+   Exit: 0 (PASSED)
+   Output: 147 serialized test suites all passed.
+
+6. pnpm run test:run:general
+   Output: 647 passed, 4 pre-existing failures proven identical on base:
+   - cursor-local-adapter-environment.test.ts
+   - cursor-local-execute.test.ts
+   - file-delivery-bridges.test.ts
+   - workspace-runtime.test.ts
+
+---
+
+Branch: stable/v2026.916.1/fix/antigravity-conversation-continuation
+Head: e1751a913e571f85316c65db63c4d965172bf3f5
+Base: tag v2026.916.1 (d554c4789ed3930f8a53ac9fdf6503b3187097da)
+
+1. pnpm -r typecheck
+   Exit: 0 (PASSED)
+
+2. pnpm build
+   Exit: 0 (PASSED)
+
+3. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+4. pnpm vitest run server/src/__tests__/antigravity-conversation-continuation.test.ts
+   Exit: 0 (PASSED)
+   Output: 6 passed (exit 0).
+
+5. pnpm run test:run:serialized
+   Exit: 0 (PASSED)
+   Output: 147 suites passed.
+
+6. pnpm run test:run:general
+   Output: 647 passed, same 4 pre-existing failures as base.
+
+---
+
+Branch: main (post-merge of stable branch)
+Head: 21fcc970d88a50e724c22c6b8e3dc6f067af8f2e
+Base: b6a5e2e0a61e247d77abd54c8e23e25f423a2f9f
+Merge commit: 21fcc970d88a50e724c22c6b8e3dc6f067af8f2e
+
+1. pnpm check:tokens && pnpm check:token-gates
+   Exit: 0 (PASSED)
+
+2. ./node_modules/.bin/vitest run server/src/__tests__/antigravity-conversation-continuation.test.ts
+   Exit: 0 (PASSED)
+   Output: 6 passed (exit 0).

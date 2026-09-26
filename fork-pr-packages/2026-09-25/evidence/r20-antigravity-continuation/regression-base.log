@@ -1,0 +1,65 @@
+FAIL src/__tests__/antigravity-conversation-continuation.test.ts > antigravity_local conversation continuation > an interrupted antigravity_local run carries the continuation policy and creates no reconciliation hold
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/antigravity-conversation-continuation.test.ts:104:30
+    102|     // Verify runUsedConversationAdapter recognizes antigravity_local as a conversation adapter
+    103|     const usedConversation = await runUsedConversationAdapter(db, run);
+    104|     expect(usedConversation).toBe(true);
+       |                              ^
+    105| 
+    106|     // Drain/interrupt via drainRunningRunsForShutdown
+
+FAIL src/__tests__/antigravity-conversation-continuation.test.ts > antigravity_local conversation continuation > the same for an acknowledged-cancelled antigravity_local run
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/antigravity-conversation-continuation.test.ts:176:56
+    174|     }).returning();
+    175| 
+    176|     expect(isConversationAdapter("antigravity_local")).toBe(true);
+       |                                                        ^
+    177|     expect(await runUsedConversationAdapter(db, run)).toBe(true);
+
+FAIL src/__tests__/antigravity-conversation-continuation.test.ts > antigravity_local conversation continuation > a failed or timed_out antigravity_local run is continued, not held
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/antigravity-conversation-continuation.test.ts:214:56
+    212|     } as any);
+    213| 
+    214|     expect(isConversationAdapter("antigravity_local")).toBe(true);
+       |                                                        ^
+
+FAIL src/__tests__/antigravity-conversation-continuation.test.ts > antigravity_local conversation continuation > the continued wake reuses the stored session
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/antigravity-conversation-continuation.test.ts:239:56
+    237|     } as any);
+    238| 
+    239|     expect(isConversationAdapter("antigravity_local")).toBe(true);
+       |                                                        ^
+
+Test Files  1 failed (1)
+     Tests  4 failed | 2 passed (6)

@@ -43,6 +43,7 @@ The first review found defects in content that came from the stable branches. Th
 | 15 | `fix/tool-gateway-context-tools-token-actions` | `b3ea01a40` | `4272b3200` | `736b368ce` | 1/63 fail | complete | ready |
 | 16 | `fix/tool-profile-tool-name-identity` | `df5fc7841` | `cdd35852c` | `90a9876ef` | 1/72 fail | complete | ready |
 | 19 | `fix/stage-decision-keeps-calling-run` | `40d9dab4b` | (none) | `7259b6efa` | 4/23 fail | complete | ready |
+| 20 | `fix/antigravity-conversation-continuation` | `e1751a913` | (none) | `f0f648ff8` | 4/6 fail | complete | ready |
 
 "Old fork head" is the local branch head before this work. The three names already on origin (01, 02, 09) were updated with ordinary fast-forward pushes; their old heads are ancestors of the new heads. The other ten names are new on origin.
 
@@ -788,6 +789,19 @@ For each change, the commits (with authors and cherry-pick sources), the changed
 - Commits without a patch-equivalent on `stable/v2026.916.1/fix/stage-decision-keeps-calling-run`: none.
 - Stable-only commits (not on this branch):
   - `40d9dab4b` fix(issues): do not cancel calling run when recording stage decision (cherry picked from `7259b6efa`)
+
+### 20 `fix/antigravity-conversation-continuation`
+
+- Head: `f0f648ff8389a0d053d625fa651ecbac3e9546a0`; base U `efce9356b553a08f77a5877bb0ceac68d2cc4ad8`; 1 commit; diff vs U: 3 files changed, 455 insertions(+), 4 deletions(-).
+- Commits (oldest first; author; cherry-pick source):
+  - `f0f648ff8` pavel.guseynov: fix(conversation): support declared adapter conversation continuation
+- Files:
+  - M `packages/adapter-utils/src/types.ts`
+  - A `server/src/__tests__/antigravity-conversation-continuation.test.ts`
+  - M `server/src/services/conversation-continuation.ts`
+- Commits without a patch-equivalent on `stable/v2026.916.1/fix/antigravity-conversation-continuation`: none.
+- Stable-only commits (not on this branch):
+  - `e1751a913` fix(conversation): support declared adapter conversation continuation (cherry picked from `f0f648ff8`)
 
 
 
