@@ -43,14 +43,18 @@ export function serializeLoggedError(err: unknown): unknown {
  * - inside `req.headers` / `res.headers`, by `redact` and the HTTP serializers,
  *   which also catch credential-shaped names that are not on the known list;
  * - inside a `headers` field, by `serializers.headers`;
- * - at any depth of a merge object, by `redactCredentialFields` in the hook,
- *   which returns the record unchanged unless it actually holds a credential;
+ * - inside merge objects and child bindings, by `redactCredentialFields`;
+ *   subtrees beyond its inspection limit are replaced with a redaction marker;
  * - anywhere inside `reqBody` / `reqParams` / `errorContext` on a failed HTTP
  *   record, by `redactSensitive` in `customProps`;
  * - in `err`, by the serializer, including the cause chain.
  *
- * The hook additionally strips credential text (auth schemes, minted gateway
- * tokens, credential query parameters) from message strings.
+ * `logMethod` guards live objects before pino serializes them and strips
+ * credential text from messages. `streamWrite` applies the same field policy
+ * to the final JSON, including bindings that bypass `logMethod`. Unchanged
+ * records retain their original serialization; malformed output becomes a
+ * content-free diagnostic. Both production and pretty transports receive only
+ * the sanitized stream.
  */
 export const basePinoOptions = {
   redact: {
@@ -65,6 +69,15 @@ export const basePinoOptions = {
     err: serializeLoggedError,
   },
   hooks: {
+    streamWrite(serialized: string) {
+      try {
+        const record: unknown = JSON.parse(serialized);
+        const safe = redactCredentialFields(record);
+        return safe === record ? serialized : `${JSON.stringify(safe)}\n`;
+      } catch {
+        return '{"level":50,"msg":"Log record could not be safely redacted"}\n';
+      }
+    },
     logMethod(this: unknown, inputArgs: unknown[], method: any) {
       // Neither rewrite throws: `redactCredentialFields` marks the fields it
       // cannot read and keeps redacting the rest of the record.
