@@ -17,7 +17,6 @@ import { ToolGatewayHttpError, type ToolGatewayService } from "../services/tool-
 import { forbidden, HttpError } from "../errors.js";
 import { accessService } from "../services/index.js";
 import { listConnectionLifecycleEvents } from "../services/tool-connection-activity.js";
-import { UUID_PATTERN } from "../lib/uuid.js";
 
 const TOOL_ACTIVITY_EVENT_TYPES = [
   "call_completed",
@@ -34,6 +33,8 @@ const TOOL_GATEWAY_WINDOWS: Record<string, number | null> = {
   "30d": 30 * 24 * 60 * 60 * 1000,
   all: null,
 };
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function gatewayToken(req: { header(name: string): string | undefined }) {
   return req.header("x-paperclip-tool-gateway-token")?.trim() || null;
@@ -91,12 +92,9 @@ async function handleMcpGatewayProtocol(
       return;
     }
     if (body.method === "notifications/initialized") {
-      // A JSON-RPC notification has no response payload, so this branch answers
-      // with a transport status and never a JSON-RPC body — not even on a
-      // rejected bearer. The bearer is still verified, so an unauthenticated
-      // caller cannot drive the endpoint, but the notification is charged to no
-      // protocol rate limiter: it is part of the handshake `initialize` already
-      // paid for, not a second session setup.
+      // Notifications return only a transport status. Verify the credential
+      // without charging initialization twice; failed authentication still
+      // uses the gateway's failure limiter and audit path.
       try {
         await toolGateway.verifyNamedGatewayProtocolNotification({
           ...locator,
@@ -738,15 +736,15 @@ export function toolGatewayRoutes(db: Db, toolGateway: ToolGatewayService) {
       const windowFilter = typeof req.query.window === "string" ? req.query.window.trim() : "all";
       const searchRaw = typeof req.query.search === "string" ? req.query.search.trim() : null;
       const cursorRaw = typeof req.query.cursor === "string" ? req.query.cursor.trim() : null;
-      if (gatewayFilter && !UUID_PATTERN.test(gatewayFilter)) {
+      if (gatewayFilter && !uuidPattern.test(gatewayFilter)) {
         res.status(400).json({ error: "gateway must be a gateway UUID" });
         return;
       }
-      if (appFilter && !UUID_PATTERN.test(appFilter)) {
+      if (appFilter && !uuidPattern.test(appFilter)) {
         res.status(400).json({ error: "app must be an applicationId or connectionId UUID" });
         return;
       }
-      if (agentFilter && !UUID_PATTERN.test(agentFilter)) {
+      if (agentFilter && !uuidPattern.test(agentFilter)) {
         res.status(400).json({ error: "agent must be an agentId UUID" });
         return;
       }

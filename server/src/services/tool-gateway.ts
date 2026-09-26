@@ -6720,14 +6720,7 @@ export function createToolGatewayService(
     gatewayId?: string | null;
     gatewayPublicId?: string | null;
     bearerToken: string;
-    /**
-     * The protocol action this authentication is charged to. `null` verifies
-     * the bearer and records nothing at all: no rate-limiter charge, no
-     * `lastUsedAt` write, and no run-identity capture. Used by JSON-RPC
-     * notifications, which carry no protocol action of their own, must not
-     * spend the handshake's session-setup budget, and must not let a bearer
-     * holder drive write traffic from a status-only endpoint.
-     */
+    /** Null verifies a notification without protocol usage or identity writes. */
     protocolMethod: McpGatewayProtocolMethod | null;
     callerHeaders?: Record<string, string | string[] | undefined>;
   }): Promise<ToolGatewaySession> {
@@ -6863,10 +6856,8 @@ export function createToolGatewayService(
         });
       }
     }
-    // A verification-only authentication (`protocolMethod: null`) records
-    // nothing: it performs no protocol action, so it must not let a bearer
-    // holder drive repeated token and run-identity writes from an endpoint
-    // that answers with a bare transport status.
+    // Successful notifications do not update token usage. Authentication
+    // failures above retain their normal throttling and audit behavior.
     if (input.protocolMethod) {
       const now = new Date();
       await db
@@ -8573,13 +8564,7 @@ export function createToolGatewayService(
       });
     },
 
-    /**
-     * Authenticate the bearer behind a JSON-RPC notification (for example
-     * `notifications/initialized`) so an unauthenticated caller cannot drive
-     * the gateway endpoint. A notification is not a protocol action: it is
-     * charged to no rate limiter, it writes nothing, and it returns nothing,
-     * all for the same reason.
-     */
+    /** Verify a notification without consuming a protocol action allowance. */
     async verifyNamedGatewayProtocolNotification(input: {
       gatewayId?: string | null;
       gatewayPublicId?: string | null;

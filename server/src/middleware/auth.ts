@@ -26,7 +26,6 @@ import type { BetterAuthSessionResult } from "../auth/better-auth.js";
 import { logger } from "./logger.js";
 import { captureRunIdentity } from "../services/run-identity.js";
 import { boardAuthService } from "../services/board-auth.js";
-import { UUID_SOURCE } from "../lib/uuid.js";
 
 const CLOUD_TENANT_WRITE_DEBOUNCE_MS = 5_000;
 const CLOUD_TENANT_WRITE_DEBOUNCE_MAX = 1_000;
@@ -214,10 +213,7 @@ interface ActorMiddlewareOptions {
 }
 
 const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
-const managedMcpGatewayProtocolPath = new RegExp(
-  `^/api/tool-gateway/gateways/${UUID_SOURCE}/mcp/?$`,
-  "i",
-);
+const managedMcpGatewayProtocolPath = /^\/api\/tool-gateway\/gateways\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/mcp\/?$/i;
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
   const boardAuth = boardAuthService(db);
@@ -251,16 +247,9 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       return;
     }
 
-    // The internal managed gateway route gets the same handoff, but only for a
-    // POST carrying an actual pcgw_* bearer. POST is the only method the MCP
-    // protocol uses; the GET on this path is an unauthenticated descriptor, and
-    // handing it the bypass would make it reachable with a bearer nothing ever
-    // verifies. Unlike the public path this one also lives under /api, where a
-    // local_trusted deployment would otherwise hand the request a full-control
-    // implicit board actor; a runtime that presents a gateway bearer must never
-    // be upgraded to board authority, so the actor is reset to none and the
-    // gateway service remains the only authority for this credential. Every
-    // other /api request retains normal actor authentication below.
+    // Only the managed protocol POST validates a pcgw_* bearer. Clear implicit
+    // board authority before handing it to the gateway service. Descriptor GETs
+    // and other API requests retain ordinary actor authentication.
     if (
       req.method === "POST"
       && hasGatewayBearer
