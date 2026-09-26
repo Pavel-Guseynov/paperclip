@@ -732,6 +732,8 @@ if (process.argv.includes("resume")) {
 }
 `, "utf8");
     await fs.chmod(commandPath, 0o755);
+    const previousHome = process.env.HOME;
+    process.env.HOME = root;
     try {
       const result = await execute({
         runId: `resume-stop-${started}`,
@@ -743,6 +745,8 @@ if (process.argv.includes("resume")) {
       expect((await fs.readFile(attemptsPath, "utf8")).trim().split("\n")).toHaveLength(started ? 1 : 2);
       expect(result.sessionId).toBe(started ? "existing-session" : "fresh-session");
     } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
       await fs.rm(root, { recursive: true, force: true });
     }
   });
