@@ -1,9 +1,10 @@
 import pino from "pino";
-import type { Logger } from "pino";
+import type { Logger, LoggerOptions } from "pino";
 import { pinoHttp } from "pino-http";
 import {
   HTTP_LOG_REDACT_PATHS,
-  isHttpObject,
+  HEADER_REDACTION_MARKER,
+  redactCredentialFields,
   redactSensitiveHeaders,
   sanitizeCredentialText,
   sanitizeErrorObject,
@@ -24,103 +25,77 @@ const sharedOpts = {
   singleLine: true,
 };
 
-const REDACTION_WRAPPED = Symbol.for("paperclip.redactionWrapped");
-
-function sanitizeChildBindings(bindings: unknown): unknown {
-  if (!bindings || typeof bindings !== "object" || isHttpObject(bindings)) {
-    return bindings;
-  }
-  if (Array.isArray(bindings)) {
-    return bindings.map((item) => sanitizeChildBindings(item));
-  }
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(
-    bindings as Record<string, unknown>,
-  )) {
-    if (key === "req" || key === "res" || isHttpObject(value)) {
-      out[key] = value;
-    } else if (key === "err" || value instanceof Error) {
-      out[key] = sanitizeErrorObject(value);
-    } else {
-      out[key] = (
-        redactSensitive({ [key]: value }) as Record<string, unknown>
-      )[key];
-    }
-  }
-  return out;
+/**
+ * Serializes an error for a log record. `pino.stdSerializers.err` runs first so
+ * the non-enumerable `Error.cause` chain is folded into `message` and `stack`,
+ * and the sanitizer then strips credential material from that output.
+ */
+export function serializeLoggedError(err: unknown): unknown {
+  return sanitizeErrorObject(pino.stdSerializers.err(err as Error));
 }
 
-function sanitizeLogArgument(arg: unknown): unknown {
-  if (arg instanceof Error) {
-    return sanitizeErrorObject(arg);
-  }
-  if (typeof arg === "string") {
-    return sanitizeCredentialText(arg);
-  }
-  if (!arg || typeof arg !== "object") {
-    return arg;
-  }
-  if (isHttpObject(arg)) {
-    return arg;
-  }
-  if (Array.isArray(arg)) {
-    return arg.map(sanitizeLogArgument);
-  }
-  const obj = arg as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (key === "req" || key === "res" || isHttpObject(value)) {
-      out[key] = value;
-    } else if (key === "err" || value instanceof Error) {
-      out[key] = sanitizeErrorObject(value);
-    } else {
-      out[key] = (
-        redactSensitive({ [key]: value }) as Record<string, unknown>
-      )[key];
-    }
-  }
-  return out;
-}
-
-export function wrapLoggerWithRedaction(log: Logger): Logger {
-  if ((log as any)[REDACTION_WRAPPED]) {
-    return log;
-  }
-  const originalChild = log.child;
-  (log as any).child = function (
-    this: Logger,
-    bindings: Record<string, unknown>,
-    options?: any,
-  ) {
-    const sanitizedBindings = sanitizeChildBindings(bindings) as Record<
-      string,
-      unknown
-    >;
-    return originalChild.call(this, sanitizedBindings, options);
-  };
-  (log as any)[REDACTION_WRAPPED] = true;
-  return log;
-}
-
-const basePinoOptions = {
-  redact: [...HTTP_LOG_REDACT_PATHS],
+/**
+ * The redaction configuration shared by every logger this module exports.
+ *
+ * A credential-bearing name is removed wherever it can appear in a record:
+ * - at the top level of any record or child binding, by `redact` (pino applies
+ *   the same stringifiers to `child()` bindings);
+ * - inside `req.headers` / `res.headers`, by `redact` and the HTTP serializers,
+ *   which also catch credential-shaped names that are not on the known list;
+ * - inside a `headers` field, by `serializers.headers`;
+ * - inside merge objects and child bindings, by `redactCredentialFields`;
+ *   subtrees beyond its inspection limit are replaced with a redaction marker;
+ * - anywhere inside `reqBody` / `reqParams` / `errorContext` on a failed HTTP
+ *   record, by `redactSensitive` in `customProps`;
+ * - in `err`, by the serializer, including the cause chain.
+ *
+ * `logMethod` guards live objects before pino serializes them and strips
+ * credential text from messages. `streamWrite` applies the same field policy
+ * to the final JSON, including bindings that bypass `logMethod`. Unchanged
+ * records retain their original serialization; malformed output becomes a
+ * content-free diagnostic. Both production and pretty transports receive only
+ * the sanitized stream.
+ */
+export const basePinoOptions = {
+  redact: {
+    paths: [...HTTP_LOG_REDACT_PATHS],
+    censor: HEADER_REDACTION_MARKER,
+  },
   serializers: {
     headers: (h: unknown) =>
       h && typeof h === "object"
         ? redactSensitiveHeaders(h as Record<string, unknown>)
         : h,
-    err: (e: unknown) => sanitizeErrorObject(e),
+    err: serializeLoggedError,
   },
   hooks: {
-    logMethod(inputArgs: unknown[], method: any) {
-      const sanitizedArgs = inputArgs.map(sanitizeLogArgument);
-      return method.apply(this, sanitizedArgs);
+    streamWrite(serialized: string) {
+      try {
+        const record: unknown = JSON.parse(serialized);
+        const safe = redactCredentialFields(record);
+        return safe === record ? serialized : `${JSON.stringify(safe)}\n`;
+      } catch {
+        return '{"level":50,"msg":"Log record could not be safely redacted"}\n';
+      }
+    },
+    logMethod(this: unknown, inputArgs: unknown[], method: any) {
+      // Neither rewrite throws: `redactCredentialFields` marks the fields it
+      // cannot read and keeps redacting the rest of the record.
+      for (let index = 0; index < inputArgs.length; index += 1) {
+        const arg = inputArgs[index];
+        const safe =
+          typeof arg === "string"
+            ? sanitizeCredentialText(arg)
+            : redactCredentialFields(arg);
+        if (safe !== arg) inputArgs[index] = safe;
+      }
+      return method.apply(this, inputArgs);
     },
   },
-};
+} satisfies LoggerOptions;
 
 const isProduction = process.env.NODE_ENV === "production";
-const rawLogger = isProduction
+export const logger: Logger = isProduction
   ? pino({
       level: process.env.PAPERCLIP_LOG_LEVEL?.trim() || "info",
       ...basePinoOptions,
@@ -140,8 +115,6 @@ const rawLogger = isProduction
         },
       }),
     );
-
-export const logger = wrapLoggerWithRedaction(rawLogger);
 
 function requestClassificationUrl(req: {
   originalUrl?: unknown;
@@ -179,6 +152,10 @@ export function createHttpLogger(baseLogger: Logger) {
   return pinoHttp({
     logger: baseLogger,
     serializers: {
+      // pino-http wraps a custom `err` serializer with `pino.stdSerializers.err`,
+      // so this receives the standard projection (cause chain already folded
+      // into `message` and `stack`) and only has to sanitize it.
+      err: sanitizeErrorObject,
       req(req: Record<string, unknown> & { url?: unknown; headers?: unknown }) {
         if (
           isPrivateWebhook({
@@ -254,32 +231,24 @@ export function createHttpLogger(baseLogger: Logger) {
         return `${req.method} ${requestLogUrl(req)} ${res.statusCode} — request failed`;
       }
       const ctx = (res as any).__errorContext;
-      const rawErrMsg =
+      // `hooks.logMethod` sanitizes credential material out of this message
+      // before it is written, so there is one scrubbing path, not two.
+      const errMsg =
         ctx?.error?.message ||
         err?.message ||
         (res as any).err?.message ||
         "unknown error";
-      const errMsg = sanitizeCredentialText(rawErrMsg);
-      const safeUrl = requestLogUrl(req);
-      return `${req.method} ${safeUrl} ${res.statusCode} — ${errMsg}`;
+      return `${req.method} ${stripSecretBearingUrlParts(req.url ?? "")} ${res.statusCode} — ${errMsg}`;
     },
-    customErrorObject(req, _res, err, value) {
+    customErrorObject(req, _res, _err, value) {
       // pino-http serializes res.err independently of customProps/errorContext.
       // Do not rely on a particular error handler having sanitized an SDK Error.
-      if (isPrivateWebhook(req)) {
-        return {
-          ...value,
-          err: { type: "Error", message: "Chat webhook request failed" },
-        };
-      }
-      const rawError = (value as any)?.err ?? err;
-      if (rawError) {
-        return {
-          ...value,
-          err: sanitizeErrorObject(rawError),
-        };
-      }
-      return value;
+      return isPrivateWebhook(req)
+        ? {
+            ...value,
+            err: { type: "Error", message: "Chat webhook request failed" },
+          }
+        : value;
     },
     customProps(req, res) {
       if (res.statusCode >= 400) {

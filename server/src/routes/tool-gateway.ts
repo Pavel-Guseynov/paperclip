@@ -18,8 +18,6 @@ import { ToolGatewayHttpError, type ToolGatewayService } from "../services/tool-
 import { forbidden, HttpError } from "../errors.js";
 import { accessService } from "../services/index.js";
 import { listConnectionLifecycleEvents } from "../services/tool-connection-activity.js";
-import { sanitizeCredentialText } from "../middleware/http-log-redaction.js";
-import { redactSensitive } from "../middleware/redact-sensitive.js";
 
 const TOOL_ACTIVITY_EVENT_TYPES = [
   "call_completed",
@@ -248,16 +246,7 @@ async function handleMcpGatewayProtocol(
       res.status(err.status).json({
         jsonrpc: "2.0",
         id,
-        error: {
-          code: err.status >= 500 ? -32603 : -32000,
-          message: sanitizeCredentialText(err.message),
-          data: {
-            reasonCode: err.reasonCode,
-            ...(err.details
-              ? (redactSensitive(err.details) as Record<string, unknown>)
-              : {}),
-          },
-        },
+        error: { code: err.status >= 500 ? -32603 : -32000, message: err.message, data: { reasonCode: err.reasonCode, ...err.details } },
       });
       return;
     }
@@ -353,26 +342,23 @@ function outcomeCondition(outcome: string) {
 
 function sendGatewayError(res: import("express").Response, err: unknown) {
   if (err instanceof ToolGatewayHttpError) {
-    const details = err.details
-      ? (redactSensitive(err.details) as Record<string, unknown>)
-      : {};
     res.status(err.status).json({
-      error: sanitizeCredentialText(err.message),
+      error: err.message,
       reasonCode: err.reasonCode,
-      ...details,
+      ...err.details,
     });
     return;
   }
   if (err instanceof HttpError) {
     const details =
       err.details && typeof err.details === "object" && !Array.isArray(err.details)
-        ? (redactSensitive(err.details) as Record<string, unknown>)
+        ? err.details as Record<string, unknown>
         : {};
-    res.status(err.status).json({ error: sanitizeCredentialText(err.message), ...details });
+    res.status(err.status).json({ error: err.message, ...details });
     return;
   }
   const message = err instanceof Error ? err.message : String(err);
-  res.status(500).json({ error: sanitizeCredentialText(message) });
+  res.status(500).json({ error: message });
 }
 
 export function toolGatewayRoutes(db: Db, toolGateway: ToolGatewayService) {
