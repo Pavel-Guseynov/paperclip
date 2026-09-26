@@ -995,7 +995,16 @@ On a Paperclip Cloud-managed instance, `POST /companies` returns `403` with
 code `cloud_managed`; the trusted-header provisioning path and company import
 routes remain the only company-creation paths there.
 
-## 10.1.1 Cloud Stack Portfolio
+## 10.1.1 Organization navigation and Cloud invitations
+
+Core's built-in organization switcher lists this instance's companies. An
+installed plugin can replace it through the generic `organizationSwitcher`
+slot. The built-in menu remains available when no unique usable contribution
+exists. Core does not fetch or render Cloud portfolios in its switcher. Managed
+hosts do not expose local company creation in that built-in menu; their extension
+owns the creation action.
+
+The Cloud Members-page invitation action still uses the following route:
 
 - `GET /cloud/stacks`
 
