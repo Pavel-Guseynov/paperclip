@@ -1,0 +1,21 @@
+regression tests (server/src/__tests__/run-gateway-token-lifetime.test.ts):
+- a run-bound token presented more than an hour after minting, while its run is running, is accepted
+- the same token is rejected once the run has finished
+- a token that is not run-bound still expires at its expiresAt
+
+head=d93e5ac62f5abf73be4c9e036959099fbe58cea0 (fix/run-gateway-token-lifetime)
+base=01d9a121859a3d8298dce91452f75516e837e819 (master)
+stable-head=9bd7a7cff433eca02093cf68e8acb422bb18f063 (stable/v2026.916.1/fix/run-gateway-token-lifetime)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=0d3833bccdc45931c8bbaa7a7aea52c91ff51797 (main)
+
+regression-base exit=1:
+- Test 1 failed: `Error: Gateway bearer token is expired or invalid` at `namedGatewaySessionFromBearer`
+  - On unpatched base, `namedGatewaySessionFromBearer` checked `expiresAt <= Date.now()` unconditionally for all tokens, rejecting run-bound tokens after 1 hour even while the run was actively running.
+- Test 2 passed: rejected with `gateway_token_run_inactive` once run finished.
+- Test 3 passed: non-run tokens still expire at `expiresAt`.
+
+regression-head exit=0:
+- Contribution head: 3 passed (exit 0)
+- Stable head: 3 passed (exit 0)
+- Fork main merge head: 3 passed (exit 0)

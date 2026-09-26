@@ -1,0 +1,25 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ❯ |@paperclipai/server| src/__tests__/run-gateway-token-lifetime.test.ts (3 tests | 1 failed) 2124ms
+   ❯ Change 24: Run gateway token lifetime (3)
+     × a run-bound token presented more than an hour after minting, while its run is running, is accepted 57ms
+     ✓ the same token is rejected once the run has finished 31ms
+     ✓ a token that is not run-bound still expires at its expiresAt 10ms
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/run-gateway-token-lifetime.test.ts > Change 24: Run gateway token lifetime > a run-bound token presented more than an hour after minting, while its run is running, is accepted
+Error: Gateway bearer token is expired or invalid
+ ❯ recordNamedGatewayAuthFailure src/services/tool-gateway.ts:6868:11
+    6866|       );
+    6867|     }
+    6868|     throw new ToolGatewayHttpError(
+       |           ^
+    6869|       401,
+    6870|       "Gateway bearer token is expired or invalid",
+ ❯ namedGatewaySessionFromBearer src/services/tool-gateway.ts:6930:7
+ ❯ src/__tests__/run-gateway-token-lifetime.test.ts:162:21
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Duration  9.45s
