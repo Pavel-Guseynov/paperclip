@@ -54,6 +54,7 @@ export const serverConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(3100),
   allowedHostnames: z.array(z.string().min(1)).default([]),
   serveUi: z.boolean().default(true),
+  shutdownDrainTimeoutMs: z.number().int().positive().optional(),
 }).passthrough();
 
 export const authConfigSchema = z.object({
