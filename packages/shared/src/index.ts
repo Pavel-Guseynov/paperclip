@@ -2679,6 +2679,7 @@ export {
   type InstanceFeatureKey,
 } from "./feature-catalog.js";
 export {
+  EXPERIMENTAL_SETTINGS_WILDCARD,
   HIDEABLE_COMPANY_PAGES,
   HIDEABLE_COMPANY_SECTIONS,
   HIDEABLE_GENERAL_SECTIONS,
@@ -2782,3 +2783,8 @@ export { REMOTE_MCP_CONNECTOR_METHODS, isRemoteMcpConnectorId, isRemoteMcpConnec
 export { isRetiredComposioConnection, RETIRED_COMPOSIO_MESSAGE } from "./retired-composio.js";
 
 export * from "./slack-tools.js";
+
+export { MEMORY_CONNECTOR_IDS, isMemoryConnectorId, type MemoryConnectorId } from "./memory-connectors.js";
+export * from "./connection-routing.js";
+
+export { WORKSPACE_RESTORE_FAILURE_CODES, hasWorkspaceRestoreFailure, safeWorkspaceRestorePath } from "./workspace-restore.js";

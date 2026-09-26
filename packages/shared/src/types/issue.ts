@@ -1126,6 +1126,15 @@ export interface IssueCommentMetadata {
   sourceRunId?: string | null;
   sourceIdentityContextId?: string | null;
   authorizationReason?: string | null;
+  /** Display snapshot only. Retry authority comes from the current recovery action. */
+  recovery?: {
+    kind: "disposition_repair_escalated";
+    actionId: string;
+    attemptCount: number;
+    maxAttempts: number;
+    reason: string;
+    assigneeAgentId: string | null;
+  };
   sections: IssueCommentMetadataSection[];
 }
 
@@ -1395,6 +1404,7 @@ export type ConnectionIntentPhase = "requested" | "authorizing" | "needs_retry";
  */
 export interface ConnectionIntentPayload {
   version: 1;
+  upstreamService?: { slug: string; name: string; selectionInteractionId?: string };
   /** Runtime authentication requests cannot be satisfied by tool credentials. */
   purpose?: "ai";
   serviceSlug: string;
@@ -1408,6 +1418,8 @@ export interface ConnectionIntentPayload {
 
 export interface ConnectionIntentResult {
   version: 1;
+  /** Server-authored next steps for the resumed agent. */
+  instruction?: string;
   outcome: "connected" | "declined" | "superseded" | "expired";
   connectionId?: string | null;
   reason?: string | null;
