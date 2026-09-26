@@ -19,3 +19,4 @@ change	title
 20	fix(conversation): honor declared adapter continuation capability
 21	fix(server): drain in-flight adapter runs during shutdown
 22	fix(environments): release leases after confirmed terminal cleanup
+23	fix(tool-gateway): scope named gateway discovery to profile tools and bound queries

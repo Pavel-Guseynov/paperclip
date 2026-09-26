@@ -1,0 +1,24 @@
+regression tests (server/src/__tests__/scope-named-gateway-tool-discovery.test.ts):
+- a profiled named gateway evaluates only its profile's candidates, even though the company has many other connections
+- a runtime gateway with profile_id and no binding row lists only its profile's tools, never the agent's
+- one tools/list issues a bounded number of policy-context queries, independent of the company's tool count
+- decisions for a mixed allow, deny, and require-approval set are unchanged
+
+head=374726ed12a1dca7793de5d54a37f153059aa289 (fix/scope-named-gateway-tool-discovery)
+base=01d9a121859a3d8298dce91452f75516e837e819 (master)
+stable-head=17201e4d000ce19c21a6754168efe929f72d306a (stable/v2026.916.1/fix/scope-named-gateway-tool-discovery)
+stable-base=d554c4789ed3930f8a53ac9fdf6503b3187097da (tag v2026.916.1)
+main-merge-head=2ae2c0df0e6f09757e9ca3b27a8b14dfceebbf4f (main)
+
+regression-base exit=1:
+- Test 1 failed: `AssertionError: expected [ Array(11) ] to have a length of 1 but got 11`
+  - On base, `listToolsForContext` loaded `connectedMcpToolsForCompany` for the whole company, evaluating all 11 company tools instead of only the 1 profile candidate.
+- Test 2 failed: `AssertionError: expected [ 'mcp.agent-conn:agent_tool' ] to deeply equal [ 'mcp.gw-conn:profile_tool' ]`
+  - On base, a runtime gateway with `tool_mcp_gateways.profile_id` set but no `tool_profile_bindings` row fell back to the agent's profile bindings, listing all agent tools instead of the gateway profile's tools.
+- Test 3 failed: `AssertionError: expected 109 to be less than or equal to 15`
+  - On base, each candidate tool evaluation executed redundant uncached queries (`tool_policies`, `tool_profile_bindings`, `tool_profiles`, `tool_profile_entries`, `tool_mcp_gateways`), issuing 109 queries for 10 candidates.
+
+regression-head exit=0:
+- Contribution head: 4 passed (exit 0)
+- Stable head: 4 passed (exit 0)
+- Fork main merge head: 4 passed (exit 0)

@@ -1,0 +1,28 @@
+=== pnpm check:token-gates ===
+check-token-gates summary
+  Files scanned:                 1018
+  Allowlist entries loaded:      33
+  Allowlisted issues skipped:    109
+
+  Gate 1 (color literals):       CLEAN
+  Gate 2 (arbitrary bracket vals): CLEAN
+  Gate 3 (raw font-size):        CLEAN
+  Gate 4 (legacy hsl(var())):    CLEAN
+
+All gates clean.
+
+=== pnpm -r typecheck ===
+exit code 0 (all 36 workspace packages passed)
+
+=== pnpm build ===
+exit code 0 (all packages built successfully)
+
+=== vitest run server/src/__tests__/scope-named-gateway-tool-discovery.test.ts ===
+✓ |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts (4 tests) 2464ms
+Test Files  1 passed (1)
+Tests  4 passed (4)
+
+=== vitest run server/src/__tests__/tool-gateway.test.ts ===
+✓ |@paperclipai/server| src/__tests__/tool-gateway.test.ts (62 tests) 7929ms
+Test Files  1 passed (1)
+Tests  62 passed (62)
