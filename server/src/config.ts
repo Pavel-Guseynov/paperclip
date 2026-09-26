@@ -97,6 +97,7 @@ export interface Config {
   telemetryEnabled: boolean;
   announcementsEnabled: boolean;
   announcementsFeedUrl: string;
+  shutdownDrainTimeoutMs: number;
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -368,5 +369,12 @@ export function loadConfig(): Config {
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
     announcementsEnabled: process.env.PAPERCLIP_ANNOUNCEMENTS_ENABLED !== "false",
     announcementsFeedUrl: process.env.PAPERCLIP_ANNOUNCEMENTS_FEED_URL?.trim() || "https://pages.paperclip.ing/announcements/v1/current.json",
+    shutdownDrainTimeoutMs: (() => {
+      const fromEnv = process.env.PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS?.trim();
+      const parsed = fromEnv ? parseInt(fromEnv, 10) : NaN;
+      return !Number.isNaN(parsed) && parsed > 0
+        ? parsed
+        : (fileConfig?.server.shutdownDrainTimeoutMs ?? 60_000);
+    })(),
   };
 }
