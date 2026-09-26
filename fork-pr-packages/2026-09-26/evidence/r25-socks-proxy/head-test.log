@@ -1,0 +1,13 @@
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ✓ |@paperclipai/server| src/__tests__/remote-mcp-socks-proxy.test.ts (5 tests) 4200ms
+   ✓ Change 25: Remote MCP SOCKS5 proxy support (5)
+     ✓ catalog refresh tunnels through declared SOCKS5 proxy with target domain in SOCKS5 handshake 312ms
+     ✓ gateway tools/call tunnels through declared SOCKS5 proxy to remote endpoint 428ms
+     ✓ unproxied connections retain pinned transport unchanged 185ms
+     ✓ unsupported or malformed proxy values are rejected when saved and when used 94ms
+     ✓ unreachable proxy fails without direct fallback, and target-URL egress guards still apply to proxied connections 112ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Duration  14.2s

@@ -21,3 +21,4 @@ change	title
 22	fix(environments): release leases after confirmed terminal cleanup
 23	fix(tool-gateway): scope named gateway discovery to profile tools and bound queries
 24	fix(tool-gateway): bind run gateway token lifetime to active run state
+25	feat(remote-mcp): route remote connection traffic through declared SOCKS5 proxy
