@@ -101,11 +101,19 @@ async function handleMcpGatewayProtocol(
       return;
     }
     if (body.method === "notifications/initialized") {
-      await toolGateway.initializeNamedGatewayProtocol({
-        ...locator,
-        bearerToken: token,
-        callerHeaders: headers,
-      });
+      // Notifications return only a transport status. Verify the credential
+      // without charging initialization twice; failed authentication still
+      // uses the gateway's failure limiter and audit path.
+      try {
+        await toolGateway.verifyNamedGatewayProtocolNotification({
+          ...locator,
+          bearerToken: token,
+          callerHeaders: headers,
+        });
+      } catch (err) {
+        res.status(err instanceof ToolGatewayHttpError ? err.status : 500).end();
+        return;
+      }
       res.status(202).end();
       return;
     }
