@@ -1,0 +1,79 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/pavelguseynov/paperclip-fork
+
+ ❯ |@paperclipai/server| src/__tests__/tool-gateway.test.ts (143 tests | 6 failed | 137 skipped) 2110ms
+       × initializes a managed gateway through actor middleware with a run-bound bearer 120ms
+         × rejects a tampered bearer with an empty unauthorized response 46ms
+         × rejects a tampered bearer with an empty unauthorized response 42ms
+       × initializes a managed gateway through actor middleware with a run-bound bearer 47ms
+         × rejects a tampered bearer with an empty unauthorized response 46ms
+         × rejects a tampered bearer with an empty unauthorized response 47ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > initializes a managed gateway through actor middleware with a run-bound bearer
+ FAIL  |@paperclipai/server| src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > initializes a managed gateway through actor middleware with a run-bound bearer
+Error: expected 200 "OK", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1457:10
+    1455|         .set("x-paperclip-run-id", run.id)
+    1456|         .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    1457|         .expect(200);
+       |          ^
+    1458|       expect(initialized.body).toMatchObject({
+    1459|         jsonrpc: "2.0",
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects a tampered bearer with an empty unauthorized response
+ FAIL  |@paperclipai/server| src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects a tampered bearer with an empty unauthorized response
+AssertionError: expected '{"error":"Agent token did not verify;…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ {"error":"Agent token did not verify; obtain fresh credentials and retry"}
+
+ ❯ src/__tests__/tool-gateway.test.ts:1556:31
+    1554|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1555|           .expect(401);
+    1556|         expect(rejected.text).toBe("");
+       |                               ^
+    1557|       });
+    1558|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects a tampered bearer with an empty unauthorized response
+ FAIL  |@paperclipai/server| src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects a tampered bearer with an empty unauthorized response
+Error: expected 401 "Unauthorized", got 202 "Accepted"
+ ❯ src/__tests__/tool-gateway.test.ts:1555:12
+    1553|           .set("authorization", `Bearer ${tamperToken(token.token)}`)
+    1554|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1555|           .expect(401);
+       |            ^
+    1556|         expect(rejected.text).toBe("");
+    1557|       });
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 137 skipped (143)
+   Start at  13:31:16
+   Duration  9.08s (transform 4.35s, setup 43ms, import 6.83s, tests 2.11s, environment 0ms)

@@ -1,5 +1,5 @@
 change	title
-01	fix(codex): authenticate managed MCP lifecycle requests
+01	fix(server): authenticate managed MCP lifecycle requests
 02	fix(tool-gateway): verify session bearer tokens on session routes
 03	fix(runtime): use the internal API origin for agent callbacks
 04	fix(tool-gateway): distinguish call timeouts from connection failure

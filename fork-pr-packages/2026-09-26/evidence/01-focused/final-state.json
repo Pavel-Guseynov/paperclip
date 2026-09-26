@@ -1,0 +1,26 @@
+{
+  "date": "2026-09-26",
+  "scope": "01 only",
+  "status": "blocked",
+  "upstream": "7f3c06dac4604dddcf870085f1a623c102261358",
+  "contribution": {
+    "branch": "fix/codex-managed-mcp-auth",
+    "head": "d7f732a84310958de14f5a02f859cd4e797cb48c",
+    "originHead": "d7f732a84310958de14f5a02f859cd4e797cb48c"
+  },
+  "stable": {
+    "branch": "stable/v2026.916.0/fix/codex-managed-mcp-auth",
+    "head": "aa542ea3d1c487c9725314a230581d6042269986",
+    "originHead": "aa542ea3d1c487c9725314a230581d6042269986"
+  },
+  "main": {
+    "head": "e0e4336bea70cce0e925593dbaaa55e6d58f3a8e",
+    "originHead": "e0e4336bea70cce0e925593dbaaa55e6d58f3a8e"
+  },
+  "originVerifiedWith": "git ls-remote origin",
+  "fullGateTestedHead": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+  "focusedTests": 186,
+  "stableTests": 224,
+  "mainTests": "not started: dependency synchronization blocked",
+  "upstreamSubmitted": false
+}

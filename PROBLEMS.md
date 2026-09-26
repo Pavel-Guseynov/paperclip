@@ -2,14 +2,15 @@
 
 This log belongs to the upstream contribution package branch. It does not create a board task or change the packaging repository.
 
-## Embedded PostgreSQL failure lacks retained stderr
+## Change 01 broader gates and main dependency authorization
 
-- Status: blocked.
-- Timestamp:2026-09-26T06:45:37Z.
-- Context: operator's existing20-change upstream-readiness request; affected database-dependent acceptance across the fork. No new task identifier was created.
-- Evidence: `fork-pr-packages/2026-09-26/evidence/upstream-file-delivery.log` and verification-contract.md.
-- Description: the current-upstream adjacent baseline suite fails before assertions during initdb. Its five retries end at bootstrap exit1. Installed initialization code does not retain child stderr, and the fixture removes failed data directories. The underlying cause is not observable. This is not the Darwin lsof regression.
-- Next step: restore authoritative complete subprocess diagnostics through the owning dependency/test contract, then complete real DB acceptance and full gates. Do not guess the cause, blindly retry, substitute a different database or count skips as passing.
+- Status: blocked for submission; focused fix and stable tests pass.
+- Timestamp: 2026-09-26.
+- Context: operator's existing Change 01 preparation request; no new task identifier was created. Operator requested stopping after 01.
+- Evidence: `fork-pr-packages/2026-09-26/evidence/01-focused/verification.md`, commands.json and linked complete failure diagnoses.
+- Description: broader gate head `bed8d5c5f80d7b756626c244f187ec12b06e1340` fails eight general-server tests, one Runner receipt test, one Rust peer-result assertion, and two browser scenarios. Docker is unavailable. Missing child/event diagnostics prevent full causal classification of Cursor, Runner and browser failures. No matching-base evidence establishes these failures as pre-existing. Final contribution `d7f732a84310958de14f5a02f859cd4e797cb48c` passes 186 focused tests; stable `aa542ea3d1c487c9725314a230581d6042269986` passes 224.
+- Main blocker: merged `e0e4336bea70cce0e925593dbaaa55e6d58f3a8e` did not start tests because pnpm attempted dependency synchronization and aborted module purge without TTY. Automatic approval review rejected `pnpm install --frozen-lockfile` because installed dependency mutation is prohibited by the supplied instructions. No bypass occurred.
+- Next steps: obtain operator authorization for normal frozen dependency synchronization before main verification; address the diagnosed gate failures through their owning scope with retained causal evidence; run missing required gates. Do not claim green submission or deployable main.
 
 ## Historical lease-release cause lacks execution correlation
 
@@ -24,7 +25,7 @@ This log belongs to the upstream contribution package branch. It does not create
 
 - Status: blocked pending operator/maintainer decisions.
 - Timestamp:2026-09-26T06:45:37Z.
-- Context: existing Changes01,09,10,13 and21; no new board task.
+- Context: existing Changes09,10,13 and21; no new board task.
 - Evidence: per-change reports in `fork-pr-packages/2026-09-26/changes/`.
 - Description: duplicate/core feature coordination is pending;13 cannot submit a manual lockfile or select its own trusted bootstrap;21 changes every deployment's shutdown default. Canary verification additionally requires a disposable CI-prepared checkout rather than repointing fixed refs.
 - Next step: resolve the specific maintainer decisions in the prepared drafts, then complete the documented implementation and full gate evidence. Do not open incomplete PRs or rewrite branch identity.

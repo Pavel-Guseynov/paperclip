@@ -1,0 +1,172 @@
+[
+  {
+    "command": "node scripts/check-docker-deps-stage.mjs",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/docker-deps.log"
+  },
+  {
+    "command": "pnpm check:node-version",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/node-version.log"
+  },
+  {
+    "command": "node scripts/check-no-git-push.mjs",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/no-git-push.log"
+  },
+  {
+    "command": "pnpm check:module-boundaries",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/boundaries.log"
+  },
+  {
+    "command": "node scripts/release-package-map.mjs check",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/release-map.log"
+  },
+  {
+    "command": "node --test scripts/check-module-boundaries.test.mjs '.github/scripts/tests/*.test.mjs' scripts/__tests__/run-vitest-stable-shard.test.mjs scripts/__tests__/e2e-shard.test.mjs scripts/__tests__/release-verify-workflow.test.mjs scripts/cloud-source-verification.test.mjs scripts/standard-image-contract.test.mjs scripts/__tests__/build-standalone-concurrency.test.mjs",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/policy-tests.log"
+  },
+  {
+    "command": "pnpm typecheck",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/typecheck.log"
+  },
+  {
+    "command": "pnpm run test:release-registry",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 1,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/release-registry.log"
+  },
+  {
+    "command": "pnpm run test:release-registry",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/release-registry-native.log"
+  },
+  {
+    "command": "pnpm test:run",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 1,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/full-test.log"
+  },
+  {
+    "command": "docker buildx build --file .github/docker-context-checks.Dockerfile .",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 127,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/docker-context.log"
+  },
+  {
+    "command": "pnpm --filter @paperclipai/paperclip-runner build:issue-thread",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/issue-thread-build.log"
+  },
+  {
+    "command": "pnpm build",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/build.log"
+  },
+  {
+    "command": "node scripts/run-typecheck-build-gaps.mjs",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/build-gaps.log"
+  },
+  {
+    "command": "pnpm --filter @paperclipai/paperclip-runner check:eval-kernel",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/runner-eval-kernel.log"
+  },
+  {
+    "command": "pnpm --filter @paperclipai/paperclip-runner test",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 1,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/runner-test.log"
+  },
+  {
+    "command": "pnpm --filter @paperclipai/paperclip-runner check:api-authority",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/runner-api-authority.log"
+  },
+  {
+    "command": "PAPERCLIP_E2E_SKIP_LLM=true PAPERCLIP_PLAYWRIGHT_CHANNEL=chrome pnpm run test:e2e tests/e2e/acp-stop-continuation.spec.ts tests/e2e/action-test-agent-picker.spec.ts tests/e2e/agent-chat-projects.spec.ts tests/e2e/agent-chat-sessions.spec.ts tests/e2e/agentmail.spec.ts tests/e2e/app-not-connected.spec.ts tests/e2e/application-delete-screenshot.spec.ts tests/e2e/applications-crud.spec.ts tests/e2e/apps-dark-mode-shots.spec.ts tests/e2e/apps-prosumer-mcp-flow.spec.ts tests/e2e/archived-company-url.spec.ts tests/e2e/board-attachment-receipts.spec.ts tests/e2e/chat-adapters-ui-messaging.spec.ts tests/e2e/chat-adapters-ui-providers.spec.ts tests/e2e/composer-stop.spec.ts tests/e2e/conference-room-typing-intro.spec.ts tests/e2e/connection-intents.spec.ts tests/e2e/connection-reviews.spec.ts tests/e2e/legacy-failure-continuation.spec.ts tests/e2e/mcp-user-stories.spec.ts tests/e2e/nux-phase4-screenshots.spec.ts tests/e2e/onboarding.spec.ts tests/e2e/paused-composer.spec.ts tests/e2e/pipelines-tutorial-flow.spec.ts tests/e2e/planning-mode-visual-verification.spec.ts tests/e2e/project-repositories.spec.ts tests/e2e/railway-catalog.spec.ts tests/e2e/runner-e2e-dashboard.spec.ts tests/e2e/sidebar-takeover.spec.ts tests/e2e/signoff-policy.spec.ts tests/e2e/smoke-lab-p1-p4.spec.ts tests/e2e/smoke-lab-p5-p7.spec.ts tests/e2e/task-reload.spec.ts",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 1,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/browser.log"
+  },
+  {
+    "command": "pnpm --filter @paperclipai/paperclip-runner test:rust",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 101,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/runner-rust.log"
+  },
+  {
+    "command": "node .github/scripts/check-pr-migration-order.mjs 7f3c06dac4604dddcf870085f1a623c102261358 bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/migrations.log"
+  },
+  {
+    "command": "PAPERCLIP_RELEASE_BOOTSTRAP_BASE_SHA=7f3c06dac4604dddcf870085f1a623c102261358 node scripts/check-release-package-bootstrap.mjs README.md server/src/__tests__/agent-auth-middleware.test.ts server/src/__tests__/codex-local-execute.test.ts server/src/__tests__/tool-gateway.test.ts server/src/middleware/auth.ts server/src/routes/tool-gateway.ts server/src/services/tool-gateway.ts",
+    "head": "bed8d5c5f80d7b756626c244f187ec12b06e1340",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/release-bootstrap.log"
+  },
+  {
+    "command": "pnpm exec vitest run server/src/__tests__/tool-gateway.test.ts server/src/__tests__/agent-auth-middleware.test.ts server/src/__tests__/codex-local-execute.test.ts",
+    "head": "d7f732a84310958de14f5a02f859cd4e797cb48c",
+    "exitCode": 0,
+    "passed": 186,
+    "skipped": 0,
+    "retainedOutput": "focused-final.log"
+  },
+  {
+    "command": "pnpm --filter @paperclipai/server typecheck",
+    "head": "d7f732a84310958de14f5a02f859cd4e797cb48c",
+    "exitCode": 0,
+    "retainedOutput": ".git/fork-01-focus-2026-09-26/final-server-typecheck.log"
+  },
+  {
+    "command": "pnpm exec vitest run server/src/__tests__/tool-gateway.test.ts -t 'initializes a managed gateway through actor middleware with a run-bound bearer|rejects a tampered bearer with an empty unauthorized response'",
+    "head": "7f3c06dac4604dddcf870085f1a623c102261358",
+    "overlay": "final README/tests retained; production matches upstream exactly",
+    "exitCode": 1,
+    "failed": 6,
+    "skipped": 137,
+    "retainedOutput": "gateway-final-base.log"
+  },
+  {
+    "command": "pnpm exec vitest run server/src/__tests__/tool-gateway.test.ts server/src/__tests__/agent-auth-middleware.test.ts server/src/__tests__/codex-local-execute.test.ts packages/adapters/codex-local/src/server/codex-home.test.ts",
+    "head": "aa542ea3d1c487c9725314a230581d6042269986",
+    "exitCode": 0,
+    "passed": 224,
+    "skipped": 0,
+    "retainedOutput": "stable-focused.log"
+  },
+  {
+    "command": "pnpm exec vitest run server/src/__tests__/tool-gateway.test.ts server/src/__tests__/agent-auth-middleware.test.ts server/src/__tests__/codex-local-execute.test.ts packages/adapters/codex-local/src/server/codex-home.test.ts",
+    "head": "e0e4336bea70cce0e925593dbaaa55e6d58f3a8e",
+    "exitCode": 1,
+    "testsStarted": false,
+    "retainedOutput": "main-focused.log"
+  },
+  {
+    "command": "pnpm install --frozen-lockfile",
+    "head": "e0e4336bea70cce0e925593dbaaa55e6d58f3a8e",
+    "execution": "rejected by native automatic approval review; not executed",
+    "reason": "Would remove/rewrite installed dependencies contrary to supplied repository instructions."
+  }
+]
