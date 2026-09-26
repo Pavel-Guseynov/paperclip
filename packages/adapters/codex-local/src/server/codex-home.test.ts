@@ -1023,9 +1023,6 @@ describe("evaluateCodexCredentialReadiness", () => {
       const alpha = await fs.readFile(path.join(alphaHome, "config.toml"), "utf8");
       const zero = await fs.readFile(path.join(zeroHome, "config.toml"), "utf8");
       expect(alpha).toContain('[mcp_servers."alpha"]');
-      // Codex reads managed HTTP MCP auth from `http_headers`; a plain
-      // `headers` key is parsed and then ignored, so the gateway bearer never
-      // reaches the request and every managed call fails unauthenticated.
       expect(alpha).toContain('http_headers = { Authorization = "Bearer alpha-token" }');
       expect(alpha).not.toMatch(/^headers\s*=/m);
       expect(zero).not.toContain("mcp_servers.");
