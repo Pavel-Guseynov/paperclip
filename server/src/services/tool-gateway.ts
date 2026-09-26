@@ -3144,9 +3144,10 @@ export function createToolGatewayService(
    * it directly. Splitting validation from dispatch is what created the
    * DNS-rebinding TOCTOU in PAP-17098.
    */
-  function remoteHttpFetchOptions(): GuardedRemoteHttpFetchOptions {
+  function remoteHttpFetchOptions(proxy?: string | null): GuardedRemoteHttpFetchOptions {
     return {
       allowPrivateNetwork: allowPrivateRemoteEndpoints(),
+      proxy: proxy ?? null,
       error: (message, code) => new ToolGatewayHttpError(422, message, code),
     };
   }
@@ -5109,6 +5110,11 @@ export function createToolGatewayService(
       credentialHeaders,
       callerHeaders: input.callerHeaders,
     });
+    const proxy =
+      typeof input.connection.config?.proxy === "string" &&
+      input.connection.config.proxy.trim().length > 0
+        ? input.connection.config.proxy.trim()
+        : null;
     const response = await guardedRemoteHttpFetch(
       endpoint,
       {
@@ -5122,7 +5128,7 @@ export function createToolGatewayService(
           params: input.params,
         }),
       },
-      remoteHttpFetchOptions(),
+      remoteHttpFetchOptions(proxy),
     );
     const body = await readBoundedRemoteResponse(response);
     if (!response.ok) {
@@ -5792,11 +5798,16 @@ export function createToolGatewayService(
     const timer = setTimeout(() => controller.abort(), ms);
     timer.unref?.();
     try {
+      const proxy =
+        typeof connection.config?.proxy === "string" &&
+        connection.config.proxy.trim().length > 0
+          ? connection.config.proxy.trim()
+          : null;
       const dispatchRemote = (target: string, init: RequestInit) =>
         options.remoteHttpRequest
           ? options.remoteHttpRequest(target, init)
           : guardedRemoteHttpFetch(target, init, {
-              ...remoteHttpFetchOptions(),
+              ...remoteHttpFetchOptions(proxy),
               // This call site owns a caller-set budget that can exceed the
               // transport's default response deadline, so hand it down rather than
               // letting the tighter default cut a legitimately slow tool short.
