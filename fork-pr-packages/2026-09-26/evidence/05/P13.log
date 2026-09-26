@@ -1,0 +1,3 @@
+{
+  "output": "Command: node --test scripts/__tests__/build-standalone-concurrency.test.mjs\nHead: e2809924bfe1736b1be359f3a1ef6fc804c3db8f\nExit: 0\n\n✔ runs every item and preserves result order (0.70775ms)\n✔ never exceeds the concurrency limit (0.196416ms)\n✔ aggregates failures and still runs remaining items (0.292708ms)\n✔ reports failures sorted by original index (0.534167ms)\n✔ resolveConcurrency honors a valid env override, capped by package count (0.106708ms)\n✔ resolveConcurrency never returns more than the package count (0.059042ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 65.432042\n\n"
+}

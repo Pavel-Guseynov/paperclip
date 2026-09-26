@@ -1,0 +1,3 @@
+{
+  "output": "Command: node scripts/release-package-map.mjs check\nHead: e2809924bfe1736b1be359f3a1ef6fc804c3db8f\nExit: 0\n\nRelease package manifest OK: 30 enabled for CI publish, 4 disabled pending bootstrap.\n\n"
+}

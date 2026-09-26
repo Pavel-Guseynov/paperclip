@@ -1,0 +1,433 @@
+{
+  "date": "2026-09-26",
+  "upstream": "4ca404b49ab3ec5513b9cfa824ff2eeaef941f7a",
+  "main": "c8041639ac066fbfe1d3d6e0cb081b252177b081",
+  "changes": [
+    {
+      "id": "01",
+      "title": "fix(codex): authenticate managed MCP lifecycle requests",
+      "status": "needs operator decision",
+      "reason": "Open PR12518 needs submission coordination; current-base header fix is already upstream; DB/full proof missing.",
+      "contribution": {
+        "branch": "fix/codex-managed-mcp-auth",
+        "head": "8725503d84f758548b9560e1c62762044f7d5293",
+        "originHead": "8725503d84f758548b9560e1c62762044f7d5293",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/codex-managed-mcp-auth",
+        "head": "f88dc63d163e4a3449eda3566125fc53387f5657",
+        "originHead": "f88dc63d163e4a3449eda3566125fc53387f5657",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/01.md",
+      "body": "pr/01.md"
+    },
+    {
+      "id": "02",
+      "title": "fix(tool-gateway): verify session bearer tokens on session routes",
+      "status": "blocked",
+      "reason": "Depends on01; database lifecycle tests and complete current-head gates are unverified.",
+      "contribution": {
+        "branch": "fix/tool-gateway-session-token-verification",
+        "head": "967b5a6cc73a86be8552e0be6e4eee964574076d",
+        "originHead": "967b5a6cc73a86be8552e0be6e4eee964574076d",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/tool-gateway-session-token-verification",
+        "head": "0389fe2111cd5fdb75eaca58cb0f3bb0381abc54",
+        "originHead": "0389fe2111cd5fdb75eaca58cb0f3bb0381abc54",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [
+        "01"
+      ],
+      "report": "changes/02.md",
+      "body": "pr/02.md"
+    },
+    {
+      "id": "03",
+      "title": "fix(runtime): use the internal API origin for agent callbacks",
+      "status": "blocked",
+      "reason": "Real local, sandbox and SSH callback/authentication acceptance remains unproven; full gates absent.",
+      "contribution": {
+        "branch": "fix/codex-runtime-api-reachability",
+        "head": "f7e388264adcb4fa14b86e0040c6fa20e31ff4e2",
+        "originHead": "f7e388264adcb4fa14b86e0040c6fa20e31ff4e2",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/codex-runtime-api-reachability",
+        "head": "1cb7ece9c9d73c6dcced518fa986d7f30b40a3cf",
+        "originHead": "1cb7ece9c9d73c6dcced518fa986d7f30b40a3cf",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/03.md",
+      "body": "pr/03.md"
+    },
+    {
+      "id": "04",
+      "title": "fix(tool-gateway): distinguish call timeouts from connection failure",
+      "status": "blocked",
+      "reason": "Timeout, concurrent health update and ambiguous write replay persistence proof lacks current-head gates.",
+      "contribution": {
+        "branch": "fix/remote-mcp-timeout-health",
+        "head": "e6f2cc7307f26ad08ee8676732528f8678d94307",
+        "originHead": "e6f2cc7307f26ad08ee8676732528f8678d94307",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/remote-mcp-timeout-health",
+        "head": "a450acc1e556c63baf3766b858c8450efb356b0e",
+        "originHead": "a450acc1e556c63baf3766b858c8450efb356b0e",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/04.md",
+      "body": "pr/04.md"
+    },
+    {
+      "id": "05",
+      "title": "fix(logger): redact gateway credentials across log output",
+      "status": "blocked",
+      "reason": "Logging defects fixed; regression, policy checks, typecheck and build pass. Full suites, coverage and remaining PR lanes are unverified.",
+      "contribution": {
+        "branch": "fix/tool-gateway-token-log-redaction",
+        "head": "e2809924bfe1736b1be359f3a1ef6fc804c3db8f",
+        "originHead": "e2809924bfe1736b1be359f3a1ef6fc804c3db8f",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/tool-gateway-token-log-redaction",
+        "head": "e42ecc4c8c7161fc58c5a1012d294a558a6d9e28",
+        "originHead": "e42ecc4c8c7161fc58c5a1012d294a558a6d9e28",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/05.md",
+      "body": "pr/05.md"
+    },
+    {
+      "id": "06",
+      "title": "fix(execution-policy): preserve eligible approval return assignees",
+      "status": "blocked",
+      "reason": "Recorded exactly-once concurrent transition acceptance is not implemented or proven.",
+      "contribution": {
+        "branch": "fix/approval-stage-return-assignee",
+        "head": "6c67f9ccc4e6d8541257befbeae7fc61b0eff8f6",
+        "originHead": "6c67f9ccc4e6d8541257befbeae7fc61b0eff8f6",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/approval-stage-return-assignee",
+        "head": "1c4a685f8e612229153d1249647a85c29a3f0d9a",
+        "originHead": "1c4a685f8e612229153d1249647a85c29a3f0d9a",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/06.md",
+      "body": "pr/06.md"
+    },
+    {
+      "id": "07",
+      "title": "fix(recovery): retry skipped review handoffs after blockers clear",
+      "status": "blocked",
+      "reason": "Cross-attempt race can enqueue duplicate handoffs; migration0284 collides with09.",
+      "contribution": {
+        "branch": "fix/retry-skipped-review-handoff",
+        "head": "90311c0b61bf6060ad11bada306c7ff527fa3e54",
+        "originHead": "90311c0b61bf6060ad11bada306c7ff527fa3e54",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/retry-skipped-review-handoff",
+        "head": "726fc47213895e6dc76e42045cebf0a5205530bc",
+        "originHead": "726fc47213895e6dc76e42045cebf0a5205530bc",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/07.md",
+      "body": "pr/07.md"
+    },
+    {
+      "id": "08",
+      "title": "fix(recovery): preserve workspace validation diagnoses during generic sweeps",
+      "status": "blocked",
+      "reason": "Broad stranded kind suppresses later specific causes; DB regression and upstream conflict resolution required.",
+      "contribution": {
+        "branch": "fix/workspace-validation-recovery-precedence",
+        "head": "d9ea1f97aa2a00f540e254ce3ae86cc502c192dc",
+        "originHead": "d9ea1f97aa2a00f540e254ce3ae86cc502c192dc",
+        "containsUpstream": false
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/workspace-validation-recovery-precedence",
+        "head": "ccbf3a33b00fcc15c5393ecde10864fd000eb7b0",
+        "originHead": "ccbf3a33b00fcc15c5393ecde10864fd000eb7b0",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/08.md",
+      "body": "pr/08.md"
+    },
+    {
+      "id": "09",
+      "title": "feat(execution-policy): verify terminal delivery evidence",
+      "status": "needs operator decision",
+      "reason": "Open PR11196 overlaps; required checks, provider-neutral coverage and native terminal path do not meet record; malformed evidence can pass.",
+      "contribution": {
+        "branch": "feat/verified-terminal-delivery-evidence",
+        "head": "70b37e45c06ecfe8b88bd2cdb10b896083e7e940",
+        "originHead": "70b37e45c06ecfe8b88bd2cdb10b896083e7e940",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/feat/verified-terminal-delivery-evidence",
+        "head": "cfe4b837e367da696c3163272207129171533da4",
+        "originHead": "cfe4b837e367da696c3163272207129171533da4",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/09.md",
+      "body": "pr/09.md"
+    },
+    {
+      "id": "10",
+      "title": "feat(review): key review admission by repository revision",
+      "status": "needs operator decision",
+      "reason": "Implementation is best-effort bookkeeping; requested durable admission and exactly-one invocation are absent.",
+      "contribution": {
+        "branch": "feat/revision-keyed-review-admission",
+        "head": "bfd3092312d890c4f328ad9b90bda0329e41d02a",
+        "originHead": "bfd3092312d890c4f328ad9b90bda0329e41d02a",
+        "containsUpstream": false
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/feat/revision-keyed-review-admission",
+        "head": "f4c410b8e0fcc16785022448957d9945f74c626e",
+        "originHead": "f4c410b8e0fcc16785022448957d9945f74c626e",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [
+        "09"
+      ],
+      "report": "changes/10.md",
+      "body": "pr/10.md"
+    },
+    {
+      "id": "11",
+      "title": "fix(runner): decode Darwin lsof descriptor paths",
+      "status": "blocked",
+      "reason": "Darwin regression and full current-head proof blocked by database fixture initialization; stable refinements pending.",
+      "contribution": {
+        "branch": "fix/native-runner-darwin-lsof-unicode",
+        "head": "384bfcde2cc326a3ad8ef763e0ea280eed474da9",
+        "originHead": "384bfcde2cc326a3ad8ef763e0ea280eed474da9",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/fix/native-runner-darwin-lsof-unicode",
+        "head": "c14cff2716ebfe60ef64529b9cda6c675438981e",
+        "originHead": "c14cff2716ebfe60ef64529b9cda6c675438981e",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/11.md",
+      "body": "pr/11.md"
+    },
+    {
+      "id": "12",
+      "title": "test(runtime): isolate workspace exposure port reservations",
+      "status": "blocked",
+      "reason": "Current-base repeatability, touched suites and full gates remain unverified; final stable test refinement pending.",
+      "contribution": {
+        "branch": "test/workspace-runtime-exposure-isolation",
+        "head": "22ae6a00864e3492a480faf87f0bbe37abb2bd66",
+        "originHead": "22ae6a00864e3492a480faf87f0bbe37abb2bd66",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.0/test/workspace-runtime-exposure-isolation",
+        "head": "8ab66bdb320b81aac4677f2b2051196ad4e855e2",
+        "originHead": "8ab66bdb320b81aac4677f2b2051196ad4e855e2",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/12.md",
+      "body": "pr/12.md"
+    },
+    {
+      "id": "13",
+      "title": "chore(toolchain): migrate to pnpm 11",
+      "status": "needs operator decision",
+      "reason": "Manual lockfile edits are forbidden; trusted master workflow pins pnpm9; current lockfile merge conflicts.",
+      "contribution": {
+        "branch": "chore/pnpm-11-toolchain",
+        "head": "e3fe89cf5bcb645866a8ef4d68dbdc83f7394851",
+        "originHead": "e3fe89cf5bcb645866a8ef4d68dbdc83f7394851",
+        "containsUpstream": false
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/chore/pnpm-11-toolchain",
+        "head": "c8a267aabe2a7d9a789ce3985a11250baa0e8aa0",
+        "originHead": "c8a267aabe2a7d9a789ce3985a11250baa0e8aa0",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/13.md",
+      "body": "pr/13.md"
+    },
+    {
+      "id": "14",
+      "title": "fix(tool-gateway): assign client-safe tool names",
+      "status": "blocked",
+      "reason": "Provider selector removed; catalog changes can redirect names; reserved-name collisions and permanent alias path remain.",
+      "contribution": {
+        "branch": "fix/tool-gateway-client-safe-tool-names",
+        "head": "5db9cbcb2d92daf4b25e42dce329f2fcec08e25c",
+        "originHead": "5db9cbcb2d92daf4b25e42dce329f2fcec08e25c",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names",
+        "head": "31abc189bf0c662d4ba4069be7a5ef0cf073ace0",
+        "originHead": "31abc189bf0c662d4ba4069be7a5ef0cf073ace0",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [
+        "16"
+      ],
+      "report": "changes/14.md",
+      "body": "pr/14.md"
+    },
+    {
+      "id": "15",
+      "title": "fix(tool-gateway): gate context tools by token actions",
+      "status": "blocked",
+      "reason": "Final-head gateway tests are unexecuted; adjacent stable05 tests skipped on their DB support gate. Full proof is absent.",
+      "contribution": {
+        "branch": "fix/tool-gateway-context-tools-token-actions",
+        "head": "7cc5b6aca10144b8bbd329e8012af82728d36dd3",
+        "originHead": "7cc5b6aca10144b8bbd329e8012af82728d36dd3",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions",
+        "head": "b3ea01a407e585acce86033e57fe890a08382a8e",
+        "originHead": "b3ea01a407e585acce86033e57fe890a08382a8e",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/15.md",
+      "body": "pr/15.md"
+    },
+    {
+      "id": "16",
+      "title": "fix(tool-access): preserve tool identity in profile selectors",
+      "status": "blocked",
+      "reason": "Startup rewrite guesses names, can broaden connection grants and can overwrite concurrent edits.",
+      "contribution": {
+        "branch": "fix/tool-profile-tool-name-identity",
+        "head": "7a772e2b7a9aff653941152a2d1d713634ad5afd",
+        "originHead": "7a772e2b7a9aff653941152a2d1d713634ad5afd",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/tool-profile-tool-name-identity",
+        "head": "df5fc7841614b41d7787fa801fa01eabf6afd197",
+        "originHead": "df5fc7841614b41d7787fa801fa01eabf6afd197",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/16.md",
+      "body": "pr/16.md"
+    },
+    {
+      "id": "19",
+      "title": "fix(issues): preserve the authenticated calling run for stage decisions",
+      "status": "blocked",
+      "reason": "Cancellation exemption accepts unverified header run IDs from non-JWT actors.",
+      "contribution": {
+        "branch": "fix/stage-decision-keeps-calling-run",
+        "head": "91a755ee60646e12addaa28541d0e66cf5dc3c87",
+        "originHead": "91a755ee60646e12addaa28541d0e66cf5dc3c87",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/stage-decision-keeps-calling-run",
+        "head": "40d9dab4bff1d6166050c01764fcf785cdf6549a",
+        "originHead": "40d9dab4bff1d6166050c01764fcf785cdf6549a",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/19.md",
+      "body": "pr/19.md"
+    },
+    {
+      "id": "20",
+      "title": "fix(conversation): honor declared adapter continuation capability",
+      "status": "blocked",
+      "reason": "Synthetic markers do not prove cancel-to-next-wake behavior or restart ownership; full gates absent.",
+      "contribution": {
+        "branch": "fix/antigravity-conversation-continuation",
+        "head": "e7032a14aae75d159a33dfcfb6eed3be6b11ff7a",
+        "originHead": "e7032a14aae75d159a33dfcfb6eed3be6b11ff7a",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/antigravity-conversation-continuation",
+        "head": "e1751a913e571f85316c65db63c4d965172bf3f5",
+        "originHead": "e1751a913e571f85316c65db63c4d965172bf3f5",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/20.md",
+      "body": "pr/20.md"
+    },
+    {
+      "id": "21",
+      "title": "fix(server): drain in-flight adapter runs during shutdown",
+      "status": "needs operator decision",
+      "reason": "Global5-to60-second default is a compatibility decision; admission race and deadline validation remain defects.",
+      "contribution": {
+        "branch": "fix/shutdown-waits-for-adapter-run-stops",
+        "head": "5d8dd9b48a4bdb994d3c10d7a78f08dec6a3b24f",
+        "originHead": "5d8dd9b48a4bdb994d3c10d7a78f08dec6a3b24f",
+        "containsUpstream": true
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/shutdown-waits-for-adapter-run-stops",
+        "head": "a1396163b56de0e41f7ad0686bb2f368c139faa5",
+        "originHead": "a1396163b56de0e41f7ad0686bb2f368c139faa5",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/21.md",
+      "body": "pr/21.md"
+    },
+    {
+      "id": "22",
+      "title": "fix(environments): release leases after confirmed terminal cleanup",
+      "status": "blocked",
+      "reason": "Missing environments and fallback paths can report false cleanup; live/native guards and bounded sweep progress are incomplete.",
+      "contribution": {
+        "branch": "fix/release-cancelled-interrupted-run-leases",
+        "head": "46e8948a8df775fa11e3d48e070a20188c91d61f",
+        "originHead": "46e8948a8df775fa11e3d48e070a20188c91d61f",
+        "containsUpstream": false
+      },
+      "stable": {
+        "branch": "stable/v2026.916.1/fix/release-cancelled-interrupted-run-leases",
+        "head": "b0c5236914c74a18f1c8819872d885599c1337ad",
+        "originHead": "b0c5236914c74a18f1c8819872d885599c1337ad",
+        "containsV2026_916_1": true
+      },
+      "dependencies": [],
+      "report": "changes/22.md",
+      "body": "pr/22.md"
+    }
+  ]
+}

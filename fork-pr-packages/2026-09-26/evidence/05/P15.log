@@ -1,0 +1,3 @@
+{
+  "output": "Command: PAPERCLIP_RELEASE_BOOTSTRAP_BASE_SHA=4ca404b49ab3ec5513b9cfa824ff2eeaef941f7a node scripts/check-release-package-bootstrap.mjs server/src/__tests__/http-log-redaction.test.ts server/src/middleware/http-log-redaction.ts server/src/middleware/logger.ts server/src/middleware/redact-sensitive.ts\nHead: e2809924bfe1736b1be359f3a1ef6fc804c3db8f\nExit: 0\n\nNo release-enabled package manifests changed in this PR.\n\n"
+}

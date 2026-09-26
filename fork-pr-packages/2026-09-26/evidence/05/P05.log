@@ -1,0 +1,3 @@
+{
+  "output": "Command: node scripts/check-no-git-push.mjs\nHead: e2809924bfe1736b1be359f3a1ef6fc804c3db8f\nExit: 0\n\n  ✓  No unapproved `git push` invocations found in adapter/runtime code.\n\n"
+}

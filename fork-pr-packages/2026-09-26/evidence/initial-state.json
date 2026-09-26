@@ -1,0 +1,651 @@
+{
+  "date": "2026-09-26",
+  "upstream": "4ca404b49ab3ec5513b9cfa824ff2eeaef941f7a",
+  "stableTag": "v2026.916.1",
+  "stableCommit": "d554c4789ed3930f8a53ac9fdf6503b3187097da",
+  "initialMain": "deea922ed3b16143437c709592fba5e83fae5b20",
+  "initialPackage": "558f17524183e61d1405e132b55269a6cd774a3b",
+  "branches": [
+    {
+      "id": "01",
+      "title": "Codex managed MCP authentication",
+      "paperclipTask": "GUS-138",
+      "branch": "fix/codex-managed-mcp-auth",
+      "stableBranch": "stable/v2026.916.0/fix/codex-managed-mcp-auth",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/01-codex-managed-mcp-auth.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        10346
+      ],
+      "upstreamPullRequests": [
+        12518,
+        11957,
+        12287,
+        13112
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "9044c3df1abf7f523a142f3aa795472ff0246cf1",
+        "9044c3df1abf7f523a142f3aa795472ff0246cf1",
+        "33ed8b206a5b180e1e62ce40840cfec04895c02f",
+        "33ed8b206a5b180e1e62ce40840cfec04895c02f"
+      ],
+      "files": "M\tpackages/adapters/codex-local/src/server/codex-home.test.ts\nM\tpackages/adapters/codex-local/src/server/codex-home.ts\nM\tserver/src/__tests__/agent-auth-middleware.test.ts\nM\tserver/src/__tests__/codex-local-execute.test.ts\nM\tserver/src/__tests__/tool-gateway.test.ts\nA\tserver/src/lib/uuid.ts\nM\tserver/src/middleware/auth.ts\nM\tserver/src/routes/tool-gateway.ts\nM\tserver/src/services/tool-gateway.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "02",
+      "title": "Gateway session-token verification",
+      "paperclipTask": "GUS-123",
+      "branch": "fix/tool-gateway-session-token-verification",
+      "stableBranch": "stable/v2026.916.0/fix/tool-gateway-session-token-verification",
+      "state": "implemented",
+      "dependsOn": [
+        "01"
+      ],
+      "document": "docs/paperclip-fork/02-session-token-verification.md",
+      "localPullRequests": [
+        76
+      ],
+      "upstreamIssues": [
+        13140
+      ],
+      "upstreamPullRequests": [
+        12518
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "4ef9dc8464bc00e1ecbd6295146337fa1ee94370",
+        "4ef9dc8464bc00e1ecbd6295146337fa1ee94370",
+        "8217e22a822dd5aa269824d762e4bfae98bf7483",
+        "8217e22a822dd5aa269824d762e4bfae98bf7483"
+      ],
+      "files": "M\tdoc/MCP-ACCESS-GOVERNANCE.md\nM\tdoc/MCP-DEMO-SCRIPT.md\nM\tpackages/adapters/codex-local/src/server/codex-home.test.ts\nM\tpackages/adapters/codex-local/src/server/codex-home.ts\nM\tserver/src/__tests__/agent-auth-middleware.test.ts\nM\tserver/src/__tests__/codex-local-execute.test.ts\nM\tserver/src/__tests__/tool-gateway.test.ts\nA\tserver/src/lib/uuid.ts\nM\tserver/src/middleware/auth.ts\nM\tserver/src/routes/tool-gateway.ts\nM\tserver/src/services/tool-gateway.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "03",
+      "title": "Codex runtime API reachability",
+      "paperclipTask": "GUS-185",
+      "branch": "fix/codex-runtime-api-reachability",
+      "stableBranch": "stable/v2026.916.0/fix/codex-runtime-api-reachability",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/03-codex-runtime-api-reachability.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        6630,
+        3802,
+        11203
+      ],
+      "upstreamPullRequests": [
+        8130
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "191a0283e7b28c2e064a9aabec3e72f027c9c36c",
+        "191a0283e7b28c2e064a9aabec3e72f027c9c36c",
+        "1cb7ece9c9d73c6dcced518fa986d7f30b40a3cf",
+        "1cb7ece9c9d73c6dcced518fa986d7f30b40a3cf"
+      ],
+      "files": "M\tcli/src/__tests__/common.test.ts\nM\tcli/src/commands/client/common.ts\nM\tdoc/AGENT-ARTIFACTS.md\nM\tdoc/CLI.md\nM\tpackages/adapter-utils/src/execution-target-sandbox.test.ts\nM\tpackages/adapter-utils/src/execution-target.ts\nM\tpackages/adapter-utils/src/server-utils.test.ts\nM\tpackages/adapter-utils/src/server-utils.ts\nA\tpackages/adapters/codex-local/src/server/execute.runtime-callback.test.ts\nM\tpackages/adapters/codex-local/src/server/execute.ts\nM\tpackages/adapters/cursor-cloud/src/server/execute.test.ts\nM\tpackages/adapters/cursor-cloud/src/server/execute.ts\nM\tserver/src/__tests__/heartbeat-runtime-mcp-servers.test.ts\nM\tserver/src/__tests__/server-startup-feedback-export.test.ts\nM\tserver/src/index.ts\nM\tserver/src/runtime-api.ts\nM\tserver/src/services/heartbeat.ts\nM\tskills/paperclip/scripts/paperclip-upload-artifact.sh",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "04",
+      "title": "Remote MCP timeout health",
+      "paperclipTask": "GUS-162",
+      "branch": "fix/remote-mcp-timeout-health",
+      "stableBranch": "stable/v2026.916.0/fix/remote-mcp-timeout-health",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/04-remote-mcp-timeout-health.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [
+        11910
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "cc46b33bc9f46b1dd08cf1117e15582a22f6996c",
+        "cc46b33bc9f46b1dd08cf1117e15582a22f6996c",
+        "a450acc1e556c63baf3766b858c8450efb356b0e",
+        "a450acc1e556c63baf3766b858c8450efb356b0e"
+      ],
+      "files": "M\tpackages/shared/src/constants.ts\nM\tpackages/shared/src/index.ts\nA\tpackages/shared/src/tool-connection-health.test.ts\nA\tserver/src/__tests__/remote-mcp-timeout-health.test.ts\nM\tserver/src/services/tool-access-policy.ts\nM\tserver/src/services/tool-gateway.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "05",
+      "title": "Gateway token log redaction",
+      "paperclipTask": "GUS-184",
+      "branch": "fix/tool-gateway-token-log-redaction",
+      "stableBranch": "stable/v2026.916.0/fix/tool-gateway-token-log-redaction",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/05-gateway-token-redaction.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        4759
+      ],
+      "upstreamPullRequests": [
+        10784
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "ad28f68df8bce0b2fa5709ac641d462861984e04",
+        "ad28f68df8bce0b2fa5709ac641d462861984e04",
+        "387ffdcd46fb806ce3bb152dd62c37aba19d8759",
+        "387ffdcd46fb806ce3bb152dd62c37aba19d8759"
+      ],
+      "files": "M\tserver/src/__tests__/http-log-redaction.test.ts\nM\tserver/src/middleware/http-log-redaction.ts\nM\tserver/src/middleware/logger.ts\nM\tserver/src/middleware/redact-sensitive.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "06",
+      "title": "Approval return-assignee selection",
+      "paperclipTask": "GUS-208",
+      "branch": "fix/approval-stage-return-assignee",
+      "stableBranch": "stable/v2026.916.0/fix/approval-stage-return-assignee",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/06-approval-return-assignee.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        4912
+      ],
+      "upstreamPullRequests": [
+        5951
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "3c858b6212b46907e0b5a70ba088c5ad772ad4a6",
+        "3c858b6212b46907e0b5a70ba088c5ad772ad4a6",
+        "1c4a685f8e612229153d1249647a85c29a3f0d9a",
+        "1c4a685f8e612229153d1249647a85c29a3f0d9a"
+      ],
+      "files": "M\tserver/src/__tests__/issue-execution-policy-routes.test.ts\nM\tserver/src/__tests__/issue-execution-policy.test.ts\nM\tserver/src/services/issue-execution-policy.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "07",
+      "title": "Review handoff retry",
+      "paperclipTask": "GUS-209",
+      "branch": "fix/retry-skipped-review-handoff",
+      "stableBranch": "stable/v2026.916.0/fix/retry-skipped-review-handoff",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/07-review-handoff-retry.md",
+      "localPullRequests": [
+        84
+      ],
+      "upstreamIssues": [
+        13532
+      ],
+      "upstreamPullRequests": [
+        13515
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "4a6ce422dd655ceb80d2c38e71e7110556369e9a",
+        "4a6ce422dd655ceb80d2c38e71e7110556369e9a",
+        "726fc47213895e6dc76e42045cebf0a5205530bc",
+        "726fc47213895e6dc76e42045cebf0a5205530bc"
+      ],
+      "files": "A\tpackages/db/src/migrations/0284_rapid_prowler.sql\nR098\tpackages/db/src/migrations/meta/0279_snapshot.json\tpackages/db/src/migrations/meta/0284_snapshot.json\nM\tpackages/db/src/migrations/meta/_journal.json\nM\tpackages/db/src/schema/agent_wakeup_requests.ts\nA\tserver/src/__tests__/heartbeat-review-handoff-retry.test.ts\nM\tserver/src/routes/issues.ts\nA\tserver/src/services/recovery/review-handoff-retry.test.ts\nA\tserver/src/services/recovery/review-handoff-retry.ts\nM\tserver/src/services/recovery/service.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "08",
+      "title": "Workspace recovery precedence",
+      "paperclipTask": "GUS-164",
+      "branch": "fix/workspace-validation-recovery-precedence",
+      "stableBranch": "stable/v2026.916.0/fix/workspace-validation-recovery-precedence",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/08-workspace-recovery-precedence.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        7398,
+        8767,
+        10497
+      ],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "d9ea1f97aa2a00f540e254ce3ae86cc502c192dc",
+        "d9ea1f97aa2a00f540e254ce3ae86cc502c192dc",
+        "ccbf3a33b00fcc15c5393ecde10864fd000eb7b0",
+        "ccbf3a33b00fcc15c5393ecde10864fd000eb7b0"
+      ],
+      "files": "A\tserver/src/__tests__/workspace-validation-recovery-precedence.test.ts\nM\tserver/src/services/heartbeat.ts\nM\tserver/src/services/issue-recovery-actions.ts\nM\tserver/src/services/legacy-execution-recovery.test.ts\nM\tserver/src/services/recovery/service.ts\nM\tserver/src/services/recovery/stranded-notice.test.ts\nM\tserver/src/services/recovery/stranded-notice.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "09",
+      "title": "Verified terminal delivery evidence",
+      "paperclipTask": "GUS-163",
+      "branch": "feat/verified-terminal-delivery-evidence",
+      "stableBranch": "stable/v2026.916.0/feat/verified-terminal-delivery-evidence",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/09-verified-terminal-evidence.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        11145
+      ],
+      "upstreamPullRequests": [
+        11196
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "fd793881526ae41433115a2c28436c9671bad6f7",
+        "fd793881526ae41433115a2c28436c9671bad6f7",
+        "cfe4b837e367da696c3163272207129171533da4",
+        "cfe4b837e367da696c3163272207129171533da4"
+      ],
+      "files": "M\tdoc/execution-semantics.md\nA\tpackages/db/src/migrations/0284_keen_mac_gargan.sql\nR098\tpackages/db/src/migrations/meta/0279_snapshot.json\tpackages/db/src/migrations/meta/0284_snapshot.json\nM\tpackages/db/src/migrations/meta/_journal.json\nM\tpackages/db/src/schema/issue_execution_decisions.ts\nM\tpackages/shared/src/index.ts\nM\tpackages/shared/src/types/index.ts\nM\tpackages/shared/src/types/issue.ts\nM\tpackages/shared/src/validators/index.ts\nM\tpackages/shared/src/validators/issue.ts\nA\tserver/src/__tests__/delivery-verification.test.ts\nM\tserver/src/__tests__/issue-execution-policy-routes.test.ts\nM\tserver/src/__tests__/issue-execution-policy.test.ts\nM\tserver/src/__tests__/native-status-arbiter-corpus.test.ts\nM\tserver/src/routes/issues.ts\nA\tserver/src/services/delivery-verification.ts\nM\tserver/src/services/execution-workspaces.ts\nM\tserver/src/services/issue-execution-policy.ts\nM\tserver/src/services/issue-thread-interactions.ts\nM\tserver/src/services/recovery/service.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "10",
+      "title": "Revision-keyed review admission",
+      "paperclipTask": "GUS-194",
+      "branch": "feat/revision-keyed-review-admission",
+      "stableBranch": "stable/v2026.916.0/feat/revision-keyed-review-admission",
+      "state": "implemented",
+      "dependsOn": [
+        "09"
+      ],
+      "document": "docs/paperclip-fork/10-review-admission.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        11390,
+        10550
+      ],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "bfd3092312d890c4f328ad9b90bda0329e41d02a",
+        "bfd3092312d890c4f328ad9b90bda0329e41d02a",
+        "f4c410b8e0fcc16785022448957d9945f74c626e",
+        "f4c410b8e0fcc16785022448957d9945f74c626e"
+      ],
+      "files": "M\tdoc/execution-semantics.md\nA\tpackages/db/src/migrations/0284_keen_mac_gargan.sql\nA\tpackages/db/src/migrations/0285_massive_wonder_man.sql\nR098\tpackages/db/src/migrations/meta/0280_snapshot.json\tpackages/db/src/migrations/meta/0284_snapshot.json\nR098\tpackages/db/src/migrations/meta/0279_snapshot.json\tpackages/db/src/migrations/meta/0285_snapshot.json\nM\tpackages/db/src/migrations/meta/_journal.json\nM\tpackages/db/src/schema/index.ts\nM\tpackages/db/src/schema/issue_execution_decisions.ts\nA\tpackages/db/src/schema/review_admissions.ts\nM\tpackages/shared/src/index.ts\nM\tpackages/shared/src/types/index.ts\nM\tpackages/shared/src/types/issue.ts\nA\tpackages/shared/src/types/review-admission.ts\nM\tpackages/shared/src/validators/index.ts\nM\tpackages/shared/src/validators/issue.ts\nA\tserver/src/__tests__/delivery-verification.test.ts\nM\tserver/src/__tests__/issue-execution-policy-routes.test.ts\nM\tserver/src/__tests__/issue-execution-policy.test.ts\nM\tserver/src/__tests__/native-status-arbiter-corpus.test.ts\nA\tserver/src/__tests__/review-admission.test.ts\nM\tserver/src/routes/issues.ts\nA\tserver/src/services/delivery-verification.ts\nM\tserver/src/services/execution-workspaces.ts\nM\tserver/src/services/issue-execution-policy.ts\nM\tserver/src/services/issue-thread-interactions.ts\nM\tserver/src/services/native-runtime/status-decision-committer.ts\nM\tserver/src/services/recovery/service.ts\nA\tserver/src/services/review-admission.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "11",
+      "title": "Darwin lsof Unicode path decoding",
+      "paperclipTask": null,
+      "branch": "fix/native-runner-darwin-lsof-unicode",
+      "stableBranch": "stable/v2026.916.0/fix/native-runner-darwin-lsof-unicode",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/11-native-runner-lsof-unicode.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "ea6107e611ac3febf075111fd2cc5cdaa7522ac8",
+        "ea6107e611ac3febf075111fd2cc5cdaa7522ac8",
+        "c14cff2716ebfe60ef64529b9cda6c675438981e",
+        "c14cff2716ebfe60ef64529b9cda6c675438981e"
+      ],
+      "files": "M\tserver/src/services/native-runtime/native-runner-file-handoff.test.ts\nM\tserver/src/services/native-runtime/native-runner-file-handoff.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "12",
+      "title": "Workspace runtime exposure test isolation",
+      "paperclipTask": null,
+      "branch": "test/workspace-runtime-exposure-isolation",
+      "stableBranch": "stable/v2026.916.0/test/workspace-runtime-exposure-isolation",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/12-workspace-runtime-exposure-isolation.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "127a0473701fdfe7ae0171d6695df63c96582b90",
+        "127a0473701fdfe7ae0171d6695df63c96582b90",
+        "8ab66bdb320b81aac4677f2b2051196ad4e855e2",
+        "8ab66bdb320b81aac4677f2b2051196ad4e855e2"
+      ],
+      "files": "M\tserver/src/__tests__/workspace-runtime-start-terminality.test.ts\nM\tserver/src/__tests__/workspace-runtime.test.ts\nM\tserver/src/services/workspace-runtime-exposure.test.ts\nM\tserver/src/services/workspace-runtime.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "13",
+      "title": "pnpm 11 toolchain migration",
+      "paperclipTask": null,
+      "branch": "chore/pnpm-11-toolchain",
+      "stableBranch": "stable/v2026.916.1/chore/pnpm-11-toolchain",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/13-pnpm-11-toolchain.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        8827
+      ],
+      "upstreamPullRequests": [
+        13893,
+        13894
+      ],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "e3fe89cf5bcb645866a8ef4d68dbdc83f7394851",
+        "e3fe89cf5bcb645866a8ef4d68dbdc83f7394851",
+        "c8a267aabe2a7d9a789ce3985a11250baa0e8aa0",
+        "c8a267aabe2a7d9a789ce3985a11250baa0e8aa0"
+      ],
+      "files": "M\t.github/scripts/tests/lockfile-refresh-cache.test.mjs\nM\t.github/workflows/cloud-migrator-artifacts.yml\nM\t.github/workflows/docker.yml\nM\t.github/workflows/e2e.yml\nM\t.github/workflows/pr-trusted.yml\nM\t.github/workflows/refresh-lockfile.yml\nM\t.github/workflows/release-smoke.yml\nM\t.github/workflows/release-verify.yml\nM\t.github/workflows/release.yml\nM\t.github/workflows/runner-chaos-evals.yml\nM\t.github/workflows/runner-full-stack-e2e.yml\nM\t.github/workflows/runner-live-evals.yml\nM\t.github/workflows/runner-protocol-live-evals.yml\nM\t.github/workflows/sentry-contract.yml\nM\t.github/workflows/storybook-deploy.yml\nM\t.github/workflows/storybook-visual.yml\nM\tREADME.md\nM\tcli/README.md\nM\tcli/src/__tests__/worktree.test.ts\nM\tdoc/DEVELOPING.md\nM\tdocker/daytona-runner/Dockerfile\nM\tdocs/deploy/local-development.md\nM\tdocs/start/architecture.md\nM\tdocs/start/quickstart.md\nM\tpackage.json\nM\tpackages/paperclip-runner/README.md\nM\tpackages/paperclip-runner/docs/tutorials/capability-clean-room-chat.md\nM\tpackages/paperclip-runner/docs/tutorials/capability-issue-thread.md\nM\tpackages/paperclip-runner/docs/tutorials/capability-scenario-explorer.md\nM\tpackages/paperclip-runner/docs/tutorials/codex.md\nM\tpackages/paperclip-runner/docs/tutorials/conformance-standalone-tracer.md\nM\tpackages/paperclip-runner/docs/tutorials/local-runner.md\nM\tpackages/paperclip-runner/docs/tutorials/replay.md\nM\tpackages/paperclip-runner/docs/tutorials/scenario-chat.md\nM\tpackages/paperclip-runner/scripts/check-clean-consumers.mjs\nM\tpackages/paperclip-runner/test/acpx-codex-package-contract.test.mjs\nM\tpnpm-lock.yaml\nM\tpnpm-workspace.yaml\nM\tscripts/__tests__/provision-worktree-self-heal.test.mjs\nM\tscripts/acpx-patch-packaging.test.mjs\nM\tscripts/chat-adapter-patch-packaging.test.mjs\nA\tscripts/check-pnpm-version-policy.mjs\nA\tscripts/check-pnpm-version-policy.test.mjs\nM\tscripts/prepare-bundled-package.mjs\nM\tscripts/provision-worktree-runtime.sh\nM\tscripts/provision-worktree.sh\nM\tserver/src/__tests__/workspace-runtime.test.ts\nM\tui/src/lib/codemirror-single-instance.test.ts\nM\tui/src/lib/lexical-single-copy.test.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "16",
+      "title": "Profile tool_name selector identity",
+      "paperclipTask": null,
+      "branch": "fix/tool-profile-tool-name-identity",
+      "stableBranch": "stable/v2026.916.1/fix/tool-profile-tool-name-identity",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/16-tool-profile-tool-name-identity.md",
+      "localPullRequests": [],
+      "upstreamIssues": [
+        11372
+      ],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "90a9876ef7b356470f9462be5d38576b8a9cb097",
+        "90a9876ef7b356470f9462be5d38576b8a9cb097",
+        "df5fc7841614b41d7787fa801fa01eabf6afd197",
+        "df5fc7841614b41d7787fa801fa01eabf6afd197"
+      ],
+      "files": "M\tserver/src/__tests__/server-startup-feedback-export.test.ts\nM\tserver/src/__tests__/tool-gateway.test.ts\nM\tserver/src/index.ts\nM\tserver/src/services/index.ts\nM\tserver/src/services/tool-access-policy.ts\nA\tserver/src/services/tool-profile-migration.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "14",
+      "title": "Client-safe gateway tool names",
+      "paperclipTask": null,
+      "branch": "fix/tool-gateway-client-safe-tool-names",
+      "stableBranch": "stable/v2026.916.1/fix/tool-gateway-client-safe-tool-names",
+      "state": "implemented",
+      "dependsOn": [
+        "16"
+      ],
+      "document": "docs/paperclip-fork/14-tool-gateway-client-safe-tool-names.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "b743738d2bd2e70764b57eb70ef5430e774cabfd",
+        "b743738d2bd2e70764b57eb70ef5430e774cabfd",
+        "31abc189bf0c662d4ba4069be7a5ef0cf073ace0",
+        "31abc189bf0c662d4ba4069be7a5ef0cf073ace0"
+      ],
+      "files": "M\tpackages/shared/src/types/tool-access.ts\nM\tserver/src/__tests__/server-startup-feedback-export.test.ts\nM\tserver/src/__tests__/tool-gateway.test.ts\nM\tserver/src/index.ts\nM\tserver/src/services/index.ts\nM\tserver/src/services/tool-access-policy.ts\nM\tserver/src/services/tool-gateway.ts\nA\tserver/src/services/tool-profile-migration.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "15",
+      "title": "Gateway context tools gated by token actions",
+      "paperclipTask": null,
+      "branch": "fix/tool-gateway-context-tools-token-actions",
+      "stableBranch": "stable/v2026.916.1/fix/tool-gateway-context-tools-token-actions",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/15-tool-gateway-context-tools-token-actions.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "736b368cec47445e2d2e1c1d806feed3e0a1feaa",
+        "736b368cec47445e2d2e1c1d806feed3e0a1feaa",
+        "b3ea01a407e585acce86033e57fe890a08382a8e",
+        "b3ea01a407e585acce86033e57fe890a08382a8e"
+      ],
+      "files": "M\tserver/src/__tests__/tool-gateway.test.ts\nM\tserver/src/routes/tool-gateway.ts\nM\tserver/src/services/tool-gateway.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "19",
+      "title": "Stage decision keeps the calling run",
+      "paperclipTask": null,
+      "branch": "fix/stage-decision-keeps-calling-run",
+      "stableBranch": "stable/v2026.916.1/fix/stage-decision-keeps-calling-run",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/19-stage-decision-keeps-calling-run.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "7259b6efa64139d084236ea28b8738672979945f",
+        "7259b6efa64139d084236ea28b8738672979945f",
+        "40d9dab4bff1d6166050c01764fcf785cdf6549a",
+        "40d9dab4bff1d6166050c01764fcf785cdf6549a"
+      ],
+      "files": "M\tserver/src/__tests__/issue-execution-policy-routes.test.ts\nM\tserver/src/routes/issues.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "20",
+      "title": "Antigravity conversation continuation",
+      "paperclipTask": null,
+      "branch": "fix/antigravity-conversation-continuation",
+      "stableBranch": "stable/v2026.916.1/fix/antigravity-conversation-continuation",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/20-antigravity-conversation-continuation.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "f0f648ff8389a0d053d625fa651ecbac3e9546a0",
+        "f0f648ff8389a0d053d625fa651ecbac3e9546a0",
+        "e1751a913e571f85316c65db63c4d965172bf3f5",
+        "e1751a913e571f85316c65db63c4d965172bf3f5"
+      ],
+      "files": "M\tpackages/adapter-utils/src/types.ts\nA\tserver/src/__tests__/antigravity-conversation-continuation.test.ts\nM\tserver/src/services/conversation-continuation.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "21",
+      "title": "Shutdown waits for adapter run stops",
+      "paperclipTask": null,
+      "branch": "fix/shutdown-waits-for-adapter-run-stops",
+      "stableBranch": "stable/v2026.916.1/fix/shutdown-waits-for-adapter-run-stops",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/21-shutdown-waits-for-adapter-run-stops.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "d0d4996d466cc641130a56bd818e776280bf2f80",
+        "d0d4996d466cc641130a56bd818e776280bf2f80",
+        "a1396163b56de0e41f7ad0686bb2f368c139faa5",
+        "a1396163b56de0e41f7ad0686bb2f368c139faa5"
+      ],
+      "files": "M\tpackages/shared/src/config-schema.ts\nA\tserver/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts\nM\tserver/src/config.ts\nM\tserver/src/index.ts\nM\tserver/src/services/heartbeat.ts\nM\tserver/src/shutdown.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    },
+    {
+      "id": "22",
+      "title": "Release terminal run leases",
+      "paperclipTask": "GUS-228",
+      "branch": "fix/release-cancelled-interrupted-run-leases",
+      "stableBranch": "stable/v2026.916.1/fix/release-cancelled-interrupted-run-leases",
+      "state": "implemented",
+      "dependsOn": [],
+      "document": "docs/paperclip-fork/22-release-cancelled-interrupted-run-leases.md",
+      "localPullRequests": [],
+      "upstreamIssues": [],
+      "upstreamPullRequests": [],
+      "contributionPullRequest": null,
+      "retirement": null,
+      "heads": [
+        "46e8948a8df775fa11e3d48e070a20188c91d61f",
+        "46e8948a8df775fa11e3d48e070a20188c91d61f",
+        "b0c5236914c74a18f1c8819872d885599c1337ad",
+        "b0c5236914c74a18f1c8819872d885599c1337ad"
+      ],
+      "files": "A\tserver/src/__tests__/release-cancelled-interrupted-run-leases.test.ts\nM\tserver/src/services/environment-runtime.ts\nM\tserver/src/services/environments.ts\nM\tserver/src/services/heartbeat.ts\nM\tserver/src/services/recovery/service.ts",
+      "containsUpstream": false,
+      "containsStable": true
+    }
+  ],
+  "merges": [
+    {
+      "id": "01",
+      "exit": 1,
+      "output": "3b15da66147865272ed2a6e973de090b48abd6e8\n100644 5761d9756d7d40789fed59ecfc66e4676ef59d01 1\tpackages/adapters/codex-local/src/server/codex-home.test.ts\n100644 1eeafe16ad07775998be18e742c1c381b4b0f811 2\tpackages/adapters/codex-local/src/server/codex-home.test.ts\n100644 13cb166c18e84a0e490bb461ab6d4452029434fd 3\tpackages/adapters/codex-local/src/server/codex-home.test.ts\n\nAuto-merging packages/adapters/codex-local/src/server/codex-home.test.ts\nCONFLICT (content): Merge conflict in packages/adapters/codex-local/src/server/codex-home.test.ts\nAuto-merging server/src/__tests__/tool-gateway.test.ts\nAuto-merging server/src/routes/tool-gateway.ts\nAuto-merging server/src/services/tool-gateway.ts\n"
+    },
+    {
+      "id": "02",
+      "exit": 1,
+      "output": "1f4d0d9aa56cacbaa6943085b68dafff58ed0cc5\n100644 5761d9756d7d40789fed59ecfc66e4676ef59d01 1\tpackages/adapters/codex-local/src/server/codex-home.test.ts\n100644 1eeafe16ad07775998be18e742c1c381b4b0f811 2\tpackages/adapters/codex-local/src/server/codex-home.test.ts\n100644 13cb166c18e84a0e490bb461ab6d4452029434fd 3\tpackages/adapters/codex-local/src/server/codex-home.test.ts\n\nAuto-merging packages/adapters/codex-local/src/server/codex-home.test.ts\nCONFLICT (content): Merge conflict in packages/adapters/codex-local/src/server/codex-home.test.ts\nAuto-merging server/src/__tests__/tool-gateway.test.ts\nAuto-merging server/src/routes/tool-gateway.ts\nAuto-merging server/src/services/tool-gateway.ts\n"
+    },
+    {
+      "id": "03",
+      "exit": 0,
+      "output": "a2d41602fbe63aa6163cb657acd0005f6a303861\n"
+    },
+    {
+      "id": "04",
+      "exit": 0,
+      "output": "7fae29e1a290135f92567e454e2c0e45c05cad08\n"
+    },
+    {
+      "id": "05",
+      "exit": 0,
+      "output": "5d3793b17db8c7ad9f3e4feb8c90130e11f1f20c\n"
+    },
+    {
+      "id": "06",
+      "exit": 0,
+      "output": "0f587fadb54c1d4e11effd91f24e21f72da73e4b\n"
+    },
+    {
+      "id": "07",
+      "exit": 0,
+      "output": "d6ba4b8ec595b58a581934fb313b20ccf281b0f8\n"
+    },
+    {
+      "id": "08",
+      "exit": 1,
+      "output": "0d1fe4a509a2fc9f7e0705bb943ea6188787ad73\n100644 6df61bf3d09b15185c2e637578d9254c0193d1fb 1\tserver/src/services/legacy-execution-recovery.test.ts\n100644 cf140e4c9492eaa4f5fd959b0b9170717ceb6107 2\tserver/src/services/legacy-execution-recovery.test.ts\n100644 52397bf506c245b48c590ba6052eb67ec4d0703a 3\tserver/src/services/legacy-execution-recovery.test.ts\n\nAuto-merging server/src/services/heartbeat.ts\nAuto-merging server/src/services/legacy-execution-recovery.test.ts\nCONFLICT (content): Merge conflict in server/src/services/legacy-execution-recovery.test.ts\nAuto-merging server/src/services/recovery/service.ts\n"
+    },
+    {
+      "id": "09",
+      "exit": 0,
+      "output": "a836826e4989fbcc1b7e235de7c5edbc541ab58a\n"
+    },
+    {
+      "id": "10",
+      "exit": 1,
+      "output": "bf48aa865a61f998245843435840c4f19f4c632f\n100644 8260662b3d8f4b0c244fa4e329144b8c8222bf32 1\tpackages/shared/src/index.ts\n100644 a1babebc6bd4d87b10d644b3fadbedad055c21a9 2\tpackages/shared/src/index.ts\n100644 f3161afcb05bdfe2fbc3fb2a00b39a20c8ae2b73 3\tpackages/shared/src/index.ts\n\nAuto-merging packages/shared/src/index.ts\nCONFLICT (content): Merge conflict in packages/shared/src/index.ts\nAuto-merging packages/shared/src/types/issue.ts\nAuto-merging packages/shared/src/validators/issue.ts\nAuto-merging server/src/routes/issues.ts\nAuto-merging server/src/services/recovery/service.ts\n"
+    },
+    {
+      "id": "11",
+      "exit": 0,
+      "output": "d39095fe35f53ff2f90257c61689fafb79008dc2\n"
+    },
+    {
+      "id": "12",
+      "exit": 0,
+      "output": "508be2f94a46cbff31147b54964cfa74ba51599f\n"
+    },
+    {
+      "id": "13",
+      "exit": 1,
+      "output": "57423493e3e1bc61881417c660121d8a0f16a16b\n100644 27c8de29c7a611d976363238d3009dba91dda6b7 1\tpnpm-lock.yaml\n100644 f7a5a3c78f249b4b356a43afce412373680b9039 2\tpnpm-lock.yaml\n100644 4544b619c3be4749a817a940f7ed959527099e81 3\tpnpm-lock.yaml\n\nAuto-merging doc/DEVELOPING.md\nAuto-merging package.json\nAuto-merging pnpm-lock.yaml\nCONFLICT (content): Merge conflict in pnpm-lock.yaml\n"
+    },
+    {
+      "id": "16",
+      "exit": 0,
+      "output": "280d0c2e64728c62a46d72a3366518805931ec09\n"
+    },
+    {
+      "id": "14",
+      "exit": 0,
+      "output": "fd1fda7c6992418722ebdea48df2d1f598a4472e\n"
+    },
+    {
+      "id": "15",
+      "exit": 0,
+      "output": "2a4b26b5725d74ecbeab3b3623d9a01b3c68104b\n"
+    },
+    {
+      "id": "19",
+      "exit": 0,
+      "output": "7d8418725bad7f023336351ad802d742e5586d53\n"
+    },
+    {
+      "id": "20",
+      "exit": 0,
+      "output": "9153d3a39075d89a4c3909376ea55b4dcaff4e76\n"
+    },
+    {
+      "id": "21",
+      "exit": 0,
+      "output": "82573083cc1c0eea5446ed8b53312756f832631e\n"
+    },
+    {
+      "id": "22",
+      "exit": 1,
+      "output": "aa3576ed42d2e7df56d60bdc5b0f1334cc476e46\n100644 dca86e4abca1128095b5942b23f8ef38700f1938 1\tserver/src/services/heartbeat.ts\n100644 57cfe4ae74074ef34985e1619b3aa6657b31b3aa 2\tserver/src/services/heartbeat.ts\n100644 d25c617b47f16eaab88922d61b7bfa93facb3b92 3\tserver/src/services/heartbeat.ts\n\nAuto-merging server/src/services/environment-runtime.ts\nAuto-merging server/src/services/heartbeat.ts\nCONFLICT (content): Merge conflict in server/src/services/heartbeat.ts\nAuto-merging server/src/services/recovery/service.ts\n"
+    }
+  ]
+}

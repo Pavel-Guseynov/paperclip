@@ -1,0 +1,3 @@
+{
+  "output": "Command: pnpm check:node-version\nHead: e2809924bfe1736b1be359f3a1ef6fc804c3db8f\nExit: 0\n\n[WARN] The \"pnpm\" field in package.json is no longer read by pnpm. The following keys were ignored: \"pnpm.patchedDependencies\", \"pnpm.overrides\". See https://pnpm.io/settings for the new home of each setting.\n\n> paperclip@ check:node-version /Users/pavelguseynov/paperclip-fork\n> node scripts/check-node-version-policy.mjs\n\nNode version policy check passed (Node >=24.11.0, @types/node 24.x).\n\n"
+}

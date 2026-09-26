@@ -1,0 +1,3 @@
+{
+  "output": "Command: node --test scripts/check-module-boundaries.test.mjs\nHead: e2809924bfe1736b1be359f3a1ef6fc804c3db8f\nExit: 0\n\n✔ extractImportSpecifiers recognizes supported TypeScript dependency forms (0.929958ms)\n✔ scanModuleBoundaries rejects outward dependencies and module-internal imports (3.813084ms)\n✔ the repository's feature modules satisfy their import boundaries (95.357916ms)\nℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 160.101875\n\n"
+}

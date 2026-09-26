@@ -1,0 +1,21 @@
+change	title
+01	fix(codex): authenticate managed MCP lifecycle requests
+02	fix(tool-gateway): verify session bearer tokens on session routes
+03	fix(runtime): use the internal API origin for agent callbacks
+04	fix(tool-gateway): distinguish call timeouts from connection failure
+05	fix(logger): redact gateway credentials across log output
+06	fix(execution-policy): preserve eligible approval return assignees
+07	fix(recovery): retry skipped review handoffs after blockers clear
+08	fix(recovery): preserve workspace validation diagnoses during generic sweeps
+09	feat(execution-policy): verify terminal delivery evidence
+10	feat(review): key review admission by repository revision
+11	fix(runner): decode Darwin lsof descriptor paths
+12	test(runtime): isolate workspace exposure port reservations
+13	chore(toolchain): migrate to pnpm 11
+14	fix(tool-gateway): assign client-safe tool names
+15	fix(tool-gateway): gate context tools by token actions
+16	fix(tool-access): preserve tool identity in profile selectors
+19	fix(issues): preserve the authenticated calling run for stage decisions
+20	fix(conversation): honor declared adapter continuation capability
+21	fix(server): drain in-flight adapter runs during shutdown
+22	fix(environments): release leases after confirmed terminal cleanup
