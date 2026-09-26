@@ -9353,7 +9353,10 @@ export function resolveHeartbeatSchedulingSuppression(
 ): {
   suppressed: boolean;
   reason:
-    "worktree_instance" | "database_restore_in_progress" | "task_drain" | null;
+    | "worktree_instance"
+    | "database_restore_in_progress"
+    | "task_drain"
+    | null;
 } {
   if (
     isTruthyRuntimeEnvValue(env.PAPERCLIP_IN_WORKTREE) &&
@@ -14974,6 +14977,9 @@ export function heartbeatService(
     now = new Date(),
     runIds: readonly string[] | null = null,
   ) {
+    if (!runIds) {
+      shutdownInProgress = true;
+    }
     const selectedRunIds = runIds ? [...new Set(runIds)] : null;
     if (selectedRunIds?.length === 0) {
       return {
@@ -19296,7 +19302,7 @@ export function heartbeatService(
   }
 
   async function resumeQueuedRuns() {
-    if ((await getSchedulingSuppression()).suppressed) return;
+    if (shutdownInProgress || (await getSchedulingSuppression()).suppressed) return;
     await resumeExecutionWaitComments();
     const cutoff = await getWorktreeExecutionCutoff();
     const pendingInterrupts = await db.select({ id: agentWakeupRequests.id, companyId: agentWakeupRequests.companyId })
@@ -19705,7 +19711,7 @@ export function heartbeatService(
   }
 
   async function startNextQueuedRunForAgent(agentId: string) {
-    if ((await getSchedulingSuppression()).suppressed) return [];
+    if (shutdownInProgress || (await getSchedulingSuppression()).suppressed) return [];
     const cutoff = await getWorktreeExecutionCutoff();
 
     return withAgentStartLock(agentId, async () => {
@@ -25991,7 +25997,7 @@ export function heartbeatService(
           eq(agentWakeupRequests.status, "deferred_issue_execution"),
           sql`${agentWakeupRequests.payload}->>'issueId' = ${String(latestRun.contextSnapshot?.issueId)}`,
         )).limit(1);
-        if (pending) await (pending.payload?.queuedCommentInterrupt
+        if (pending && !shutdownInProgress) await (pending.payload?.queuedCommentInterrupt
           ? resumeQueuedCommentInterrupt(run.companyId, pending.id)
           : releaseIssueExecutionAndPromote(latestRun, { suppressImmediateRecovery: true })).catch(err => {
           logger.error({ err, runId: run.id }, "failed to promote legacy comment queue after cleanup");
@@ -29424,6 +29430,12 @@ export function heartbeatService(
     resolveSchedulingSuppression: getSchedulingSuppression,
     drainRunningRunsForShutdown,
     drainActiveRunExecutions,
+    getActiveRunExecutionIds: () => Array.from(activeRunExecutions),
+    isShutdownInProgress: () => shutdownInProgress,
+    setShutdownInProgress: (value = true) => {
+      shutdownInProgress = value;
+    },
+    startNextQueuedRunForAgent,
     startTaskDrain,
     stopTaskDrain,
     getTaskDrainStatus,
