@@ -47,6 +47,7 @@ import {
 } from "@paperclipai/db";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { actorMiddleware } from "../middleware/auth.js";
+import { errorHandler } from "../middleware/error-handler.js";
 import { mcpGatewayProtocolRoutes, toolGatewayRoutes } from "../routes/tool-gateway.js";
 import { initializeRunIdentity, reserveSteeredIdentity } from "../services/run-identity.js";
 import { toolAccessService } from "../services/tool-access.js";
@@ -468,12 +469,20 @@ function createGatewayRouteApp(
    * Mounts the real actor middleware ahead of the gateway routes, so a test
    * exercises the same credential routing production does.
    */
-  options: { withActorMiddleware?: boolean; deploymentMode?: GatewayDeploymentMode } = {},
+  options: {
+    withActorMiddleware?: boolean;
+    deploymentMode?: GatewayDeploymentMode;
+    observeActor?: (actor: Express.Request["actor"]) => void;
+  } = {},
 ) {
   const app = express();
   app.use(express.json());
   if (options.withActorMiddleware) {
     app.use(actorMiddleware(db, { deploymentMode: options.deploymentMode ?? "local_trusted" }));
+    app.use((req, _res, next) => {
+      options.observeActor?.(req.actor);
+      next();
+    });
   }
   if (actor) {
     app.use((req, _res, next) => {
@@ -483,6 +492,7 @@ function createGatewayRouteApp(
   }
   app.use(mcpGatewayProtocolRoutes(gateway));
   app.use("/api", toolGatewayRoutes(db, gateway));
+  if (options.withActorMiddleware) app.use(errorHandler);
   return app;
 }
 
@@ -523,15 +533,17 @@ async function createRunGatewayProtocolFixture(
     },
     actor: { agentId: agent.id },
   });
+  const observedActors: Express.Request["actor"][] = [];
   const app = createGatewayRouteApp(db, gateway, undefined, {
     withActorMiddleware: true,
     deploymentMode,
+    observeActor: (actor) => observedActors.push({ ...actor }),
   });
   const endpoints = {
     managed: `/api/tool-gateway/gateways/${namedGateway.id}/mcp`,
     public: `/mcp/gateways/${namedGateway.gatewayPublicId}`,
   };
-  return { company, agent, project, issue, run, profile, gateway, namedGateway, token, app, endpoints };
+  return { company, agent, project, issue, run, profile, gateway, namedGateway, token, app, endpoints, observedActors };
 }
 
 type FakeMcpRequest = {
@@ -1436,9 +1448,62 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
 
   describe.each(["authenticated", "local_trusted"] as const)("gateway protocol in %s mode", (deploymentMode) => {
     it("initializes a managed gateway through actor middleware with a run-bound bearer", async () => {
-      const { app, endpoints, token } = await createRunGatewayProtocolFixture(db, deploymentMode);
+      const { app, endpoints, token, run, observedActors } = await createRunGatewayProtocolFixture(db, deploymentMode);
       const initialized = await request(app)
         .post(endpoints.managed)
+        .set("authorization", `Bearer ${token.token}`)
+        .set("x-paperclip-run-id", run.id)
+        .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+        .expect(200);
+      expect(initialized.body).toMatchObject({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { serverInfo: { name: "Paperclip MCP Gateway" } },
+      });
+      expect(observedActors).toEqual([{ type: "none", source: "none", runId: run.id }]);
+    });
+
+    it.each([
+      { boundary: "the descriptor GET", method: "get", path: (endpoint: string) => endpoint },
+      { boundary: "a lookalike path suffix", method: "post", path: (endpoint: string) => `${endpoint}/extra` },
+      { boundary: "a malformed gateway ID", method: "post", path: () => "/api/tool-gateway/gateways/not-a-uuid/mcp" },
+      { boundary: "an unrelated API route", method: "post", path: () => "/api/tool-gateway/sessions" },
+    ] as const)("rejects gateway bearers at $boundary through actor authentication", async ({ method, path }) => {
+      const { app, endpoints, token, observedActors } = await createRunGatewayProtocolFixture(db, deploymentMode);
+      const rejected = await request(app)[method](path(endpoints.managed))
+        .set("authorization", `Bearer ${token.token}`)
+        .expect(401);
+      expect(rejected.body.error).toContain("Agent token did not verify");
+      expect(observedActors).toEqual([]);
+    });
+
+    it("keeps non-gateway bearers on the managed route in actor authentication", async () => {
+      const { app, endpoints, observedActors } = await createRunGatewayProtocolFixture(db, deploymentMode);
+      const rejected = await request(app)
+        .post(endpoints.managed)
+        .set("authorization", "Bearer not-a-gateway-token")
+        .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+        .expect(401);
+      expect(rejected.body.error).toContain("Agent token did not verify");
+      expect(observedActors).toEqual([]);
+    });
+
+    it("initializes a real managed gateway whose UUID has no version nibble", async () => {
+      const { app, gateway, company, profile, run, observedActors } = await createRunGatewayProtocolFixture(db, deploymentMode);
+      const [genericGateway] = await db.insert(toolMcpGateways).values({
+        id: "00000000-0000-0000-0000-000000000000",
+        companyId: company.id,
+        name: "Generic UUID gateway",
+        slug: "generic-uuid-gateway",
+        profileId: profile.id,
+      }).returning();
+      const token = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: genericGateway!.id,
+        body: { name: "Generic UUID token", subjectType: "heartbeat_run", subjectId: run.id },
+      });
+      const initialized = await request(app)
+        .post(`/api/tool-gateway/gateways/${genericGateway!.id}/mcp`)
         .set("authorization", `Bearer ${token.token}`)
         .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
         .expect(200);
@@ -1447,6 +1512,37 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         id: 1,
         result: { serverInfo: { name: "Paperclip MCP Gateway" } },
       });
+      expect(observedActors).toEqual([{ type: "none", source: "none" }]);
+    });
+
+    it("returns an empty server error when notification verification loses its database client", async () => {
+      const { app: healthyApp, company, endpoints, token } = await createRunGatewayProtocolFixture(db, deploymentMode);
+      const notificationDb = createDb(tempDb!.connectionString);
+      try {
+        const app = createGatewayRouteApp(db, createTestToolGatewayService(notificationDb), undefined, {
+          withActorMiddleware: true,
+          deploymentMode,
+        });
+        expect(await notificationDb.select({ id: companies.id }).from(companies)
+          .where(eq(companies.id, company.id))).toEqual([{ id: company.id }]);
+        await notificationDb.$client.end();
+
+        const failed = await request(app)
+          .post(endpoints.managed)
+          .set("authorization", `Bearer ${token.token}`)
+          .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+          .expect(500);
+        expect(failed.text).toBe("");
+
+        const healthy = await request(healthyApp)
+          .post(endpoints.managed)
+          .set("authorization", `Bearer ${token.token}`)
+          .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+          .expect(202);
+        expect(healthy.text).toBe("");
+      } finally {
+        await notificationDb.$client.end();
+      }
     });
 
     describe.each(["managed", "public"] as const)("%s initialized notifications", (locator) => {
@@ -1461,7 +1557,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
       });
 
       it("accepts a valid notification without changing token usage, run identity, or protocol counters", async () => {
-        const { company, issue, run, app, endpoints, token } = await createRunGatewayProtocolFixture(db, deploymentMode);
+        const { company, issue, run, app, endpoints, token, observedActors } = await createRunGatewayProtocolFixture(db, deploymentMode);
         const identity = await initializeRunIdentity(db, {
           companyId: company.id,
           runId: run.id,
@@ -1526,6 +1622,10 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
           .expect(202);
         expect(notified.text).toBe("");
         expect(await persistedState()).toEqual(before);
+        const expectedActor = locator === "public" && deploymentMode === "local_trusted"
+          ? { type: "board", source: "local_implicit", isInstanceAdmin: true }
+          : { type: "none", source: "none" };
+        expect(observedActors).toMatchObject([expectedActor, expectedActor]);
       });
 
       it("does not charge a successful notification against the initialization budget", async () => {
