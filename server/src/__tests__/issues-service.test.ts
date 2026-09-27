@@ -7017,6 +7017,15 @@ describeEmbeddedPostgres("issueService.assertCheckoutOwner stale checkout adopti
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it("rejects a runless owner while execution is locked even if checkout is clear", async () => {
+    const seeded = await seedOwnershipIssue({ checkoutStatus: "running" });
+    await db.update(issues).set({ checkoutRunId: null }).where(eq(issues.id, seeded.issueId));
+
+    await expect(
+      svc.assertCheckoutOwner(seeded.issueId, seeded.actorAgentId, null),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
   it("does not let terminal actor runs adopt stale checkout ownership", async () => {
     const seeded = await seedOwnershipIssue({ checkoutStatus: "failed", actorRunStatus: "succeeded" });
 
