@@ -24,7 +24,7 @@ patchedDependencies:
   '@discordjs/ws@1.2.3': 001e315a33852c603d3c5ec8ced17ebbd9eb28d78b967aff6dcec307014b7652
   acpx@0.12.0: 13fb2a2b9cc67ccec41ccab774c13ce956d1bbcad7c1d6b9e1d0f348612bd905
   acpx@0.13.1: d70e1128ad78d360a59436fd20646f3520dea3eb0f75cecc05ced076cbe385f7
-  embedded-postgres@18.1.0-beta.16: d8b1e087e95f559a6342fc15954f11af22d9dca43a7fcca5762b6459913b5800
+  embedded-postgres@18.1.0-beta.16: f0ad3d3a89675234940b5b62f49bd78ad8c53b93df1aebebb576d9623c8fb9f4
 
 importers:
 
@@ -110,7 +110,7 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.5)(pg@8.18.0)(postgres@3.4.9)
       embedded-postgres:
         specifier: ^18.1.0-beta.16
-        version: 18.1.0-beta.16(patch_hash=d8b1e087e95f559a6342fc15954f11af22d9dca43a7fcca5762b6459913b5800)
+        version: 18.1.0-beta.16(patch_hash=f0ad3d3a89675234940b5b62f49bd78ad8c53b93df1aebebb576d9623c8fb9f4)
       picocolors:
         specifier: ^1.1.1
         version: 1.1.1
@@ -376,7 +376,7 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.5)(pg@8.18.0)(postgres@3.4.9)
       embedded-postgres:
         specifier: ^18.1.0-beta.16
-        version: 18.1.0-beta.16(patch_hash=d8b1e087e95f559a6342fc15954f11af22d9dca43a7fcca5762b6459913b5800)
+        version: 18.1.0-beta.16(patch_hash=f0ad3d3a89675234940b5b62f49bd78ad8c53b93df1aebebb576d9623c8fb9f4)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -958,7 +958,7 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.5)(pg@8.18.0)(postgres@3.4.9)
       embedded-postgres:
         specifier: ^18.1.0-beta.16
-        version: 18.1.0-beta.16(patch_hash=d8b1e087e95f559a6342fc15954f11af22d9dca43a7fcca5762b6459913b5800)
+        version: 18.1.0-beta.16(patch_hash=f0ad3d3a89675234940b5b62f49bd78ad8c53b93df1aebebb576d9623c8fb9f4)
       express:
         specifier: ^5.1.0
         version: 5.2.1
@@ -14113,7 +14113,7 @@ snapshots:
 
   electron-to-chromium@1.5.409: {}
 
-  embedded-postgres@18.1.0-beta.16(patch_hash=d8b1e087e95f559a6342fc15954f11af22d9dca43a7fcca5762b6459913b5800):
+  embedded-postgres@18.1.0-beta.16(patch_hash=f0ad3d3a89675234940b5b62f49bd78ad8c53b93df1aebebb576d9623c8fb9f4):
     dependencies:
       async-exit-hook: 2.0.1
       pg: 8.18.0
