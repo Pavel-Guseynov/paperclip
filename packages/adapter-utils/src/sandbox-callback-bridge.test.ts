@@ -377,14 +377,29 @@ describe("sandbox callback bridge", () => {
     const queueDir = path.posix.join(rootDir, "queue");
     const directories = sandboxCallbackBridgeDirectories(queueDir);
     const processed: string[] = [];
+    const fileClient = createFileSystemSandboxCallbackBridgeQueueClient();
+    let markListed!: () => void;
+    let releaseListing!: () => void;
+    const listed = new Promise<void>((resolve) => { markListed = resolve; });
+    const listingReleased = new Promise<void>((resolve) => { releaseListing = resolve; });
+    const client: SandboxCallbackBridgeQueueClient = {
+      ...fileClient,
+      listJsonFiles: async (remotePath) => {
+        const names = await fileClient.listJsonFiles(remotePath);
+        if (remotePath === directories.requestsDir && names.includes("req-a.json") && names.includes("req-b.json")) {
+          markListed();
+          await listingReleased;
+        }
+        return names;
+      },
+    };
 
     const worker = await startSandboxCallbackBridgeWorker({
-      client: createFileSystemSandboxCallbackBridgeQueueClient(),
+      client,
       queueDir,
       authorizeRequest: async () => null,
       handleRequest: async (request) => {
         processed.push(request.id);
-        await new Promise((resolve) => setTimeout(resolve, 25));
         return {
           status: 200,
           body: request.id,
@@ -419,7 +434,10 @@ describe("sandbox callback bridge", () => {
       "utf8",
     );
 
-    await worker.stop({ drainTimeoutMs: 1_000 });
+    await listed;
+    const stopping = worker.stop({ drainTimeoutMs: 10_000 });
+    releaseListing();
+    await stopping;
 
     expect(processed).toEqual(["req-a", "req-b"]);
     await expect(readFile(path.posix.join(directories.responsesDir, "req-a.json"), "utf8")).resolves.toContain("\"req-a\"");
