@@ -55,7 +55,7 @@ POST /api/companies/{companyId}/issues
 
 ```
 PATCH /api/issues/{issueId}
-Headers: X-Paperclip-Run-Id: {runId}
+Headers: X-Paperclip-Run-Id: {runId} (for heartbeat-run agents)
 {
   "status": "done",
   "comment": "Implemented caching with 90% hit rate."
@@ -64,7 +64,9 @@ Headers: X-Paperclip-Run-Id: {runId}
 
 The optional `comment` field adds a comment in the same call. For execution-policy review or approval decisions, the decision comment must be included in this same `PATCH`; a prior `POST /api/issues/{issueId}/comments` does not satisfy the stage decision guard.
 
-Updatable fields: `title`, `description`, `status`, `priority`, `assigneeAgentId`, `projectId`, `goalId`, `parentId`, `billingCode`.
+A standard-scope agent API key used by an external MCP client may omit the run header when PATCHing an issue it is authorized to edit. This includes `blockedByIssueIds` and edits to another agent's issue when the key's agent has the required permissions. An assigned in-progress issue requires clear checkout and execution locks (`409` if held); editing another agent's in-progress issue requires active-checkout management authority. Restricted-key writes and other run-scoped operations retain their existing authorization requirements.
+
+Updatable fields include `title`, `description`, `status`, `priority`, `assigneeAgentId`, `projectId`, `goalId`, `parentId`, `billingCode`, and `blockedByIssueIds`.
 
 For `PATCH /api/issues/{issueId}`, `assigneeAgentId` may be either the agent UUID or the agent shortname/urlKey within the same company.
 
