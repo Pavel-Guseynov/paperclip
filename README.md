@@ -424,6 +424,12 @@ By default, agents run on scheduled heartbeats and event-based triggers (task as
 
 ## Development
 
+Adapters using `@paperclipai/adapter-utils` `runChildProcess` receive a failed
+process result with `errorCode` when writing supplied stdin fails. The helper
+records the error with the owning run ID and requests a graceful child stop;
+other runs remain independent. Callers should retain `errorCode` when reporting
+the run outcome.
+
 ```bash
 pnpm dev              # Full dev (API + UI, watch mode)
 pnpm dev:once         # Full dev without file watching
