@@ -1,5 +1,8 @@
 # Change 29: Review stage wakes only after required check reports on exact head
 
+> **Status: Withdrawn (2026-09-30)**
+> Operator decision (2026-09-30): Paperclip must not depend on any code forge (Gitea, GitHub, or another). Forge integration does not belong in the Paperclip server. The review-timing problem behind Change 29 (GUS-252) will be solved in Harness, outside this fork. Do not replace it with any other server-side mechanism. Nothing is opened upstream.
+
 ## Thinking Path
 
 > - Paperclip manages AI agents working on tasks across multi-stage execution policies.
