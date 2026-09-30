@@ -7,6 +7,7 @@ import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
 import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { isSupersededConversationRun } from "./agent-conversations.js";
+import { transitionHeartbeatRunStatus } from "./heartbeat-run-lifecycle.js";
 
 type Run = typeof heartbeatRuns.$inferSelect;
 export const LEGACY_RECOVERY_CAUSE = "legacy_execution_requires_reconciliation";
@@ -75,22 +76,27 @@ export async function terminalizeLegacyExecution(input: {
           )
           .for("update")
       : [];
-    const [updated] = await tx
-      .update(heartbeatRuns)
-      .set({
-        status,
+    const updated = await transitionHeartbeatRunStatus(tx, run.id, {
+      toStatus: status,
+      patch: {
         ...patch,
         executionStatusDeliveryId: randomUUID(),
         updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(heartbeatRuns.id, run.id),
-          eq(heartbeatRuns.companyId, run.companyId),
-          inArray(heartbeatRuns.status, input.fromStatuses ?? [run.status]),
-        ),
-      )
-      .returning();
+      },
+      phase: status === "queued" ? "queued" : status === "running" ? "started" : status === "scheduled_retry" ? "retrying" : "finished",
+      outcome: ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(status) ? (status as any) : null,
+      cancellationAttribution: status === "cancelled"
+        ? {
+            cancellationOrigin: patch?.errorCode ?? "legacy_execution_cancelled",
+            cancellationActor: { actorType: "system", actorId: "legacy_execution_recovery" },
+            triggerDetail: patch?.error ?? null,
+          }
+        : null,
+      whereCondition: and(
+        eq(heartbeatRuns.companyId, run.companyId),
+        inArray(heartbeatRuns.status, input.fromStatuses ?? [run.status]),
+      ),
+    });
     if (!updated) return null;
     if (task?.executionRunId === run.id)
       await tx

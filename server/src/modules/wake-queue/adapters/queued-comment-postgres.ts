@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agentWakeupRequests, agents, heartbeatRuns, issueComments, issues } from "@paperclipai/db";
+import { transitionHeartbeatRunStatus } from "../../../services/heartbeat-run-lifecycle.js";
 import type { IssueComment, IssueQueuedCommentQueue } from "@paperclipai/shared";
 import {
   buildQueuedCommentQueueSnapshot,
@@ -96,12 +97,26 @@ function buildTransaction(tx: Db, companyId: string, deps: QueuedCommentQueuePos
     },
 
     async cancelQueueRun({ queueRunId, reason, now }) {
-      const row = await tx
-        .update(heartbeatRuns)
-        .set({ status: "cancelled", finishedAt: now, error: reason, errorCode: "queued_comment_discarded", updatedAt: now })
-        .where(and(eq(heartbeatRuns.id, queueRunId), eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.status, "queued")))
-        .returning({ id: heartbeatRuns.id })
-        .then((rows) => rows[0] ?? null);
+      const row = await transitionHeartbeatRunStatus(tx as unknown as Db, queueRunId, {
+        toStatus: "cancelled",
+        patch: {
+          finishedAt: now,
+          error: reason,
+          errorCode: "queued_comment_discarded",
+          updatedAt: now,
+        },
+        phase: "finished",
+        outcome: "cancelled",
+        cancellationAttribution: {
+          cancellationOrigin: "queued_comment_discarded",
+          cancellationActor: { actorType: "system", actorId: "wake_queue" },
+          triggerDetail: reason,
+        },
+        whereCondition: and(
+          eq(heartbeatRuns.companyId, companyId),
+          eq(heartbeatRuns.status, "queued"),
+        ),
+      });
       return row ? { id: row.id } : null;
     },
 

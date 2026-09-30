@@ -16,6 +16,7 @@ import {
   legacyExecutionNeedsReconciliation,
   terminalizeLegacyExecution,
 } from "./legacy-execution-recovery.js";
+import { transitionHeartbeatRunStatus, type RunCancellationAttribution } from "./heartbeat-run-lifecycle.js";
 import {
   adapterExecutionControls,
   captureAdapterStopOwnership,
@@ -12613,6 +12614,7 @@ export function heartbeatService(
     runId: string,
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    options?: { cancellationAttribution?: RunCancellationAttribution | null },
   ) {
     const previousStatus = await db
       .select()
@@ -12651,17 +12653,31 @@ export function heartbeatService(
             status,
             patch,
           })
-        : await db
-            .update(heartbeatRuns)
-            .set({
-              status,
+        : await transitionHeartbeatRunStatus(db, runId, {
+            toStatus: status,
+            patch: {
               ...patch,
               executionStatusDeliveryId: randomUUID(),
               updatedAt: new Date(),
-            })
-            .where(eq(heartbeatRuns.id, runId))
-            .returning()
-            .then((rows) => rows[0] ?? null);
+            },
+            phase: status === "queued" ? "queued" : status === "running" ? "started" : status === "scheduled_retry" ? "retrying" : "finished",
+            outcome: ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(status) ? (status as any) : null,
+            cancellationAttribution: options?.cancellationAttribution !== undefined
+              ? options.cancellationAttribution
+              : status === "cancelled"
+              ? (patch?.errorCode === "legacy_controller_lease_expired" || patch?.error === "Legacy controller lease lost"
+                  ? {
+                      cancellationOrigin: "legacy_controller_lease_expired",
+                      cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+                      triggerDetail: patch?.error ?? "Legacy controller lease lost",
+                    }
+                  : {
+                      cancellationOrigin: patch?.errorCode ?? "set_run_status_cancelled",
+                      cancellationActor: { actorType: "system", actorId: "heartbeat_service" },
+                      triggerDetail: patch?.error ?? null,
+                    })
+              : null,
+          });
 
     if (updated) {
       publishLiveEvent({
@@ -12680,8 +12696,9 @@ export function heartbeatService(
     runId: string,
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    options?: { cancellationAttribution?: RunCancellationAttribution | null },
   ) {
-    return setRunStatusFromLive(runId, status, ["running"], patch);
+    return setRunStatusFromLive(runId, status, ["running"], patch, options);
   }
 
   // Move a run to a new status only when its current status is one of
@@ -12694,6 +12711,7 @@ export function heartbeatService(
     status: string,
     fromStatuses: string[],
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    options?: { cancellationAttribution?: RunCancellationAttribution | null },
   ) {
     // fromStatuses can name a terminal status as its own source (for example,
     // an idempotent "still failed" patch), so the write below is not always a
@@ -12736,25 +12754,37 @@ export function heartbeatService(
             patch,
             fromStatuses,
           })
-        : await db
-            .update(heartbeatRuns)
-            .set({
-              status,
+        : await transitionHeartbeatRunStatus(db, runId, {
+            toStatus: status,
+            patch: {
               ...patch,
               executionStatusDeliveryId: randomUUID(),
               updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(heartbeatRuns.id, runId),
-                inArray(heartbeatRuns.status, fromStatuses),
-                ...(isHeartbeatRunTerminalStatus(status)
-                  ? [nativeRunnerOwnershipNotHeldCondition()]
-                  : []),
-              ),
-            )
-            .returning()
-            .then((rows) => rows[0] ?? null);
+            },
+            phase: status === "queued" ? "queued" : status === "running" ? "started" : status === "scheduled_retry" ? "retrying" : "finished",
+            outcome: ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(status) ? (status as any) : null,
+            cancellationAttribution: options?.cancellationAttribution !== undefined
+              ? options.cancellationAttribution
+              : status === "cancelled"
+              ? (patch?.errorCode === "legacy_controller_lease_expired" || patch?.error === "Legacy controller lease lost"
+                  ? {
+                      cancellationOrigin: "legacy_controller_lease_expired",
+                      cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+                      triggerDetail: patch?.error ?? "Legacy controller lease lost",
+                    }
+                  : {
+                      cancellationOrigin: patch?.errorCode ?? "set_run_status_cancelled",
+                      cancellationActor: { actorType: "system", actorId: "heartbeat_service" },
+                      triggerDetail: patch?.error ?? null,
+                    })
+              : null,
+            whereCondition: and(
+              inArray(heartbeatRuns.status, fromStatuses),
+              ...(isHeartbeatRunTerminalStatus(status)
+                ? [nativeRunnerOwnershipNotHeldCondition()]
+                : []),
+            ),
+          });
 
     if (updated) {
       publishLiveEvent({
@@ -16944,10 +16974,9 @@ export function heartbeatService(
         const error = stopped
           ? "Automatic continuation stopped by the committed chat conversation close. Send a new request in chat or on the Board to start fresh work."
           : "Automatic continuation source could not be verified before provider admission. Review the task and send a fresh request; this attempt will not automatically retry.";
-        [terminal] = await tx
-          .update(heartbeatRuns)
-          .set({
-            status: stopped ? "cancelled" : "failed",
+        terminal = await transitionHeartbeatRunStatus(tx, current.id, {
+          toStatus: stopped ? "cancelled" : "failed",
+          patch: {
             errorCode: code,
             error,
             finishedAt: now,
@@ -16966,14 +16995,19 @@ export function heartbeatService(
               },
             },
             updatedAt: now,
-          })
-          .where(
-            and(
-              eq(heartbeatRuns.id, current.id),
-              eq(heartbeatRuns.status, current.status),
-            ),
-          )
-          .returning();
+          },
+          phase: "finished",
+          outcome: stopped ? "cancelled" : "failed",
+          cancellationAttribution: stopped
+            ? {
+                cancellationOrigin: "chat_conversation_closed",
+                cancellationActor: { actorType: "system", actorId: "chat_control" },
+                triggerDetail: error,
+              }
+            : null,
+          error: stopped ? null : { code, message: error },
+          whereCondition: eq(heartbeatRuns.status, current.status),
+        });
         if (!terminal) return null;
         if (current.wakeupRequestId)
           await tx
@@ -17277,10 +17311,9 @@ export function heartbeatService(
                 if (proof.kind === "stopped") {
                   const error =
                     "Automatic continuation stopped by the committed chat conversation close. Send a fresh request in chat or on the Board.";
-                  const [cancelled] = await tx
-                    .update(heartbeatRuns)
-                    .set({
-                      status: "cancelled",
+                  const cancelled = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                    toStatus: "cancelled",
+                    patch: {
                       errorCode: CHAT_CONTROL_RECOVERY_STOP_CODE,
                       error,
                       finishedAt: claimedAt,
@@ -17295,14 +17328,16 @@ export function heartbeatService(
                         },
                       },
                       updatedAt: claimedAt,
-                    })
-                    .where(
-                      and(
-                        eq(heartbeatRuns.id, lockedRun.id),
-                        eq(heartbeatRuns.status, "queued"),
-                      ),
-                    )
-                    .returning();
+                    },
+                    phase: "finished",
+                    outcome: "cancelled",
+                    cancellationAttribution: {
+                      cancellationOrigin: "chat_conversation_closed",
+                      cancellationActor: { actorType: "system", actorId: "chat_control" },
+                      triggerDetail: error,
+                    },
+                    whereCondition: eq(heartbeatRuns.status, "queued"),
+                  });
                   if (!cancelled) return { kind: "stale" as const, run: null };
                   await tx
                     .update(agentWakeupRequests)
@@ -17354,23 +17389,17 @@ export function heartbeatService(
                 // envelope. Preserve their established claim path; only an
                 // explicitly bound queued-message envelope is subject to the
                 // live-comment discard gate below.
-                const [claimedRun] = await tx
-                  .update(heartbeatRuns)
-                  .set({
-                    status: "running",
+                const claimedRun = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                  toStatus: "running",
+                  patch: {
                     runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
                     ...legacyControllerClaim(run.runtimeMode),
                     responsibleUserId,
                     startedAt: lockedRun.startedAt ?? claimedAt,
-                    updatedAt: claimedAt,
-                  })
-                  .where(
-                    and(
-                      eq(heartbeatRuns.id, lockedRun.id),
-                      eq(heartbeatRuns.status, "queued"),
-                    ),
-                  )
-                  .returning();
+                  },
+                  phase: "started",
+                  whereCondition: eq(heartbeatRuns.status, "queued"),
+                });
                 return claimedRun
                   ? { kind: "claimed" as const, run: claimedRun }
                   : { kind: "stale" as const, run: null };
@@ -17394,22 +17423,23 @@ export function heartbeatService(
               });
               if (liveIds.length === 0) {
                 const reason = "Queued messages were discarded before dispatch";
-                const [cancelled] = await tx
-                  .update(heartbeatRuns)
-                  .set({
-                    status: "cancelled",
+                const cancelled = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                  toStatus: "cancelled",
+                  patch: {
                     finishedAt: claimedAt,
                     error: reason,
                     errorCode: "queued_comment_discarded",
                     updatedAt: claimedAt,
-                  })
-                  .where(
-                    and(
-                      eq(heartbeatRuns.id, lockedRun.id),
-                      eq(heartbeatRuns.status, "queued"),
-                    ),
-                  )
-                  .returning();
+                  },
+                  phase: "finished",
+                  outcome: "cancelled",
+                  cancellationAttribution: {
+                    cancellationOrigin: "queued_comment_discarded",
+                    cancellationActor: { actorType: "system", actorId: "heartbeat_claim" },
+                    triggerDetail: reason,
+                  },
+                  whereCondition: eq(heartbeatRuns.status, "queued"),
+                });
                 await tx
                   .update(agentWakeupRequests)
                   .set({
@@ -17452,12 +17482,11 @@ export function heartbeatService(
                   updatedAt: claimedAt,
                 })
                 .where(eq(agentWakeupRequests.id, wake.id));
-              const [claimedRun] = await tx
-                .update(heartbeatRuns)
-                .set({
-                  status: "running",
+              const claimedRun = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                toStatus: "running",
+                patch: {
                   runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
-                    ...legacyControllerClaim(run.runtimeMode),
+                  ...legacyControllerClaim(run.runtimeMode),
                   responsibleUserId,
                   startedAt: lockedRun.startedAt ?? claimedAt,
                   contextSnapshot: withQueuedCommentIdsInRunContext(
@@ -17465,14 +17494,10 @@ export function heartbeatService(
                     liveIds,
                   ),
                   updatedAt: claimedAt,
-                })
-                .where(
-                  and(
-                    eq(heartbeatRuns.id, lockedRun.id),
-                    eq(heartbeatRuns.status, "queued"),
-                  ),
-                )
-                .returning();
+                },
+                phase: "started",
+                whereCondition: eq(heartbeatRuns.status, "queued"),
+              });
               return claimedRun
                 ? { kind: "claimed" as const, run: claimedRun }
                 : { kind: "stale" as const, run: null };
@@ -17520,24 +17545,18 @@ export function heartbeatService(
     const claimed = queuedCommentClaim
       ? queuedCommentClaim.run
       : await withChatControlRecoveryGate(run, "claim", async (tx) =>
-          tx
-            .update(heartbeatRuns)
-            .set({
-              status: "running",
+          transitionHeartbeatRunStatus(tx, run.id, {
+            toStatus: "running",
+            patch: {
               runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
-                    ...legacyControllerClaim(run.runtimeMode),
+              ...legacyControllerClaim(run.runtimeMode),
               responsibleUserId,
               startedAt: run.startedAt ?? claimedAt,
               updatedAt: claimedAt,
-            })
-            .where(
-              and(
-                eq(heartbeatRuns.id, run.id),
-                eq(heartbeatRuns.status, "queued"),
-              ),
-            )
-            .returning()
-            .then((rows) => rows[0] ?? null),
+            },
+            phase: "started",
+            whereCondition: eq(heartbeatRuns.status, "queued"),
+          }),
         );
     if (!claimed) return null;
 
@@ -17627,19 +17646,16 @@ export function heartbeatService(
   async function releaseRunClaimedJustBeforeSuppression(runId: string) {
     const now = new Date();
     await db.transaction(async (tx) => {
-      const released = await tx
-        .update(heartbeatRuns)
-        .set({
-          status: "queued",
+      const released = await transitionHeartbeatRunStatus(tx, runId, {
+        toStatus: "queued",
+        patch: {
           startedAt: null,
           responsibleUserId: null,
           updatedAt: now,
-        })
-        .where(
-          and(eq(heartbeatRuns.id, runId), eq(heartbeatRuns.status, "running")),
-        )
-        .returning()
-        .then((rows) => rows[0] ?? null);
+        },
+        phase: "queued",
+        whereCondition: eq(heartbeatRuns.status, "running"),
+      });
       if (!released) return;
 
       if (released.wakeupRequestId) {
@@ -24484,10 +24500,20 @@ export function heartbeatService(
           logSha256: logSummary?.sha256,
           logCompressed: logSummary?.compressed ?? false,
         };
+        const isLeaseLostDuringSuccess = executionControl.controller.signal.aborted &&
+          String((executionControl.controller.signal.reason as any)?.message ?? executionControl.controller.signal.reason ?? "").includes("Legacy controller lease lost");
+        const successCancellationAttribution: RunCancellationAttribution | undefined = isLeaseLostDuringSuccess
+          ? {
+              cancellationOrigin: "legacy_controller_lease_expired",
+              cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+              triggerDetail: "Legacy controller lease lost",
+            }
+          : undefined;
         const persistedRunWrite = await setRunStatusIfRunning(
           run.id,
           status,
           finalRunPatch,
+          { cancellationAttribution: successCancellationAttribution },
         );
         let persistedRun: typeof heartbeatRuns.$inferSelect | null =
           persistedRunWrite.run;
@@ -25080,15 +25106,24 @@ export function heartbeatService(
         });
 
         const stoppedDuringFailure = executionControl.controller.signal.aborted;
+        const isLeaseLost = stoppedDuringFailure &&
+          String((executionControl.controller.signal.reason as any)?.message ?? executionControl.controller.signal.reason ?? "").includes("Legacy controller lease lost");
         const stopSnapshot = stoppedDuringFailure ? await getRun(run.id) : null;
         const failureOutcome = stoppedDuringFailure ? "cancelled" : "failed";
+        const failureAttribution: RunCancellationAttribution | undefined = isLeaseLost
+          ? {
+              cancellationOrigin: "legacy_controller_lease_expired",
+              cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+              triggerDetail: "Legacy controller lease lost",
+            }
+          : undefined;
         const failedRunWrite = await setRunStatusIfRunning(run.id, failureOutcome, {
-          error: message,
-          errorCode: stopSnapshot?.errorCode ?? failureErrorCode,
+          error: isLeaseLost ? "Legacy controller lease lost" : message,
+          errorCode: isLeaseLost ? "legacy_controller_lease_expired" : (stopSnapshot?.errorCode ?? failureErrorCode),
           finishedAt: new Date(),
           resultJson: mergeRunStopMetadataForAgent(agent, failureOutcome, {
-            errorCode: failureErrorCode,
-            errorMessage: message,
+            errorCode: isLeaseLost ? "legacy_controller_lease_expired" : failureErrorCode,
+            errorMessage: isLeaseLost ? "Legacy controller lease lost" : message,
             resultJson: {
               ...parseObject(stopSnapshot?.resultJson),
               ...(workspaceValidationFailure?.resultJson ??
@@ -25109,7 +25144,7 @@ export function heartbeatService(
           logBytes: logSummary?.bytes,
           logSha256: logSummary?.sha256,
           logCompressed: logSummary?.compressed ?? false,
-        });
+        }, { cancellationAttribution: failureAttribution });
         if (
           !failedRunWrite.updated &&
           !(
@@ -26753,25 +26788,22 @@ export function heartbeatService(
             const reason = issueCancelled
               ? "Cancelled because the issue was cancelled before the scheduled retry became due"
               : "Cancelled because the issue was reassigned before the scheduled retry became due";
-            const cancelled = await tx
-              .update(heartbeatRuns)
-              .set({
-                status: "cancelled",
+            const cancelled = await transitionHeartbeatRunStatus(tx, scheduledRun.id, {
+              toStatus: "cancelled",
+              patch: {
                 finishedAt: now,
                 error: reason,
                 errorCode: issueCancelled
                   ? "issue_cancelled"
                   : "issue_reassigned",
                 updatedAt: now,
-              })
-              .where(
-                and(
-                  eq(heartbeatRuns.id, scheduledRun.id),
-                  eq(heartbeatRuns.status, "scheduled_retry"),
-                ),
-              )
-              .returning()
-              .then((rows) => rows[0] ?? null);
+              },
+              outcome: "cancelled",
+              cancellationAttribution: {
+                cancellationOrigin: issueCancelled ? "task_cancelled" : "task_reassigned",
+              },
+              whereCondition: eq(heartbeatRuns.status, "scheduled_retry"),
+            });
 
             if (!cancelled) return false;
 
@@ -26889,25 +26921,23 @@ export function heartbeatService(
             issue.assigneeAgentId &&
             activeExecutionRun.agentId !== issue.assigneeAgentId
           ) {
-            const cancelled = await tx
-              .update(heartbeatRuns)
-              .set({
-                status: "cancelled",
+            const cancelledRun = await transitionHeartbeatRunStatus(tx, activeExecutionRun.id, {
+              toStatus: "cancelled",
+              patch: {
                 finishedAt: new Date(),
                 error:
                   "Execution lock released after issue reassigned to a different agent",
                 errorCode: "lock_released_on_reassignment",
                 updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  eq(heartbeatRuns.id, activeExecutionRun.id),
-                  eq(heartbeatRuns.status, activeExecutionRun.status),
-                ),
-              )
-              .returning();
-            if (cancelled.length > 0) {
-              cancelledRunsToEmit.push(cancelled[0]);
+              },
+              outcome: "cancelled",
+              cancellationAttribution: {
+                cancellationOrigin: "task_reassigned",
+              },
+              whereCondition: eq(heartbeatRuns.status, activeExecutionRun.status),
+            });
+            if (cancelledRun) {
+              cancelledRunsToEmit.push(cancelledRun);
               if (activeExecutionRun.wakeupRequestId) {
                 await tx
                   .update(agentWakeupRequests)
