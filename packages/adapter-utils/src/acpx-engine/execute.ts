@@ -39,6 +39,7 @@ import {
 import { captureLocalProcess, capturedProcessExited, killCapturedLocalProcess } from "./local-process-control.js";
 import type { DuplexLossReason } from "../duplex-observability.js";
 import { DUPLEX_CHANNEL_LOST_ERROR_CODE } from "../bridge-transport-contract.js";
+import { resolveRuntimeCallbackEndpoint } from "../reachability.js";
 import type { WorkspaceRestoreFailureCode, WorkspaceRestoreOutcome } from "../workspace-restore-merge.js";
 import {
   classifyWorkspaceRestoreFailure,
@@ -1873,13 +1874,54 @@ async function buildRuntime(input: {
   const requestedModel = asString(config.model, "").trim();
   const requestedThinkingEffort = normalizeRequestedThinkingEffort(config);
   const fastMode = acpxAgent === "codex" && config.fastMode === true;
+  const envConfig = parseObject(config.env);
+  const envConfigStrings = Object.fromEntries(
+    Object.entries(envConfig).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+  const resolvedCallback = resolveRuntimeCallbackEndpoint({
+    target: executionTarget,
+    env: envConfigStrings,
+  });
   const runtimeMcpServers = input.ctx.runtimeMcp?.getServers() ?? [];
-  const mcpIdentity = runtimeMcpServers.map(({ name, url, connectionId }) => ({
+  const managedMcpObj = parseObject(context.paperclipManagedMcp);
+  const managedMcpGateways = (Array.isArray(managedMcpObj.gateways) ? managedMcpObj.gateways : [])
+    .map((raw): { name: string; endpointPath: string; bearerToken: string } | null => {
+      const g = parseObject(raw);
+      const name = asString(g.name, "").trim();
+      const endpointPath = asString(g.endpointPath, "").trim();
+      const bearerToken = asString(g.bearerToken, "").trim();
+      if (!name || !endpointPath || !bearerToken) return null;
+      return { name, endpointPath, bearerToken };
+    })
+    .filter((g): g is { name: string; endpointPath: string; bearerToken: string } => Boolean(g));
+
+  const managedServers = managedMcpGateways.map((gateway) => ({
+    name: gateway.name,
+    url: new URL(gateway.endpointPath, resolvedCallback.url).toString(),
+    token: gateway.bearerToken,
+  }));
+  const allMcpServers = [
+    ...runtimeMcpServers.map((s) => ({
+      name: s.name,
+      url: s.url,
+      token: s.token,
+      connectionId: s.connectionId,
+    })),
+    ...managedServers.map((s) => ({
+      name: s.name,
+      url: s.url,
+      token: s.token,
+      connectionId: undefined,
+    })),
+  ];
+  const mcpIdentity = allMcpServers.map(({ name, url, connectionId }) => ({
     name,
     url,
-    connectionId,
+    connectionId: connectionId ?? "",
   }));
-  const mcpServers: NonNullable<AcpRuntimeOptions["mcpServers"]> = runtimeMcpServers.map((server) => ({
+  const mcpServers: NonNullable<AcpRuntimeOptions["mcpServers"]> = allMcpServers.map((server) => ({
     type: "http",
     name: server.name,
     url: server.url,
@@ -1896,8 +1938,11 @@ async function buildRuntime(input: {
   const stateDir = path.resolve(asString(config.stateDir, "") || defaultStateDir(agent.companyId, agent.id));
   await fs.mkdir(stateDir, { recursive: true });
 
-  const envConfig = parseObject(config.env);
-  const env: Record<string, string> = { ...buildPaperclipEnv(agent), PAPERCLIP_RUN_ID: runId };
+  const env: Record<string, string> = {
+    ...buildPaperclipEnv(agent),
+    PAPERCLIP_RUN_ID: runId,
+    PAPERCLIP_RUNTIME_API_URL: resolvedCallback.url,
+  };
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim()) ||
     (typeof context.issueId === "string" && context.issueId.trim()) ||
@@ -4032,9 +4077,9 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
             : teardownErr instanceof Error
               ? teardownErr.message
               : String(teardownErr);
-        await ctx
-          .onLog("stderr", `[paperclip] ACPX teardown step "${step}" failed: ${reason}\n`)
-          .catch(() => {});
+        await Promise.resolve(
+          ctx.onLog("stderr", `[paperclip] ACPX teardown step "${step}" failed: ${reason}\n`),
+        ).catch(() => {});
       };
       // Emit one per-phase timing run-log event. It is not an OpenTelemetry
       // export and it is not a Telemetry event: it carries the phase name
@@ -4321,21 +4366,21 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
               discardPersistentState: false,
             })
             .catch(() =>
-              ctx
-                .onLog(
+              Promise.resolve(
+                ctx.onLog(
                   "stderr",
                   "[paperclip] ACPX handshake late close failed: acpx_handshake_late_close_failed\n",
-                )
-                .catch(() => {}),
+                ),
+              ).catch(() => {}),
             );
         };
         // The late rejection comes from inside the sandbox. It crosses the
         // sandbox-to-host trust boundary, so it must never reach the run log,
         // the result, or a classification: log the fixed closed code only.
         const recordLateHandshakeRejection = (): void => {
-          void ctx
-            .onLog("stderr", "[paperclip] ACPX handshake late rejection: acpx_handshake_late_rejection\n")
-            .catch(() => {});
+          void Promise.resolve(
+            ctx.onLog("stderr", "[paperclip] ACPX handshake late rejection: acpx_handshake_late_rejection\n"),
+          ).catch(() => {});
         };
 
         try {

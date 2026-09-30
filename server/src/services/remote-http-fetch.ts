@@ -6,9 +6,11 @@ import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 import {
+  assertProxiedRemoteHttpEndpoint,
   isAlwaysDeniedLinkLocalIp,
   isPrivateOrReservedIp,
   normalizeIpAddress,
+  parseRemoteHttpProxy,
   resolveApprovedRemoteHttpAddresses,
   type RemoteHttpEndpointErrorFactory,
   type RemoteHttpEndpointGuardOptions,
@@ -60,6 +62,8 @@ export type GuardedRemoteHttpFetchOptions = RemoteHttpEndpointGuardOptions & {
    * Platform `fetch`, used only for IP literals, which cannot be rebound.
    */
   unpinnedFetch?: typeof fetch;
+  /** Optional SOCKS5 proxy URL (socks5h://host:port). */
+  proxy?: string | URL | null;
 };
 
 /**
@@ -96,6 +100,16 @@ export async function guardedRemoteHttpFetch(
   options: GuardedRemoteHttpFetchOptions,
 ): Promise<Response> {
   const endpoint = url instanceof URL ? url : new URL(url);
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+    throw options.error("Remote MCP connection URL must use http or https", "mcp_remote_url_invalid");
+  }
+
+  const proxyUrl = parseRemoteHttpProxy(options.proxy, options.error);
+  if (proxyUrl) {
+    assertProxiedRemoteHttpEndpoint(endpoint, options, options.error);
+    return proxiedRequest(endpoint, proxyUrl, init, options);
+  }
+
   const approved = await resolveApprovedRemoteHttpAddresses(endpoint, options, options.error);
   const literalHost = isIP(endpoint.hostname.replace(/^\[|\]$/g, "")) !== 0;
   const platformFetch = options.unpinnedFetch ?? fetch;
@@ -126,6 +140,351 @@ function isDnsResolutionError(error: unknown): boolean {
     current = record.cause;
   }
   return false;
+}
+
+async function proxiedRequest(
+  endpoint: URL,
+  proxyUrl: URL,
+  init: RequestInit,
+  options: GuardedRemoteHttpFetchOptions,
+): Promise<Response> {
+  const useTls = endpoint.protocol === "https:";
+  const hostname = endpoint.hostname.replace(/^\[|\]$/g, "");
+  const port = endpoint.port ? Number(endpoint.port) : useTls ? 443 : 80;
+  const signal = init.signal ?? null;
+
+  signal?.throwIfAborted?.();
+
+  const socket = await openProxiedSocket({
+    endpoint,
+    proxyUrl,
+    hostname,
+    port,
+    useTls,
+    signal,
+    options,
+  });
+
+  try {
+    return await sendRequest({
+      endpoint,
+      hostname,
+      port,
+      useTls,
+      socket,
+      init,
+      signal,
+      responseTimeoutMs: options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
+      error: options.error,
+    });
+  } catch (error) {
+    socket.destroy();
+    throw error;
+  }
+}
+
+async function openProxiedSocket(input: {
+  endpoint: URL;
+  proxyUrl: URL;
+  hostname: string;
+  port: number;
+  useTls: boolean;
+  signal: AbortSignal | null;
+  options: GuardedRemoteHttpFetchOptions;
+}): Promise<Socket | TLSSocket> {
+  const { proxyUrl, hostname, port, useTls, signal, options } = input;
+  const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const proxyHost = proxyUrl.hostname.replace(/^\[|\]$/g, "");
+  const proxyPort = proxyUrl.port ? Number(proxyUrl.port) : 1080;
+
+  const factory = options.socketFactory
+    ?? ((target) => netConnect({ host: target.address, port: target.port }));
+
+  const raw = factory({
+    address: proxyHost,
+    port: proxyPort,
+    hostname: proxyHost,
+    useTls: false,
+  });
+
+  try {
+    await once(raw, "connect", { signal, timeoutMs: connectTimeoutMs, what: "connect to proxy" });
+  } catch (error) {
+    raw.destroy();
+    if (signal?.aborted) throw error;
+    throw options.error("Remote MCP proxy could not be reached", "remote_http_connect_failed");
+  }
+
+  try {
+    await performSocks5Handshake({
+      socket: raw,
+      targetHost: hostname,
+      targetPort: port,
+      proxyUrl,
+      timeoutMs: connectTimeoutMs,
+      signal,
+      error: options.error,
+    });
+  } catch (error) {
+    raw.destroy();
+    if (signal?.aborted) throw error;
+    throw error;
+  }
+
+  if (!useTls) return raw;
+
+  const secure = tlsConnect({
+    socket: raw,
+    servername: isIP(hostname) === 0 ? hostname : undefined,
+    host: hostname,
+  });
+  try {
+    await once(secure, "secureConnect", { signal, timeoutMs: connectTimeoutMs, what: "negotiate TLS with" });
+  } catch (error) {
+    secure.destroy();
+    raw.destroy();
+    if (signal?.aborted) throw error;
+    throw options.error("Remote MCP TLS handshake failed", "remote_http_connect_failed");
+  }
+  return secure;
+}
+
+class Socks5SocketReader {
+  private buffer = Buffer.alloc(0);
+  private closed = false;
+  private error: Error | null = null;
+  private waiter: {
+    count: number;
+    resolve: (buf: Buffer) => void;
+    reject: (err: Error) => void;
+  } | null = null;
+  private onData: (chunk: Buffer) => void;
+  private onError: (err: Error) => void;
+  private onClose: () => void;
+
+  constructor(
+    private readonly socket: Socket,
+    private readonly errorFactory: RemoteHttpEndpointErrorFactory,
+  ) {
+    this.onData = (chunk: Buffer) => {
+      this.buffer = Buffer.concat([this.buffer, chunk]);
+      this.checkWaiter();
+    };
+    this.onError = (err: Error) => {
+      this.error = err;
+      if (this.waiter) {
+        const { reject } = this.waiter;
+        this.waiter = null;
+        reject(err);
+      }
+    };
+    this.onClose = () => {
+      this.closed = true;
+      if (this.waiter) {
+        const { reject } = this.waiter;
+        this.waiter = null;
+        reject(
+          this.errorFactory(
+            "Remote MCP proxy closed connection unexpectedly",
+            "remote_http_proxy_failed",
+          ),
+        );
+      }
+    };
+
+    socket.on("data", this.onData);
+    socket.on("error", this.onError);
+    socket.on("close", this.onClose);
+    socket.on("end", this.onClose);
+  }
+
+  private checkWaiter() {
+    if (this.waiter && this.buffer.length >= this.waiter.count) {
+      const { count, resolve } = this.waiter;
+      this.waiter = null;
+      const result = this.buffer.subarray(0, count);
+      this.buffer = this.buffer.subarray(count);
+      resolve(result);
+    }
+  }
+
+  readExact(
+    count: number,
+    timeoutMs: number,
+    signal: AbortSignal | null,
+  ): Promise<Buffer> {
+    if (this.buffer.length >= count) {
+      const result = this.buffer.subarray(0, count);
+      this.buffer = this.buffer.subarray(count);
+      return Promise.resolve(result);
+    }
+    if (this.error) return Promise.reject(this.error);
+    if (this.closed) {
+      return Promise.reject(
+        this.errorFactory(
+          "Remote MCP proxy closed connection unexpectedly",
+          "remote_http_proxy_failed",
+        ),
+      );
+    }
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason ?? new Error("Aborted"));
+    }
+
+    return new Promise<Buffer>((resolve, reject) => {
+      let timer: NodeJS.Timeout | undefined;
+      let onAbort: (() => void) | undefined;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      };
+
+      if (signal) {
+        onAbort = () => {
+          cleanup();
+          if (this.waiter) this.waiter = null;
+          reject(signal.reason ?? new Error("Aborted"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      timer = setTimeout(() => {
+        cleanup();
+        if (this.waiter) this.waiter = null;
+        reject(
+          this.errorFactory(
+            "Remote MCP proxy handshake timed out",
+            "remote_http_response_timeout",
+          ),
+        );
+      }, timeoutMs);
+      timer.unref?.();
+
+      this.waiter = {
+        count,
+        resolve: (b) => {
+          cleanup();
+          resolve(b);
+        },
+        reject: (err) => {
+          cleanup();
+          reject(err);
+        },
+      };
+    });
+  }
+
+  destroy() {
+    this.socket.off("data", this.onData);
+    this.socket.off("error", this.onError);
+    this.socket.off("close", this.onClose);
+    this.socket.off("end", this.onClose);
+    if (this.buffer.length > 0) {
+      this.socket.unshift(this.buffer);
+      this.buffer = Buffer.alloc(0);
+    }
+  }
+}
+
+function parseIpv6AddressBytes(address: string): Buffer {
+  const parts = address.toLowerCase().split("::");
+  const left = parts[0] ? parts[0].split(":").filter(Boolean).map((h) => Number.parseInt(h, 16)) : [];
+  const right = parts[1] ? parts[1].split(":").filter(Boolean).map((h) => Number.parseInt(h, 16)) : [];
+  const middleLen = 8 - (left.length + right.length);
+  const middle = Array(middleLen > 0 ? middleLen : 0).fill(0);
+  const words = [...left, ...middle, ...right];
+  const buf = Buffer.alloc(16);
+  words.forEach((w, i) => buf.writeUInt16BE(w, i * 2));
+  return buf;
+}
+
+async function performSocks5Handshake(input: {
+  socket: Socket;
+  targetHost: string;
+  targetPort: number;
+  proxyUrl: URL;
+  timeoutMs: number;
+  signal: AbortSignal | null;
+  error: RemoteHttpEndpointErrorFactory;
+}): Promise<void> {
+  const { socket, targetHost, targetPort, proxyUrl, timeoutMs, signal, error } = input;
+  const reader = new Socks5SocketReader(socket, error);
+  try {
+    const hasAuth = Boolean(proxyUrl.username || proxyUrl.password);
+
+    const greeting = hasAuth
+      ? Buffer.from([0x05, 0x02, 0x00, 0x02])
+      : Buffer.from([0x05, 0x01, 0x00]);
+    socket.write(greeting);
+
+    const greetingResp = await reader.readExact(2, timeoutMs, signal);
+    if (greetingResp[0] !== 0x05) {
+      throw error("Invalid SOCKS5 proxy version", "remote_http_proxy_failed");
+    }
+    const method = greetingResp[1];
+    if (method === 0x02 && hasAuth) {
+      const userBuf = Buffer.from(decodeURIComponent(proxyUrl.username), "utf8");
+      const passBuf = Buffer.from(decodeURIComponent(proxyUrl.password), "utf8");
+      const authReq = Buffer.concat([
+        Buffer.from([0x01, userBuf.length]),
+        userBuf,
+        Buffer.from([passBuf.length]),
+        passBuf,
+      ]);
+      socket.write(authReq);
+      const authResp = await reader.readExact(2, timeoutMs, signal);
+      if (authResp[0] !== 0x01 || authResp[1] !== 0x00) {
+        throw error("SOCKS5 proxy authentication failed", "remote_http_proxy_failed");
+      }
+    } else if (method !== 0x00) {
+      throw error("SOCKS5 proxy authentication method rejected", "remote_http_proxy_failed");
+    }
+
+    const portBuf = Buffer.alloc(2);
+    portBuf.writeUInt16BE(targetPort);
+
+    const ipVer = isIP(targetHost);
+    let addrBuf: Buffer;
+    if (ipVer === 4) {
+      const octets = targetHost.split(".").map(Number);
+      addrBuf = Buffer.concat([Buffer.from([0x01]), Buffer.from(octets)]);
+    } else if (ipVer === 6) {
+      addrBuf = Buffer.concat([Buffer.from([0x04]), parseIpv6AddressBytes(targetHost)]);
+    } else {
+      const hostBytes = Buffer.from(targetHost, "utf8");
+      addrBuf = Buffer.concat([Buffer.from([0x03, hostBytes.length]), hostBytes]);
+    }
+
+    const connectReq = Buffer.concat([
+      Buffer.from([0x05, 0x01, 0x00]),
+      addrBuf,
+      portBuf,
+    ]);
+    socket.write(connectReq);
+
+    const head = await reader.readExact(4, timeoutMs, signal);
+    if (head[0] !== 0x05) {
+      throw error("Invalid SOCKS5 proxy version in connect reply", "remote_http_proxy_failed");
+    }
+    const rep = head[1];
+    if (rep !== 0x00) {
+      throw error(`SOCKS5 proxy connect failed with code ${rep}`, "remote_http_proxy_failed");
+    }
+    const atyp = head[3];
+    if (atyp === 0x01) {
+      await reader.readExact(4 + 2, timeoutMs, signal);
+    } else if (atyp === 0x04) {
+      await reader.readExact(16 + 2, timeoutMs, signal);
+    } else if (atyp === 0x03) {
+      const lenBuf = await reader.readExact(1, timeoutMs, signal);
+      await reader.readExact(lenBuf[0]! + 2, timeoutMs, signal);
+    } else {
+      throw error("Invalid address type in SOCKS5 proxy connect reply", "remote_http_proxy_failed");
+    }
+  } finally {
+    reader.destroy();
+  }
 }
 
 async function pinnedRequest(

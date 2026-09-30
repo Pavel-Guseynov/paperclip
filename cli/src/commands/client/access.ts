@@ -261,6 +261,26 @@ export function registerAccessCommands(program: Command): void {
         }
       }),
   );
+  addCommonClientOptions(
+    admin
+      .command("replay-lifecycle-events")
+      .description("Replay historical activity logs to OpenObserve lifecycle events on stderr")
+      .option("--company-id <companyId>", "Company ID to filter")
+      .option("--since <since>", "ISO timestamp or date to filter events from")
+      .option("--dry-run", "Calculate events without emitting them")
+      .action(async (opts: BaseClientOptions & { companyId?: string; since?: string; dryRun?: boolean }) => {
+        try {
+          const ctx = resolveCommandContext(opts);
+          const body: Record<string, unknown> = {};
+          if (opts.companyId) body.companyId = opts.companyId;
+          if (opts.since) body.since = opts.since;
+          if (opts.dryRun) body.dryRun = true;
+          printOutput(await ctx.api.post("/api/admin/lifecycle-events/replay", body), { json: ctx.json });
+        } catch (err) {
+          handleCommandError(err);
+        }
+      }),
+  );
 
   const instance = program.command("instance").description("Instance operations");
   addSimpleGet(instance, "scheduler-heartbeats", "List scheduler heartbeat agents", "/api/instance/scheduler-heartbeats");

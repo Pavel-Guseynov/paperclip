@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { activityLog, agentApiKeys, companies, heartbeatRuns, issues } from "@paperclipai/db";
 import { isUuidLike, PLUGIN_EVENT_TYPES, type PluginEventType } from "@paperclipai/shared";
@@ -10,6 +10,12 @@ import { sanitizeRecord } from "../redaction.js";
 import { logger } from "../middleware/logger.js";
 import type { PluginEventBus } from "./plugin-event-bus.js";
 import { instanceSettingsService } from "./instance-settings.js";
+import {
+  deriveTaskLifecycleRecord,
+  emitLifecycleRecordToStderr,
+  formatTaskLifecycleRecord,
+  type TaskLifecycleRecord,
+} from "./task-lifecycle-logging.js";
 
 const PLUGIN_EVENT_SET: ReadonlySet<string> = new Set(PLUGIN_EVENT_TYPES);
 const ACTIVITY_ACTION_TO_PLUGIN_EVENT: Readonly<Record<string, PluginEventType>> = {
@@ -70,6 +76,7 @@ export interface ActivityPublication {
   companyId: string;
   payload: Record<string, unknown>;
   pluginEvent: PluginEvent | null;
+  lifecycleRecord?: TaskLifecycleRecord | Record<string, unknown> | null;
 }
 
 export async function createActivityDetailsRedactor(db: Db) {
@@ -155,6 +162,9 @@ export function publishActivity(publication: ActivityPublication) {
     payload: publication.payload,
   });
   if (publication.pluginEvent) publishPluginDomainEvent(publication.pluginEvent);
+  if (publication.lifecycleRecord) {
+    emitLifecycleRecordToStderr(publication.lifecycleRecord);
+  }
 }
 
 export async function persistActivity(db: Db, input: LogActivityInput) {
@@ -171,7 +181,8 @@ export async function persistActivity(db: Db, input: LogActivityInput) {
     runId: input.runId ?? null,
     responsibleUserId,
     details: redactedDetails,
-  }).returning({ id: activityLog.id });
+    createdAt: sql`clock_timestamp()`,
+  }).returning({ id: activityLog.id, createdAt: activityLog.createdAt });
 
   const payload = {
     actorType: input.actorType,
@@ -204,13 +215,59 @@ export async function persistActivity(db: Db, input: LogActivityInput) {
       }
     : null;
 
+  let lifecycleRecord: TaskLifecycleRecord | null = null;
+  if (input.entityType === "issue") {
+    let issueFallback: {
+      identifier: string | null;
+      projectId: string | null;
+      assigneeAgentId: string | null;
+      assigneeUserId: string | null;
+    } | null = null;
+
+    const taskId = input.entityId;
+    const hasIdentifier = typeof input.details?.identifier === "string";
+    const hasProjectId = typeof input.details?.projectId === "string";
+    const hasAssignee =
+      typeof input.details?.assigneeAgentId === "string" ||
+      typeof input.details?.assigneeUserId === "string";
+
+    if ((!hasIdentifier || !hasProjectId || !hasAssignee) && isUuidLike(taskId)) {
+      issueFallback = await db
+        .select({
+          identifier: issues.identifier,
+          projectId: issues.projectId,
+          assigneeAgentId: issues.assigneeAgentId,
+          assigneeUserId: issues.assigneeUserId,
+        })
+        .from(issues)
+        .where(and(eq(issues.companyId, input.companyId), eq(issues.id, taskId)))
+        .then((rows) => rows[0] ?? null);
+    }
+
+    const { record } = deriveTaskLifecycleRecord({
+      activityId: activity.id,
+      action: input.action,
+      companyId: input.companyId,
+      entityId: input.entityId,
+      entityType: input.entityType,
+      runId: input.runId,
+      createdAt: activity.createdAt,
+      details: input.details,
+      issueFallback,
+      source: "live",
+    });
+
+    lifecycleRecord = record;
+  }
+
   return {
     activity,
     publication: {
       companyId: input.companyId,
       payload,
       pluginEvent,
-    } satisfies ActivityPublication,
+      lifecycleRecord,
+    } as ActivityPublication,
   };
 }
 

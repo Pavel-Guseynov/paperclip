@@ -16,9 +16,31 @@ diff --git a/dist/index.js b/dist/index.js
                      ...this.options.initdbFlags,
 -                ], Object.assign(Object.assign({}, permissionIds), { env: { LC_MESSAGES: LC_MESSAGES_LOCALE } }));
 +                ], Object.assign(Object.assign({}, permissionIds), { env: Object.assign(Object.assign({}, globalThis.process.env), { LC_MESSAGES: LC_MESSAGES_LOCALE }) }));
-                 // Connect to stderr, as that is where the messages get sent
+-                // Connect to stderr, as that is where the messages get sent
++                // Connect to stdout, as that is where normal initdb messages get sent
                  (_a = process.stdout) === null || _a === void 0 ? void 0 : _a.on('data', (chunk) => {
                      // Parse the data as a string and log it
+@@ -140,6 +140,10 @@
+                     const message = chunk.toString('utf-8');
+                     this.options.onLog(message);
+                 });
++                (_a = process.stderr) === null || _a === void 0 ? void 0 : _a.on('data', (chunk) => {
++                    const message = chunk.toString('utf-8');
++                    this.options.onError(message);
++                });
+                 process.on('exit', (code) => {
+                     if (code === 0) {
+                         resolve();
+@@ -147,8 +151,6 @@
+                     else {
+                         reject(`Postgres init script exited with code ${code}. Please check the logs for extra info. The data directory might already exist.`);
+                     }
+                 });
+-            });
+-            // Clean up the file
+-            yield fs.unlink(passwordFile);
++            }).finally(() => fs.unlink(passwordFile));
+         });
 @@ -177,7 +177,7 @@
                      '-p',
                      this.options.port.toString(),

@@ -1023,7 +1023,11 @@ describe("evaluateCodexCredentialReadiness", () => {
       const alpha = await fs.readFile(path.join(alphaHome, "config.toml"), "utf8");
       const zero = await fs.readFile(path.join(zeroHome, "config.toml"), "utf8");
       expect(alpha).toContain('[mcp_servers."alpha"]');
-      expect(alpha).toContain('Authorization = "Bearer alpha-token"');
+      // Codex reads managed HTTP MCP auth from `http_headers`; a plain
+      // `headers` key is parsed and then ignored, so the gateway bearer never
+      // reaches the request and every managed call fails unauthenticated.
+      expect(alpha).toContain('http_headers = { Authorization = "Bearer alpha-token" }');
+      expect(alpha).not.toMatch(/^headers\s*=/m);
       expect(zero).not.toContain("mcp_servers.");
       expect(zero).not.toContain("stale-token");
       expect(alphaHome).not.toBe(zeroHome);
@@ -1142,7 +1146,7 @@ describe("stageCodexHomeForSync", () => {
     }
   });
 
-  // config.toml carries the managed MCP `Authorization: Bearer …` header and is
+  // config.toml carries the managed MCP `Authorization: Bearer …` HTTP header and is
   // secret-bearing; the staged copy must be 0600, not the world-readable default.
   it("writes the staged config.toml (managed MCP bearer header) with mode 0600", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-stage-toml-mode-"));
@@ -1154,7 +1158,7 @@ describe("stageCodexHomeForSync", () => {
       // and is persisted 0600 on disk.
       await fs.writeFile(
         path.join(home, "config.toml"),
-        "[mcp_servers.paperclip]\nheaders = { Authorization = \"Bearer secret-token\" }\n",
+        "[mcp_servers.paperclip]\nhttp_headers = { Authorization = \"Bearer secret-token\" }\n",
         { mode: 0o600 },
       );
       staged = await stageCodexHomeForSync(home, { runId: "run-toml-mode" });

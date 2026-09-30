@@ -12,6 +12,9 @@ export {
   migratePostgresIfEmpty,
   type MigrationBootstrapResult,
   type Db,
+  registerPostCommitHook,
+  installPostCommitHooks,
+  type PostCommitHook,
 } from "./client.js";
 export {
   getEmbeddedPostgresTestSupport,

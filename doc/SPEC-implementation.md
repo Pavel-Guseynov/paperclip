@@ -611,9 +611,17 @@ Cross-issue writes are contained per heartbeat run. An agent-authored comment
 may wake the target assignee, including an explicit `resume: true` comment on a
 `done` or `cancelled` issue, but the wake remains agent-class and is subject to
 the normal agent rewake throttle; comment presentation cannot give it human
-wake privileges. Agent issue comments and updates require a persisted heartbeat
-run bound to the authenticated agent and company; missing, invalid, or mismatched
-run context fails closed before mutation. A run may attempt at most 20 cross-issue comments, issue
+wake privileges. Agent issue comments and updates normally require a persisted
+heartbeat run bound to the authenticated agent and company; missing, invalid,
+or mismatched run context fails closed before mutation. A standard-scope agent
+API key without a run may PATCH any issue it is otherwise authorized to edit,
+including blocker changes. Editing its own assigned in-progress issue requires
+clear checkout and execution locks; editing another agent's in-progress issue
+requires active-checkout management authority. External-client edits remain
+subject to company and responsible-user scope, status transitions, and governance
+checks. Restricted keys, standalone comments, and other agent mutations still
+require a run. A run may
+attempt at most 20 cross-issue comments, issue
 updates, or issue-thread interaction resolutions across one shared counter. The
 server records each attempt with its source issue, target issue, run, count, and
 rollout mode, and fails closed with the cap in the error once enforcement is

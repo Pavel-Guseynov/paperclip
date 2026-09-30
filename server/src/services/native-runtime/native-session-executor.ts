@@ -129,6 +129,7 @@ import { connectRunnerPrpIngress } from "../../realtime/runner-prp-outbound.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { reportRunFailure } from "../run-failure-report.js";
 import { persistActivity, publishActivity } from "../activity-log.js";
+import { transitionHeartbeatRunStatus } from "../heartbeat-run-lifecycle.js";
 import { commitNativeStatusDecision } from "./status-decision-committer.js";
 import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
 import { documentService } from "../documents.js";
@@ -6626,22 +6627,20 @@ export async function cancelNativeSession(
           (effect) => effect.kind === "accept_replacement_turn",
         )
       ) {
-        await tx
-          .update(heartbeatRuns)
-          .set({
-            status: "running",
+        await transitionHeartbeatRunStatus(tx, runId, {
+          toStatus: "running",
+          patch: {
             continuationAttempt: sql`${heartbeatRuns.continuationAttempt} + 1`,
             nextAction: "Accept a replacement native turn on the existing run.",
             updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(heartbeatRuns.id, runId),
-              eq(heartbeatRuns.companyId, cancellationContext.companyId),
-              eq(heartbeatRuns.agentId, cancellationContext.agentId),
-              eq(heartbeatRuns.nativeIssueId, cancellationContext.issueId),
-            ),
-          );
+          },
+          phase: "started",
+          whereCondition: and(
+            eq(heartbeatRuns.companyId, cancellationContext.companyId),
+            eq(heartbeatRuns.agentId, cancellationContext.agentId),
+            eq(heartbeatRuns.nativeIssueId, cancellationContext.issueId),
+          ),
+        });
       }
       const activity = await persistActivity(tx as unknown as Db, {
         companyId: cancellationContext.companyId,

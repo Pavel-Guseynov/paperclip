@@ -2333,6 +2333,8 @@ export {
   updateMemberPermissionsSchema,
   searchAdminUsersQuerySchema,
   updateUserCompanyAccessSchema,
+  replayLifecycleEventsSchema,
+  type ReplayLifecycleEvents,
   type CreateCostEvent,
   type CreateFinanceEvent,
   type UpdateBudget,

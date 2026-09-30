@@ -262,7 +262,7 @@ describeEmbeddedPostgres("heartbeat task-drain admission release", () => {
     // Fault the release transaction on the issue-lock write, so executeRun's
     // suppression branch catches the failure, logs it, and returns instead
     // of throwing. There is no in-process fallback or retry for this path.
-    const failingDb = withFailingTransactionalUpdate(db, { 1: issues });
+    const failingDb = withFailingTransactionalUpdate(db, { 1: issues, 2: issues });
     const heartbeat = heartbeatService(failingDb);
 
     const unsubscribe = subscribeCompanyLiveEvents(companyId, (event) => {

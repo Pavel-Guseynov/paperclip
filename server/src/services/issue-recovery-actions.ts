@@ -290,6 +290,16 @@ export function issueRecoveryActionService(db: Db) {
     const now = new Date();
     const ownerType = input.ownerType ?? (input.ownerAgentId ? "agent" : "board");
     if (existing) {
+      const isExistingWorkspaceValidation =
+        existing.cause === "workspace_validation_failed" ||
+        existing.kind === "workspace_validation";
+      const isIncomingGeneric =
+        input.cause === "stranded_assigned_issue" ||
+        input.cause === "execution_review_participant_recovery" ||
+        input.kind === "stranded_assigned_issue";
+      if (isExistingWorkspaceValidation && isIncomingGeneric) {
+        return existing;
+      }
       // A distinct failure identity must not overwrite the active action of a
       // prior identity. Resolve the prior action and insert a new one, so the
       // operator gets a new notice for the new failure.
@@ -399,12 +409,18 @@ export function issueRecoveryActionService(db: Db) {
             : input.returnOwnerAgentId ?? existing.returnOwnerAgentId,
           cause: input.preserveExistingOwner ? existing.cause : input.cause,
           fingerprint: input.preserveExistingOwner ? existing.fingerprint : input.fingerprint,
-          evidence: input.preserveExistingOwner
-            ? {
-              ...(existing.evidence ?? {}),
-              ...(input.evidence ?? {}),
-            }
-            : input.evidence ?? existing.evidence,
+          evidence: {
+            ...(existing.evidence ?? {}),
+            ...(input.evidence ?? {}),
+            ...(input.evidence?.workspaceValidation || existing.evidence?.workspaceValidation
+              ? {
+                  workspaceValidation: {
+                    ...((existing.evidence?.workspaceValidation as Record<string, unknown>) ?? {}),
+                    ...((input.evidence?.workspaceValidation as Record<string, unknown>) ?? {}),
+                  },
+                }
+              : {}),
+          },
           nextAction: input.preserveExistingOwner ? existing.nextAction : input.nextAction,
           wakePolicy: input.preserveExistingOwner
             ? existing.wakePolicy

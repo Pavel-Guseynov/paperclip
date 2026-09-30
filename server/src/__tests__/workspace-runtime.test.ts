@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -150,10 +150,32 @@ async function runPnpm(cwd: string, args: string[]) {
 async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source-instance") {
   const configDir = path.join(baseCwd, ".paperclip");
   await fs.mkdir(configDir, { recursive: true });
-  await fs.writeFile(path.join(configDir, "config.json"), "{}\n", "utf8");
+  const config = {
+    $meta: {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      source: "configure",
+    },
+    database: {
+      mode: "embedded-postgres",
+      embeddedPostgresDataDir: path.join(configDir, "runtime/db"),
+      embeddedPostgresPort: 54329,
+    },
+    logging: {
+      mode: "file",
+      logDir: path.join(configDir, "runtime/logs"),
+    },
+    server: {
+      deploymentMode: "local_trusted",
+      exposure: "private",
+      host: "127.0.0.1",
+      port: 3100,
+    },
+  };
+  await fs.writeFile(path.join(configDir, "config.json"), JSON.stringify(config, null, 2) + "\n", "utf8");
   await fs.writeFile(
     path.join(configDir, ".env"),
-    `PAPERCLIP_INSTANCE_ID=${instanceId}\n`,
+    `PAPERCLIP_HOME=${path.join(configDir, "runtime")}\nPAPERCLIP_INSTANCE_ID=${instanceId}\nPAPERCLIP_CONFIG=${path.join(configDir, "config.json")}\n`,
     "utf8",
   );
 }
@@ -356,21 +378,22 @@ async function findFreePort() {
   return port;
 }
 
-async function reserveContiguousPorts(count: number) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const basePort = await findFreePort();
-    if (basePort + count - 1 > 65_535) continue;
+const DEDICATED_BOUNDED_PORT_RANGE_MIN = 25_000;
+const DEDICATED_BOUNDED_PORT_RANGE_MAX = 32_000;
+
+async function reserveContiguousPorts(count: number, startAt = DEDICATED_BOUNDED_PORT_RANGE_MIN) {
+  for (let candidateBase = startAt; candidateBase + count - 1 <= DEDICATED_BOUNDED_PORT_RANGE_MAX; candidateBase += 1) {
     const servers: net.Server[] = [];
     try {
       for (let offset = 0; offset < count; offset += 1) {
-        servers.push(await listenOnPort(basePort + offset));
+        servers.push(await listenOnPort(candidateBase + offset));
       }
-      return { basePort, servers };
+      return { basePort: candidateBase, servers };
     } catch {
       await Promise.all(servers.map((server) => closeNetServer(server).catch(() => undefined)));
     }
   }
-  throw new Error(`Failed to reserve ${count} contiguous test ports`);
+  throw new Error(`Failed to reserve ${count} contiguous test ports in dedicated range [${startAt}, ${DEDICATED_BOUNDED_PORT_RANGE_MAX}]`);
 }
 
 function createWorkspaceOperationRecorderDouble() {
@@ -1887,7 +1910,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.21.0",
         },
         null,
         2,
@@ -1988,7 +2011,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.21.0",
         },
         null,
         2,
@@ -2075,7 +2098,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.21.0",
           },
           null,
           2,
@@ -2316,7 +2339,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.21.0",
           },
           null,
           2,
@@ -2385,7 +2408,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.21.0",
         },
         null,
         2,
@@ -4000,7 +4023,8 @@ describe("realizeExecutionWorkspace", () => {
       },
     });
 
-    const worktreesDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cleanup-instances-"));
+    const rawWorktreesDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cleanup-instances-"));
+    const worktreesDir = realpathSync(rawWorktreesDir);
     const instanceId = deriveWorktreeInstanceId(workspace.cwd);
     const instanceRoot = path.join(worktreesDir, "instances", instanceId);
     await fs.mkdir(path.join(instanceRoot, "db"), { recursive: true });
@@ -7447,7 +7471,7 @@ describeEmbeddedPostgres("workspace runtime service control persistence", () => 
         executionWorkspaceId: firstWorkspace.id,
         workspaceCwd: firstWorkspace.cwd,
       }).catch(() => undefined);
-      await Promise.all(otherReservations.map((server) => closeNetServer(server).catch(() => undefined)));
+      await Promise.all(reservation.servers.map((server) => closeNetServer(server).catch(() => undefined)));
       await cleanupRuntimeHome();
       await fixture.cleanup();
       await otherCompanyFixture.cleanup();
@@ -9640,7 +9664,7 @@ describe("realizeExecutionWorkspace with an exact existing branch", () => {
 
     const workspace = await realizeExistingBranch(repoRoot, "feature/legacy-checkout");
 
-    expect(workspace.cwd).toBe(path.resolve(legacyPath));
+    expect(workspace.cwd).toBe(realpathSync(legacyPath));
     expect(workspace.branchName).toBe("feature/legacy-checkout");
     expect(workspace.created).toBe(false);
     expect(await readGit(workspace.cwd, ["rev-parse", "HEAD"])).toBe(branchTip);
@@ -9751,8 +9775,7 @@ describe("realizeExecutionWorkspace with an exact existing branch", () => {
         code: "workspace_validation_failed",
         resultJson: {
           workspaceValidation: expect.objectContaining({
-            reason: "git_worktree_not_reusable",
-            reasonCode: "branch_mismatch",
+            reason: "git_worktree_branch_incoherence",
           }),
         },
       });

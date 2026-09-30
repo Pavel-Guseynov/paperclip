@@ -764,6 +764,8 @@ export {
   updateMemberPermissionsSchema,
   searchAdminUsersQuerySchema,
   updateUserCompanyAccessSchema,
+  replayLifecycleEventsSchema,
+  type ReplayLifecycleEvents,
   type CreateCompanyInvite,
   type CreateOpenClawInvitePrompt,
   type AcceptInvite,

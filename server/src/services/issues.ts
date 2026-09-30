@@ -11505,7 +11505,8 @@ export function issueService(db: Db) {
         if (
           candidate.status === "in_progress" &&
           candidate.assigneeAgentId === actorAgentId &&
-          sameRunLock(candidate.checkoutRunId, actorRunId)
+          sameRunLock(candidate.checkoutRunId, actorRunId) &&
+          (actorRunId !== null || candidate.executionRunId === null)
         ) {
           return { ...candidate, adoptedFromRunId: null as string | null };
         }

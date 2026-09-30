@@ -3,7 +3,7 @@ import { captureRunIdentity } from "./run-identity.js";
 import { resolveManagedGitHubIdentitySelection } from "./git-credentials.js";
 import { logger } from "../middleware/logger.js";
 import { spawn } from "node:child_process";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   and,
   asc,
@@ -72,8 +72,11 @@ import type {
   ToolMcpGatewayTokenCreated,
   ToolMcpGatewayWithTokens,
   UpdateToolMcpGateway,
+  ToolMcpGatewayDefaultProfileMode,
+  ToolRiskLevel,
 } from "@paperclipai/shared";
 import {
+  TOOL_MCP_GATEWAY_TOKEN_ACTIONS,
   isGitHubConnectorProfileId,
   isGoogleWorkspaceConnectorProfileId,
   type GitHubConnectorProfileId,
@@ -104,7 +107,11 @@ import {
   REMOTE_URL_SECRET_CONFIG_PATH,
   remoteUrlCredentialMatchesPublicUrl,
 } from "./remote-url-credentials.js";
-import { toolAccessPolicyService } from "./tool-access-policy.js";
+import {
+  toolAccessPolicyService,
+  createToolEvaluationContextCache,
+  type ToolEvaluationContextCache,
+} from "./tool-access-policy.js";
 import { commitToolActionReview } from "./tool-action-review.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import {
@@ -145,6 +152,7 @@ import {
   verifyToolArgumentsSignature,
 } from "./tool-content-guards.js";
 import { extendApprovedExecutionWaitDeadline } from "./approved-execution-wait.js";
+import { HttpError } from "../errors.js";
 
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 60 * 60 * 1000;
@@ -248,6 +256,7 @@ export interface ConnectedMcpGatewayMetadata {
   catalogEntryId: string;
   transport: "mcp_remote" | "local_stdio";
   gatewayToolName: string;
+  legacyGatewayToolName?: string | null;
   upstreamToolName: string;
   catalogName: string;
   inputSchema: Record<string, unknown>;
@@ -271,6 +280,7 @@ export interface ToolGatewayDescriptor extends AgentToolDescriptor {
   connectionId?: string | null;
   catalogEntryId?: string | null;
   upstreamToolName?: string | null;
+  legacyToolName?: string | null;
   providerMetadata?: ConnectedMcpGatewayMetadata | Record<string, unknown>;
 }
 
@@ -286,6 +296,7 @@ export interface ToolGatewaySession {
   gatewayPublicId?: string | null;
   gatewayName?: string | null;
   gatewayProfileId?: string | null;
+  defaultProfileMode?: ToolMcpGatewayDefaultProfileMode | null;
   gatewayTokenId?: string | null;
   gatewayTokenAllowedActions?: ToolMcpGatewayTokenAction[];
   actorType?: "agent" | "user" | "system" | "plugin";
@@ -392,6 +403,7 @@ type RemoteHttpExecutionAudit = {
     bodySizeBytes: number;
     upstreamRequestId: string | null;
   };
+  failureKind?: "invocation_timeout" | "transport_failure" | "protocol_failure";
 };
 
 type LocalStdioRuntimeTemplate = {
@@ -484,9 +496,17 @@ function hashGatewayToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+const gatewaySessionTokenPattern =
+  /^pcgt_([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([A-Za-z0-9_-]+)$/i;
+
+function parseGatewaySessionToken(token: string): { sessionId: string; secret: string } | null {
+  const match = token.match(gatewaySessionTokenPattern);
+  if (!match) return null;
+  return { sessionId: match[1]!.toLowerCase(), secret: match[2]! };
+}
+
 function sessionIdFromGatewayToken(token: string) {
-  const match = token.match(/^pcgt_([0-9a-fA-F-]{36})\.[A-Za-z0-9_-]+$/);
-  return match?.[1] ?? null;
+  return parseGatewaySessionToken(token)?.sessionId ?? null;
 }
 
 function namedGatewayTokenId(token: string) {
@@ -724,6 +744,83 @@ function slugSegment(
   return slug || fallback;
 }
 
+export function clientSafeSlug(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const slug = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+  return slug || fallback;
+}
+
+export function formatClientSafeGatewayToolBaseName(
+  rawApp: string | null | undefined,
+  rawTool: string,
+  maxLength: number = 40,
+): string {
+  const appSlug = clientSafeSlug(rawApp, "mcp");
+  const toolSlug = clientSafeSlug(rawTool, "tool");
+  if (appSlug.length + 1 + toolSlug.length <= maxLength) {
+    return `${appSlug}_${toolSlug}`;
+  }
+  const available = Math.max(3, maxLength - 1);
+  const maxHalf = Math.floor(available / 2);
+  let trimmedApp: string;
+  let trimmedTool: string;
+  if (appSlug.length <= maxHalf) {
+    trimmedApp = appSlug;
+    trimmedTool =
+      toolSlug.slice(0, available - appSlug.length).replace(/[-_]+$/, "") ||
+      "tool";
+  } else if (toolSlug.length <= maxHalf) {
+    trimmedTool = toolSlug;
+    trimmedApp =
+      appSlug.slice(0, available - toolSlug.length).replace(/[-_]+$/, "") ||
+      "mcp";
+  } else {
+    trimmedApp = appSlug.slice(0, maxHalf).replace(/[-_]+$/, "") || "mcp";
+    const remainingForTool = available - trimmedApp.length;
+    trimmedTool =
+      toolSlug.slice(0, remainingForTool).replace(/[-_]+$/, "") || "tool";
+  }
+  return `${trimmedApp}_${trimmedTool}`;
+}
+
+export function formatDisambiguatedGatewayToolName(
+  rawApp: string | null | undefined,
+  rawTool: string,
+  suffix: string,
+  maxLength: number = 40,
+): string {
+  const cleanSuffix = clientSafeSlug(suffix, "1");
+  const budgetForBase = Math.max(3, maxLength - 1 - cleanSuffix.length);
+  const base = formatClientSafeGatewayToolBaseName(
+    rawApp,
+    rawTool,
+    budgetForBase,
+  );
+  return `${base}_${cleanSuffix}`;
+}
+
+export function formatLegacyGatewayToolName(input: {
+  applicationKey: string | null | undefined;
+  connectionName: string | null | undefined;
+  applicationName: string | null | undefined;
+  connectionId: string;
+  toolName: string;
+}): string {
+  const applicationSegment = slugSegment(
+    input.applicationKey ?? input.connectionName ?? input.applicationName,
+    "mcp",
+  );
+  const connectionNamespace = `${applicationSegment}-${shortStableId(input.connectionId)}`;
+  const toolSlug = slugSegment(input.toolName, "tool");
+  return `mcp.${connectionNamespace}:${toolSlug}`;
+}
+
 function shortStableId(id: string): string {
   return id.replace(/-/g, "").slice(0, 8);
 }
@@ -776,7 +873,21 @@ function approvalSnapshotsMatch(
   const reviewedRecord = normalizeSignedApprovalSnapshot(reviewed);
   if (!reviewedRecord && !live) return true;
   if (!reviewedRecord || !live) return false;
-  return stableSerialize(reviewedRecord) === stableSerialize(live);
+  if (stableSerialize(reviewedRecord) === stableSerialize(live)) return true;
+  if (
+    typeof reviewedRecord.gatewayToolName === "string" &&
+    typeof live.gatewayToolName === "string" &&
+    reviewedRecord.gatewayToolName !== live.gatewayToolName
+  ) {
+    const normalizedReviewed = {
+      ...reviewedRecord,
+      gatewayToolName: live.gatewayToolName,
+    };
+    if (stableSerialize(normalizedReviewed) === stableSerialize(live)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 type ConnectedCredentialVersionSnapshot = {
@@ -1173,8 +1284,173 @@ export function createToolGatewayService(
     return [...BUILTIN_TOOLS, ...pluginTools()];
   }
 
+  function mapRowsToToolGatewayDescriptors(
+    rows: Array<{
+      catalogEntry: typeof toolCatalogEntries.$inferSelect;
+      connection: typeof toolConnections.$inferSelect;
+      application: typeof toolApplications.$inferSelect;
+    }>,
+  ): ToolGatewayDescriptor[] {
+    const eligibleRows = rows.filter(
+      ({ connection, application }) =>
+        (connection.transport === "mcp_remote" &&
+          application.type === "mcp_http") ||
+        (connection.transport === "local_stdio" &&
+          application.type === "mcp_stdio"),
+    );
+    // Stable, deterministic assignment of client-safe tool names.
+    // Order eligible rows by (connection.createdAt ASC, connection.id ASC, catalogEntry.createdAt ASC, catalogEntry.id ASC)
+    // so that adding a new connection or tool NEVER renames an existing tool.
+    const sortedRows = [...eligibleRows].sort((a, b) => {
+      const aConnTime = a.connection.createdAt
+        ? new Date(a.connection.createdAt).getTime()
+        : 0;
+      const bConnTime = b.connection.createdAt
+        ? new Date(b.connection.createdAt).getTime()
+        : 0;
+      if (aConnTime !== bConnTime) return aConnTime - bConnTime;
+      const connComp = a.connection.id.localeCompare(b.connection.id);
+      if (connComp !== 0) return connComp;
+      const aCatTime = a.catalogEntry.createdAt
+        ? new Date(a.catalogEntry.createdAt).getTime()
+        : 0;
+      const bCatTime = b.catalogEntry.createdAt
+        ? new Date(b.catalogEntry.createdAt).getTime()
+        : 0;
+      if (aCatTime !== bCatTime) return aCatTime - bCatTime;
+      return a.catalogEntry.id.localeCompare(b.catalogEntry.id);
+    });
+
+    const claimedNames = new Set<string>();
+    const assignedNamesByCatalogEntryId = new Map<
+      string,
+      { gatewayToolName: string; legacyToolName: string }
+    >();
+
+    for (const { catalogEntry, connection, application } of sortedRows) {
+      const applicationKey = application.applicationKey ?? null;
+      const rawApp = applicationKey ?? connection.name ?? application.name;
+      const baseName = formatClientSafeGatewayToolBaseName(
+        rawApp,
+        catalogEntry.toolName,
+        40,
+      );
+      let gatewayToolName = baseName;
+      if (claimedNames.has(gatewayToolName)) {
+        gatewayToolName = formatDisambiguatedGatewayToolName(
+          rawApp,
+          catalogEntry.toolName,
+          shortStableId(connection.id),
+          40,
+        );
+        if (claimedNames.has(gatewayToolName)) {
+          gatewayToolName = formatDisambiguatedGatewayToolName(
+            rawApp,
+            catalogEntry.toolName,
+            shortStableId(catalogEntry.id),
+            40,
+          );
+        }
+        let counter = 2;
+        while (claimedNames.has(gatewayToolName)) {
+          const counterSuffix = `${shortStableId(catalogEntry.id).slice(0, 5)}_${counter}`;
+          gatewayToolName = formatDisambiguatedGatewayToolName(
+            rawApp,
+            catalogEntry.toolName,
+            counterSuffix,
+            40,
+          );
+          counter++;
+        }
+      }
+      claimedNames.add(gatewayToolName);
+
+      const legacyToolName = formatLegacyGatewayToolName({
+        applicationKey,
+        connectionName: connection.name,
+        applicationName: application.name,
+        connectionId: connection.id,
+        toolName: catalogEntry.toolName,
+      });
+
+      assignedNamesByCatalogEntryId.set(catalogEntry.id, {
+        gatewayToolName,
+        legacyToolName,
+      });
+    }
+
+    return eligibleRows.map(
+      ({ catalogEntry, connection, application }) => {
+        if (
+          connection.transport !== "mcp_remote" &&
+          connection.transport !== "local_stdio"
+        ) {
+          throw new Error(
+            `Non-MCP connection ${connection.id} cannot be exposed through the MCP gateway`,
+          );
+        }
+        const { gatewayToolName, legacyToolName } =
+          assignedNamesByCatalogEntryId.get(catalogEntry.id)!;
+        const applicationKey = application.applicationKey ?? null;
+        const inputSchema = projectedConnectionToolInputSchema(
+          connection,
+          catalogEntry.inputSchema ?? {},
+        );
+        const outputSchema = catalogEntry.outputSchema ?? null;
+        const annotations = catalogEntry.annotations ?? {};
+        const risk = riskFromCatalogEntry(catalogEntry);
+        const onDemandTools = readOnDemandToolsEnabled(connection);
+        const providerMetadata: ConnectedMcpGatewayMetadata = {
+          applicationId: application.id,
+          applicationKey,
+          applicationDisplayName: application.name,
+          connectionId: connection.id,
+          catalogEntryId: catalogEntry.id,
+          transport: connection.transport,
+          gatewayToolName,
+          legacyGatewayToolName: legacyToolName,
+          upstreamToolName: catalogEntry.toolName,
+          catalogName: catalogEntry.name,
+          inputSchema,
+          outputSchema,
+          annotations,
+          risk: {
+            level: catalogEntry.riskLevel,
+            isReadOnly: catalogEntry.isReadOnly,
+            isWrite: catalogEntry.isWrite,
+            isDestructive: catalogEntry.isDestructive,
+          },
+          onDemandTools,
+        };
+        return {
+          name: gatewayToolName,
+          legacyToolName,
+          displayName: catalogEntry.title ?? catalogEntry.toolName,
+          description:
+            catalogEntry.description ??
+            `Connected MCP tool ${catalogEntry.toolName} from ${connection.name}.`,
+          parametersSchema: inputSchema,
+          pluginId: `mcp:${applicationKey ?? application.id}`,
+          providerType:
+            connection.transport === "local_stdio"
+              ? "mcp_local_stdio"
+              : "mcp_remote_http",
+          risk,
+          applicationId: application.id,
+          applicationKey,
+          applicationDisplayName: application.name,
+          connectionId: connection.id,
+          catalogEntryId: catalogEntry.id,
+          upstreamToolName: catalogEntry.toolName,
+          providerMetadata,
+        };
+      },
+    );
+  }
+
   async function connectedMcpToolsForCompany(
     companyId: string,
+    cache?: ToolEvaluationContextCache,
   ): Promise<ToolGatewayDescriptor[]> {
     const rows = await db
       .select({
@@ -1207,7 +1483,7 @@ export function createToolGatewayService(
           // catalog discoverable; execution resolves and validates that user's
           // grant, and a successful call restores the shared health indicator.
           or(
-            inArray(toolConnections.healthStatus, ["ok", "healthy"]),
+            inArray(toolConnections.healthStatus, ["ok", "healthy", "degraded"]),
             eq(toolConnections.credentialPolicy, "per_user"),
           ),
           eq(toolApplications.companyId, companyId),
@@ -1217,97 +1493,158 @@ export function createToolGatewayService(
       )
       .orderBy(toolConnections.name, toolCatalogEntries.name);
 
-    const eligibleRows = rows.filter(
-      ({ connection, application }) =>
-        (connection.transport === "mcp_remote" &&
-          application.type === "mcp_http") ||
-        (connection.transport === "local_stdio" &&
-          application.type === "mcp_stdio"),
-    );
-    const baseNames = eligibleRows.map(
-      ({ catalogEntry, connection, application }) => {
-        const applicationKey = application.applicationKey ?? null;
-        const connectionNamespace = `${slugSegment(applicationKey ?? connection.name ?? application.name, "mcp")}-${shortStableId(connection.id)}`;
-        const toolSlug = slugSegment(catalogEntry.toolName, "tool");
-        return `mcp.${connectionNamespace}:${toolSlug}`;
-      },
-    );
-    const baseNameCounts = baseNames.reduce<Map<string, number>>(
-      (counts, name) => {
-        counts.set(name, (counts.get(name) ?? 0) + 1);
-        return counts;
-      },
-      new Map(),
-    );
+    if (cache) {
+      for (const row of rows) {
+        cache.primeCatalogEntry(row.catalogEntry);
+        cache.primeConnection(row.connection);
+        cache.primeApplication(row.application);
+      }
+    }
+    return mapRowsToToolGatewayDescriptors(rows);
+  }
 
-    return eligibleRows.map(
-      ({ catalogEntry, connection, application }, index) => {
-        if (
-          connection.transport !== "mcp_remote" &&
-          connection.transport !== "local_stdio"
-        ) {
-          throw new Error(
-            `Non-MCP connection ${connection.id} cannot be exposed through the MCP gateway`,
+  async function connectedMcpToolsForProfile(
+    companyId: string,
+    profileId: string,
+    cache?: ToolEvaluationContextCache,
+  ): Promise<ToolGatewayDescriptor[]> {
+    const entries = cache
+      ? await cache.getProfileEntries([profileId])
+      : await db
+          .select()
+          .from(toolProfileEntries)
+          .where(
+            and(
+              eq(toolProfileEntries.companyId, companyId),
+              eq(toolProfileEntries.profileId, profileId),
+            ),
           );
+    const includeEntries = entries.filter((e) => e.effect === "include");
+    if (includeEntries.length === 0) return [];
+
+    const connectionIds = includeEntries
+      .map((e) => e.connectionId)
+      .filter((id): id is string => Boolean(id));
+    const applicationIds = includeEntries
+      .map((e) => e.applicationId)
+      .filter((id): id is string => Boolean(id));
+    const catalogEntryIds = includeEntries
+      .map((e) => e.catalogEntryId)
+      .filter((id): id is string => Boolean(id));
+    const toolNames = includeEntries
+      .map((e) => e.toolName)
+      .filter((name): name is string => Boolean(name));
+    const riskLevels = includeEntries
+      .map((e) => e.riskLevel)
+      .filter((level): level is ToolRiskLevel => Boolean(level));
+
+    const selectorOrConditions = [];
+    if (connectionIds.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.connectionId, connectionIds));
+    }
+    if (applicationIds.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.applicationId, applicationIds));
+    }
+    if (catalogEntryIds.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.id, catalogEntryIds));
+    }
+    if (toolNames.length > 0) {
+      const candidateToolNames = new Set(toolNames);
+      for (const name of toolNames) {
+        if (name.includes(":")) {
+          const parts = name.split(":");
+          const prefix = parts[0]!;
+          const slug = parts[1]!;
+          candidateToolNames.add(slug);
+          candidateToolNames.add(slug.replace(/-/g, "_"));
+          const prefixParts = prefix.split("-");
+          const shortId = prefixParts[prefixParts.length - 1];
+          if (shortId && /^[0-9a-f]{8}$/i.test(shortId)) {
+            selectorOrConditions.push(
+              sql`replace(${toolConnections.id}::text, '-', '') LIKE ${shortId.toLowerCase() + "%"}`,
+            );
+          }
         }
-        const baseName = baseNames[index]!;
-        const gatewayToolName =
-          baseNameCounts.get(baseName)! > 1
-            ? `${baseName}-${shortStableId(catalogEntry.id)}`
-            : baseName;
-        const applicationKey = application.applicationKey ?? null;
-        const inputSchema = projectedConnectionToolInputSchema(
-          connection,
-          catalogEntry.inputSchema ?? {},
-        );
-        const outputSchema = catalogEntry.outputSchema ?? null;
-        const annotations = catalogEntry.annotations ?? {};
-        const risk = riskFromCatalogEntry(catalogEntry);
-        const onDemandTools = readOnDemandToolsEnabled(connection);
-        const providerMetadata: ConnectedMcpGatewayMetadata = {
-          applicationId: application.id,
-          applicationKey,
-          applicationDisplayName: application.name,
-          connectionId: connection.id,
-          catalogEntryId: catalogEntry.id,
-          transport: connection.transport,
-          gatewayToolName,
-          upstreamToolName: catalogEntry.toolName,
-          catalogName: catalogEntry.name,
-          inputSchema,
-          outputSchema,
-          annotations,
-          risk: {
-            level: catalogEntry.riskLevel,
-            isReadOnly: catalogEntry.isReadOnly,
-            isWrite: catalogEntry.isWrite,
-            isDestructive: catalogEntry.isDestructive,
-          },
-          onDemandTools,
-        };
-        return {
-          name: gatewayToolName,
-          displayName: catalogEntry.title ?? catalogEntry.toolName,
-          description:
-            catalogEntry.description ??
-            `Connected MCP tool ${catalogEntry.toolName} from ${connection.name}.`,
-          parametersSchema: inputSchema,
-          pluginId: `mcp:${applicationKey ?? application.id}`,
-          providerType:
-            connection.transport === "local_stdio"
-              ? "mcp_local_stdio"
-              : "mcp_remote_http",
-          risk,
-          applicationId: application.id,
-          applicationKey,
-          applicationDisplayName: application.name,
-          connectionId: connection.id,
-          catalogEntryId: catalogEntry.id,
-          upstreamToolName: catalogEntry.toolName,
-          providerMetadata,
-        };
-      },
-    );
+      }
+      selectorOrConditions.push(inArray(toolCatalogEntries.toolName, [...candidateToolNames]));
+      selectorOrConditions.push(inArray(toolCatalogEntries.name, [...candidateToolNames]));
+    }
+    if (riskLevels.length > 0) {
+      selectorOrConditions.push(inArray(toolCatalogEntries.riskLevel, riskLevels));
+    }
+    if (selectorOrConditions.length === 0) return [];
+
+    const rows = await db
+      .select({
+        catalogEntry: toolCatalogEntries,
+        connection: toolConnections,
+        application: toolApplications,
+      })
+      .from(toolCatalogEntries)
+      .innerJoin(
+        toolConnections,
+        eq(toolCatalogEntries.connectionId, toolConnections.id),
+      )
+      .innerJoin(
+        toolApplications,
+        eq(toolConnections.applicationId, toolApplications.id),
+      )
+      .where(
+        and(
+          eq(toolCatalogEntries.companyId, companyId),
+          eq(toolCatalogEntries.entryKind, "tool"),
+          eq(toolCatalogEntries.status, "active"),
+          isNull(toolCatalogEntries.quarantinedAt),
+          eq(toolConnections.companyId, companyId),
+          inArray(toolConnections.transport, ["mcp_remote", "local_stdio"]),
+          eq(toolConnections.status, "active"),
+          eq(toolConnections.enabled, true),
+          or(
+            inArray(toolConnections.healthStatus, ["ok", "healthy", "degraded"]),
+            eq(toolConnections.credentialPolicy, "per_user"),
+          ),
+          eq(toolApplications.companyId, companyId),
+          inArray(toolApplications.type, ["mcp_http", "mcp_stdio"]),
+          eq(toolApplications.status, "active"),
+          or(...selectorOrConditions),
+        ),
+      )
+      .orderBy(toolConnections.name, toolCatalogEntries.name);
+
+    if (cache) {
+      for (const row of rows) {
+        cache.primeCatalogEntry(row.catalogEntry);
+        cache.primeConnection(row.connection);
+        cache.primeApplication(row.application);
+      }
+    }
+    const descriptors = mapRowsToToolGatewayDescriptors(rows);
+    return descriptors.filter((tool) => toolMatchesProfileIncludes(tool, includeEntries));
+  }
+
+  function toolMatchesProfileIncludes(
+    tool: ToolGatewayDescriptor,
+    includeEntries: Array<typeof toolProfileEntries.$inferSelect>,
+  ): boolean {
+    return includeEntries.some((entry) => {
+      if (entry.selectorType === "connection") {
+        return Boolean(entry.connectionId && tool.connectionId === entry.connectionId);
+      }
+      if (entry.selectorType === "application") {
+        return Boolean(entry.applicationId && tool.applicationId === entry.applicationId);
+      }
+      if (entry.selectorType === "catalog_entry") {
+        return Boolean(entry.catalogEntryId && tool.catalogEntryId === entry.catalogEntryId);
+      }
+      if (entry.selectorType === "tool_name") {
+        const name = tool.upstreamToolName ?? tool.name;
+        return entry.toolName === name || entry.toolName === tool.name;
+      }
+      if (entry.selectorType === "risk_level") {
+        return entry.riskLevel === tool.risk;
+      }
+      return false;
+    });
   }
 
   async function connectedMcpToolsForConnection(
@@ -1777,34 +2114,53 @@ export function createToolGatewayService(
       );
     }
     if (namedGatewayTokenId(token)) {
-      return namedGatewaySessionFromBearer({
-        gatewayId: namedGatewayProtocol?.gatewayId ?? null,
-        gatewayPublicId: namedGatewayProtocol?.gatewayPublicId ?? null,
-        bearerToken: token,
-        protocolMethod: namedGatewayProtocol?.protocolMethod ?? "tools/call",
-        callerHeaders: namedGatewayProtocol?.callerHeaders,
-      });
+      if (namedGatewayProtocol?.gatewayId || namedGatewayProtocol?.gatewayPublicId) {
+        return namedGatewaySessionFromBearer({
+          gatewayId: namedGatewayProtocol.gatewayId ?? null,
+          gatewayPublicId: namedGatewayProtocol.gatewayPublicId ?? null,
+          bearerToken: token,
+          protocolMethod: namedGatewayProtocol.protocolMethod ?? "tools/call",
+          callerHeaders: namedGatewayProtocol.callerHeaders,
+        });
+      }
+      throw new ToolGatewayHttpError(
+        401,
+        "Tool gateway session is expired or invalid",
+        "session_invalid",
+      );
     }
 
-    const tokenHash = hashGatewayToken(token);
+    const parsed = parseGatewaySessionToken(token);
+    if (!parsed) {
+      throw new ToolGatewayHttpError(
+        401,
+        "Tool gateway session token is malformed",
+        "session_token_malformed",
+      );
+    }
+
     const [row] = await db
       .select()
       .from(toolGatewaySessions)
-      .where(eq(toolGatewaySessions.tokenHash, tokenHash))
+      .where(eq(toolGatewaySessions.id, parsed.sessionId))
       .limit(1);
 
     if (!row) {
-      const sessionId = sessionIdFromGatewayToken(token);
-      if (sessionId) {
-        const [candidate] = await db
-          .select()
-          .from(toolGatewaySessions)
-          .where(eq(toolGatewaySessions.id, sessionId))
-          .limit(1);
-        if (candidate) {
-          await writeSessionAuthFailure(candidate, "session_invalid");
-        }
-      }
+      throw new ToolGatewayHttpError(
+        401,
+        "Tool gateway session is expired or invalid",
+        "session_invalid",
+      );
+    }
+
+    const expectedHash = Buffer.from(row.tokenHash, "hex");
+    const computedHash = Buffer.from(hashGatewayToken(token), "hex");
+    const hashesMatch =
+      expectedHash.length === computedHash.length &&
+      timingSafeEqual(expectedHash, computedHash);
+
+    if (!hashesMatch) {
+      await writeSessionAuthFailure(row, "session_invalid");
       throw new ToolGatewayHttpError(
         401,
         "Tool gateway session is expired or invalid",
@@ -2552,6 +2908,15 @@ export function createToolGatewayService(
     const actorType = input.actorType ?? (input.agentId ? "agent" : "system");
     const actorId =
       input.actorId ?? input.agentId ?? input.gatewayId ?? input.companyId;
+    const legacyToolNames: string[] = [];
+    if (input.tool.legacyToolName) {
+      legacyToolNames.push(input.tool.legacyToolName);
+      if (input.tool.catalogEntryId) {
+        legacyToolNames.push(
+          `${input.tool.legacyToolName}-${shortStableId(input.tool.catalogEntryId)}`,
+        );
+      }
+    }
     return {
       companyId: input.companyId,
       actor: {
@@ -2567,6 +2932,8 @@ export function createToolGatewayService(
       },
       request: {
         toolName: input.tool.name,
+        legacyToolName: input.tool.legacyToolName ?? null,
+        legacyToolNames,
         applicationId: input.tool.applicationId ?? null,
         applicationKey: input.tool.applicationKey ?? null,
         connectionId: input.tool.connectionId ?? null,
@@ -2614,7 +2981,15 @@ export function createToolGatewayService(
           (candidate.providerType !== "paperclip_self" &&
             candidate.providerType !== "paperclip_plugin"),
       )
-      .find((candidate) => candidate.name === toolName);
+      .find(
+        (candidate) =>
+          candidate.name === toolName ||
+          (candidate.legacyToolName &&
+            (candidate.legacyToolName === toolName ||
+              (candidate.catalogEntryId &&
+                `${candidate.legacyToolName}-${shortStableId(candidate.catalogEntryId)}` ===
+                  toolName))),
+      );
     if (!tool) {
       throw new ToolGatewayHttpError(
         404,
@@ -2816,14 +3191,51 @@ export function createToolGatewayService(
     if (session.agentId) {
       await assertAgentInCompany(session.companyId, session.agentId);
     }
-    const allConnectedTools = await connectedMcpToolsForCompany(
-      session.companyId,
+    const cache = createToolEvaluationContextCache(db, session.companyId);
+    let gatewayProfile: typeof toolProfiles.$inferSelect | null = null;
+    let gatewayProfileEntries: Array<typeof toolProfileEntries.$inferSelect> = [];
+    if (session.gatewayProfileId) {
+      gatewayProfile = await cache.getProfile(session.gatewayProfileId);
+      if (gatewayProfile) {
+        gatewayProfileEntries = await cache.getProfileEntries([gatewayProfile.id]);
+      }
+    }
+    const isRestrictedGatewayProfile = Boolean(
+      gatewayProfile && gatewayProfile.defaultAction !== "allow",
     );
+
+    let allConnectedTools: ToolGatewayDescriptor[];
+    if (isRestrictedGatewayProfile && session.gatewayProfileId) {
+      allConnectedTools = await connectedMcpToolsForProfile(
+        session.companyId,
+        session.gatewayProfileId,
+        cache,
+      );
+    } else {
+      allConnectedTools = await connectedMcpToolsForCompany(
+        session.companyId,
+        cache,
+      );
+    }
+
     const onDemandTargets = allConnectedTools.filter(isOnDemandRemoteTool);
-    const tools = [
-      ...allTools(),
-      ...allConnectedTools.filter((tool) => !isOnDemandRemoteTool(tool)),
-    ].filter(
+
+    let baseTools: ToolGatewayDescriptor[];
+    if (isRestrictedGatewayProfile && gatewayProfile) {
+      const includeEntries = gatewayProfileEntries.filter((e) => e.effect === "include");
+      const builtins = allTools().filter((tool) => toolMatchesProfileIncludes(tool, includeEntries));
+      baseTools = [
+        ...builtins,
+        ...allConnectedTools.filter((tool) => !isOnDemandRemoteTool(tool)),
+      ];
+    } else {
+      baseTools = [
+        ...allTools(),
+        ...allConnectedTools.filter((tool) => !isOnDemandRemoteTool(tool)),
+      ];
+    }
+
+    const tools = baseTools.filter(
       (tool) =>
         session.agentId ||
         (tool.providerType !== "paperclip_self" &&
@@ -2833,6 +3245,7 @@ export function createToolGatewayService(
       tools.map(async (tool) => {
         const decision = await policyService.decide(
           policyInputForTool({ session, tool }),
+          cache,
         );
         return { tool, decision };
       }),
@@ -2860,6 +3273,7 @@ export function createToolGatewayService(
         onDemandTargets.map(async (tool) => {
           const decision = await policyService.decide(
             policyInputForTool({ session, tool }),
+            cache,
           );
           return { tool, decision };
         }),
@@ -3144,9 +3558,10 @@ export function createToolGatewayService(
    * it directly. Splitting validation from dispatch is what created the
    * DNS-rebinding TOCTOU in PAP-17098.
    */
-  function remoteHttpFetchOptions(): GuardedRemoteHttpFetchOptions {
+  function remoteHttpFetchOptions(proxy?: string | null): GuardedRemoteHttpFetchOptions {
     return {
       allowPrivateNetwork: allowPrivateRemoteEndpoints(),
+      proxy: proxy ?? null,
       error: (message, code) => new ToolGatewayHttpError(422, message, code),
     };
   }
@@ -3436,8 +3851,26 @@ export function createToolGatewayService(
     connection: typeof toolConnections.$inferSelect,
     status: "ok" | "error" | "missing_secret" | "degraded",
     message: string | null,
+    options?: { observedAt?: Date },
   ) {
     const now = new Date();
+    if (status === "degraded" && options?.observedAt) {
+      const [current] = await db
+        .select({
+          healthStatus: toolConnections.healthStatus,
+          lastHealthAt: toolConnections.lastHealthAt,
+        })
+        .from(toolConnections)
+        .where(eq(toolConnections.id, connection.id));
+      if (
+        current &&
+        current.healthStatus === "ok" &&
+        current.lastHealthAt &&
+        new Date(current.lastHealthAt).getTime() >= options.observedAt.getTime()
+      ) {
+        return;
+      }
+    }
     await db
       .update(toolConnections)
       .set({
@@ -5109,6 +5542,11 @@ export function createToolGatewayService(
       credentialHeaders,
       callerHeaders: input.callerHeaders,
     });
+    const proxy =
+      typeof input.connection.config?.proxy === "string" &&
+      input.connection.config.proxy.trim().length > 0
+        ? input.connection.config.proxy.trim()
+        : null;
     const response = await guardedRemoteHttpFetch(
       endpoint,
       {
@@ -5122,7 +5560,7 @@ export function createToolGatewayService(
           params: input.params,
         }),
       },
-      remoteHttpFetchOptions(),
+      remoteHttpFetchOptions(proxy),
     );
     const body = await readBoundedRemoteResponse(response);
     if (!response.ok) {
@@ -5741,6 +6179,7 @@ export function createToolGatewayService(
     ms: number,
     invocationId: string,
     callerHeaders?: ExecuteGatewayToolInput["callerHeaders"],
+    startedAt?: Date,
   ): Promise<RemoteHttpExecutionResult> {
     const { entry, connection } = await resolveConnectedRemoteTool(
       session,
@@ -5788,15 +6227,21 @@ export function createToolGatewayService(
         dispatched: true,
       },
     };
+    const invocationStartedAt = startedAt ?? new Date();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     timer.unref?.();
     try {
+      const proxy =
+        typeof connection.config?.proxy === "string" &&
+        connection.config.proxy.trim().length > 0
+          ? connection.config.proxy.trim()
+          : null;
       const dispatchRemote = (target: string, init: RequestInit) =>
         options.remoteHttpRequest
           ? options.remoteHttpRequest(target, init)
           : guardedRemoteHttpFetch(target, init, {
-              ...remoteHttpFetchOptions(),
+              ...remoteHttpFetchOptions(proxy),
               // This call site owns a caller-set budget that can exceed the
               // transport's default response deadline, so hand it down rather than
               // letting the tighter default cut a legitimately slow tool short.
@@ -5976,10 +6421,12 @@ export function createToolGatewayService(
           response.headers.get("traceparent"),
       };
       if (!response.ok) {
+        execution.failureKind = "protocol_failure";
         await markRemoteConnectionHealth(
           connection,
           "error",
           "Remote MCP server returned an HTTP error.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           502,
@@ -5990,6 +6437,7 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "protocol_failure",
           },
         );
       }
@@ -6000,10 +6448,12 @@ export function createToolGatewayService(
           response.headers.get("content-type"),
         );
       } catch {
+        execution.failureKind = "protocol_failure";
         await markRemoteConnectionHealth(
           connection,
           "error",
           "Remote MCP server returned invalid JSON.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           502,
@@ -6013,11 +6463,21 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "protocol_failure",
           },
         );
       }
       const payloadRecord = asRecord(payload);
-      if (!payloadRecord) throw malformedRemoteMcpResponse();
+      if (!payloadRecord) {
+        execution.failureKind = "protocol_failure";
+        await markRemoteConnectionHealth(
+          connection,
+          "error",
+          "Remote MCP server returned a malformed tools/call response.",
+          { observedAt: invocationStartedAt },
+        );
+        throw malformedRemoteMcpResponse();
+      }
       const topLevelElicitation = extractMcpElicitationRequest(payloadRecord);
       if (topLevelElicitation) {
         await requestElicitationForRecordedToolCall({
@@ -6029,10 +6489,12 @@ export function createToolGatewayService(
       }
       if (payloadRecord.error !== undefined) {
         const errorRecord = asRecord(payloadRecord.error);
+        execution.failureKind = "protocol_failure";
         await markRemoteConnectionHealth(
           connection,
           "error",
           "Remote MCP server returned a JSON-RPC error.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           502,
@@ -6044,10 +6506,18 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "protocol_failure",
           },
         );
       }
       if (!Object.prototype.hasOwnProperty.call(payloadRecord, "result")) {
+        execution.failureKind = "protocol_failure";
+        await markRemoteConnectionHealth(
+          connection,
+          "error",
+          "Remote MCP server returned a malformed tools/call response.",
+          { observedAt: invocationStartedAt },
+        );
         throw malformedRemoteMcpResponse();
       }
       const resultElicitation = extractMcpElicitationRequest(
@@ -6079,21 +6549,39 @@ export function createToolGatewayService(
       return { result, headerSummary, execution };
     } catch (error) {
       if (error instanceof ToolGatewayHttpError) {
+        const failureKind =
+          (error.details.failureKind as "invocation_timeout" | "transport_failure" | "protocol_failure" | undefined) ??
+          (error.reasonCode === "tool_timeout"
+            ? "invocation_timeout"
+            : error.reasonCode === "mcp_remote_status" ||
+                error.reasonCode === "mcp_remote_invalid_json" ||
+                error.reasonCode === "remote_mcp_error" ||
+                error.reasonCode === "remote_mcp_malformed_response"
+              ? "protocol_failure"
+              : undefined);
+        const currentExecution = error.details.execution ?? execution;
+        if (failureKind && currentExecution && typeof currentExecution === "object") {
+          (currentExecution as RemoteHttpExecutionAudit).failureKind =
+            (currentExecution as RemoteHttpExecutionAudit).failureKind ?? failureKind;
+        }
         throw new ToolGatewayHttpError(
           error.status,
           error.message,
           error.reasonCode,
           {
             ...error.details,
-            execution: error.details.execution ?? execution,
+            execution: currentExecution,
+            ...(failureKind ? { failureKind } : {}),
           },
         );
       }
       if (error instanceof Error && error.name === "AbortError") {
+        execution.failureKind = "invocation_timeout";
         await markRemoteConnectionHealth(
           connection,
-          "error",
-          "Remote MCP tool call timed out.",
+          "degraded",
+          "Remote MCP tool call timed out; transport remains viable.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           504,
@@ -6103,13 +6591,16 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "invocation_timeout",
           },
         );
       }
+      execution.failureKind = "transport_failure";
       await markRemoteConnectionHealth(
         connection,
         "error",
         "Remote MCP tool call failed.",
+        { observedAt: invocationStartedAt },
       );
       throw new ToolGatewayHttpError(
         502,
@@ -6119,6 +6610,7 @@ export function createToolGatewayService(
           connectionId: connection.id,
           catalogEntryId: entry.id,
           execution,
+          failureKind: "transport_failure",
         },
       );
     } finally {
@@ -6625,6 +7117,16 @@ export function createToolGatewayService(
       ? `id:${tokenId}`
       : `hash:${hashGatewayToken(token).slice(0, 24)}`;
     const gateway = await findGatewayForProtocolLocator(input);
+    logger.warn(
+      {
+        event: "named_gateway_auth_failed",
+        gatewayId: input.gatewayId ?? gateway?.id ?? null,
+        gatewayPublicId: input.gatewayPublicId ?? gateway?.gatewayPublicId ?? null,
+        reasonCode: input.reasonCode,
+        clientMetadata: input.clientMetadata,
+      },
+      `MCP named gateway authentication failed: ${input.reasonCode}`,
+    );
     if (!gateway) {
       throw new ToolGatewayHttpError(
         401,
@@ -6720,7 +7222,8 @@ export function createToolGatewayService(
     gatewayId?: string | null;
     gatewayPublicId?: string | null;
     bearerToken: string;
-    protocolMethod: McpGatewayProtocolMethod;
+    /** Null verifies a notification without protocol usage or identity writes. */
+    protocolMethod: McpGatewayProtocolMethod | null;
     callerHeaders?: Record<string, string | string[] | undefined>;
   }): Promise<ToolGatewaySession> {
     const clientMetadata = safeClientMetadata(input.callerHeaders);
@@ -6770,7 +7273,11 @@ export function createToolGatewayService(
         clientMetadata,
       });
     }
-    if (row.token.expiresAt && row.token.expiresAt.getTime() <= Date.now()) {
+    if (
+      row.token.subjectType !== "heartbeat_run" &&
+      row.token.expiresAt &&
+      row.token.expiresAt.getTime() <= Date.now()
+    ) {
       await recordNamedGatewayAuthFailure({
         gatewayId: input.gatewayId,
         gatewayPublicId: input.gatewayPublicId,
@@ -6855,11 +7362,15 @@ export function createToolGatewayService(
         });
       }
     }
-    const now = new Date();
-    await db
-      .update(toolMcpGatewayTokens)
-      .set({ lastUsedAt: now, updatedAt: now })
-      .where(eq(toolMcpGatewayTokens.id, row.token.id));
+    // Successful notifications do not update token usage. Authentication
+    // failures above retain their normal throttling and audit behavior.
+    if (input.protocolMethod) {
+      const now = new Date();
+      await db
+        .update(toolMcpGatewayTokens)
+        .set({ lastUsedAt: now, updatedAt: now })
+        .where(eq(toolMcpGatewayTokens.id, row.token.id));
+    }
     const session: ToolGatewaySession = {
       id: `gateway:${row.gateway.id}`,
       token: "",
@@ -6872,6 +7383,7 @@ export function createToolGatewayService(
       gatewayPublicId: row.gateway.gatewayPublicId,
       gatewayName: row.gateway.name,
       gatewayProfileId: row.gateway.profileId,
+      defaultProfileMode: row.gateway.defaultProfileMode,
       gatewayTokenId: row.token.id || tokenId,
       gatewayTokenAllowedActions: normalizeGatewayTokenActions(
         row.token.allowedActions,
@@ -6884,6 +7396,7 @@ export function createToolGatewayService(
         row.token.expiresAt ??
         new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000),
     };
+    if (!input.protocolMethod) return session;
     await assertNamedGatewayProtocolLimit(
       session,
       input.protocolMethod,
@@ -8558,12 +9071,31 @@ export function createToolGatewayService(
       });
     },
 
+    /** Verify a notification without consuming a protocol action allowance. */
+    async verifyNamedGatewayProtocolNotification(input: {
+      gatewayId?: string | null;
+      gatewayPublicId?: string | null;
+      bearerToken: string;
+      callerHeaders?: Record<string, string | string[] | undefined>;
+    }): Promise<void> {
+      await namedGatewaySessionFromBearer({
+        gatewayId: input.gatewayId ?? null,
+        gatewayPublicId: input.gatewayPublicId ?? null,
+        bearerToken: input.bearerToken,
+        protocolMethod: null,
+        callerHeaders: input.callerHeaders,
+      });
+    },
+
     async listToolsForNamedGateway(input: {
       gatewayId?: string | null;
       gatewayPublicId?: string | null;
       bearerToken: string;
       callerHeaders?: Record<string, string | string[] | undefined>;
-    }): Promise<ToolGatewayDescriptor[]> {
+    }): Promise<ToolGatewayDescriptor[] & {
+      tools: ToolGatewayDescriptor[];
+      allowedActions: ToolMcpGatewayTokenAction[];
+    }> {
       const session = await namedGatewaySessionFromBearer({
         gatewayId: input.gatewayId ?? null,
         gatewayPublicId: input.gatewayPublicId ?? null,
@@ -8587,7 +9119,10 @@ export function createToolGatewayService(
           visibleTools: tools.map((tool) => tool.name),
         },
       });
-      return tools;
+      return Object.assign([...tools], {
+        tools,
+        allowedActions: session.gatewayTokenAllowedActions ?? [...TOOL_MCP_GATEWAY_TOKEN_ACTIONS],
+      });
     },
 
     async executeContextForNamedGateway(input: {
@@ -10212,6 +10747,7 @@ export function createToolGatewayService(
                 executionTimeoutMs,
                 invocationId,
                 input.callerHeaders,
+                new Date(startedAt),
               )
             : tool.providerType === "mcp_local_stdio"
               ? await executeLocalStdioTool(
@@ -10350,13 +10886,18 @@ export function createToolGatewayService(
         const status =
           normalizedError instanceof ToolGatewayHttpError
             ? normalizedError.status
-            : 502;
+            : normalizedError instanceof HttpError
+              ? normalizedError.status
+              : 502;
         const reasonCode =
           normalizedError instanceof ToolContentValidationError
             ? normalizedError.reasonCode
             : normalizedError instanceof ToolGatewayHttpError
               ? normalizedError.reasonCode
-              : "tool_execution_failed";
+              : normalizedError instanceof HttpError &&
+                  typeof (normalizedError.details as Record<string, unknown> | undefined)?.code === "string"
+                ? ((normalizedError.details as Record<string, unknown>).code as string)
+                : "tool_execution_failed";
         const isRuntimeDeferred =
           status === 429 &&
           (reasonCode === "runtime_capacity_unavailable" ||
