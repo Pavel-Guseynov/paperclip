@@ -18,6 +18,7 @@ import {
   issueService,
   type IssuePostCommitAction,
 } from "../../../services/issues.js";
+import { transitionHeartbeatRunStatus } from "../../../services/heartbeat-run-lifecycle.js";
 import { issueRecoveryActionService } from "../../../services/issue-recovery-actions.js";
 import { RECOVERY_ORIGIN_KINDS } from "../../../services/recovery/origins.js";
 import { isTerminalIssueStatus } from "../domain/policy.js";
@@ -307,22 +308,29 @@ export function createPostgresWatchdogAdapter(db: Db): WatchdogRunReader & Watch
     };
 
     const transactionResult = await db.transaction(async (tx) => {
-      const [updatedRun] = await tx
-        .update(heartbeatRuns)
-        .set({
-          status: finalRunStatus,
+      const updatedRun = await transitionHeartbeatRunStatus(tx, input.run.id, {
+        toStatus: finalRunStatus,
+        patch: {
           finishedAt: input.now,
           error: null,
           errorCode: null,
           resultJson,
           updatedAt: input.now,
-        })
-        .where(and(
-          eq(heartbeatRuns.id, input.run.id),
+        },
+        phase: "finished",
+        outcome: finalRunStatus === "cancelled" ? "cancelled" : "succeeded",
+        cancellationAttribution: finalRunStatus === "cancelled"
+          ? {
+              cancellationOrigin: "source_issue_cancelled",
+              cancellationActor: { actorType: "system", actorId: "active_run_watchdog" },
+              triggerDetail: "Active run watchdog folded source resolved run",
+            }
+          : null,
+        whereCondition: and(
           eq(heartbeatRuns.companyId, companyId),
           eq(heartbeatRuns.status, "running"),
-        ))
-        .returning();
+        ),
+      });
       if (!updatedRun) return null;
 
       if (input.run.wakeupRequestId) {

@@ -201,6 +201,10 @@ import {
   isReviewPathRecoveryIdempotencyConflict,
   REVIEW_PATH_RECOVERY_INSTRUCTION,
 } from "../services/recovery/review-path-recovery.js";
+import {
+  buildExecutionStageWakeContext,
+  reconcileReviewHandoffAfterBlockerClear,
+} from "../services/recovery/review-handoff-retry.js";
 import { hydrateSuccessfulRunHandoffLiveness } from "../services/successful-run-handoff-state.js";
 import {
   TASK_WATCHDOG_ORIGIN_KIND,
@@ -479,16 +483,6 @@ type ActivityExecutionParticipant = Pick<
   NormalizedExecutionPolicy["stages"][number]["participants"][number],
   "type" | "agentId" | "userId"
 >;
-type ExecutionStageWakeContext = {
-  wakeRole: "reviewer" | "approver" | "executor";
-  stageId: string | null;
-  stageType: ParsedExecutionState["currentStageType"];
-  currentParticipant: ParsedExecutionState["currentParticipant"];
-  returnAssignee: ParsedExecutionState["returnAssignee"];
-  reviewRequest: ParsedExecutionState["reviewRequest"];
-  lastDecisionOutcome: ParsedExecutionState["lastDecisionOutcome"];
-  allowedActions: string[];
-};
 type SuccessfulRunHandoffActivityRow = {
   entityId: string;
   action: string;
@@ -871,7 +865,10 @@ function readNativeCompletionReviewForWake(input: {
   status: string;
 }) {
   const target = readObject(readObject(input.payload).target);
-  if (target.type !== "custom" || target.key !== "native_completion_review")
+  if (
+    target.type !== "custom" ||
+    (target.key !== "native_completion_review" && target.key !== "revision_keyed_review")
+  )
     return null;
   const result = readConfirmationResultForWake(input.result);
   return {
@@ -2078,23 +2075,6 @@ function isApprovalReviewComment(body: string) {
       normalized,
     )
   );
-}
-
-function buildExecutionStageWakeContext(input: {
-  state: ParsedExecutionState;
-  wakeRole: ExecutionStageWakeContext["wakeRole"];
-  allowedActions: string[];
-}): ExecutionStageWakeContext {
-  return {
-    wakeRole: input.wakeRole,
-    stageId: input.state.currentStageId,
-    stageType: input.state.currentStageType,
-    currentParticipant: input.state.currentParticipant,
-    returnAssignee: input.state.returnAssignee,
-    reviewRequest: input.state.reviewRequest ?? null,
-    lastDecisionOutcome: input.state.lastDecisionOutcome,
-    allowedActions: input.allowedActions,
-  };
 }
 
 function summarizeIssueRelationForActivity(relation: {
@@ -3884,8 +3864,10 @@ export function issueRoutes(
     res: Response,
     issue: { id: string; identifier?: string | null; companyId: string },
     kind: CrossIssueInfluenceKind,
+    options: { allowRunlessStandardAgentKey?: boolean } = {},
   ) {
     if (req.actor.type !== "agent") return true;
+    if (options.allowRunlessStandardAgentKey && isRunlessStandardAgentKey(req)) return true;
     if (!req.actor.agentId || !req.actor.runId)
       throw crossIssueInfluenceRunContextError();
 
@@ -5232,6 +5214,13 @@ export function issueRoutes(
     return null;
   }
 
+  function isRunlessStandardAgentKey(req: Request) {
+    return req.actor.type === "agent" &&
+      req.actor.source === "agent_key" &&
+      req.actor.keyScope?.kind === "standard" &&
+      !req.actor.runId?.trim();
+  }
+
   async function hasActiveCheckoutManagementOverride(
     actorAgentId: string,
     companyId: string,
@@ -5260,7 +5249,7 @@ export function issueRoutes(
       /** Used only to name the task in denial copy (plan §6). */
       identifier?: string | null;
     },
-    options: { allowVisibleIssueWrite?: boolean } = {},
+    options: { allowVisibleIssueWrite?: boolean; allowRunlessAssignedAgentKey?: boolean } = {},
   ) {
     if (req.actor.type !== "agent") return true;
     const actorAgentId = req.actor.agentId;
@@ -5362,6 +5351,13 @@ export function issueRoutes(
       return true;
     }
     if (issue.status !== "in_progress") {
+      return true;
+    }
+    if (
+      options.allowRunlessAssignedAgentKey &&
+      isRunlessStandardAgentKey(req)
+    ) {
+      await svc.assertCheckoutOwner(issue.id, actorAgentId, null);
       return true;
     }
     const runId = requireAgentRunId(req, res);
@@ -6869,14 +6865,21 @@ export function issueRoutes(
     }
   }
 
-  async function resolveActiveIssueRun(issue: {
-    id: string;
-    assigneeAgentId: string | null;
-    executionRunId?: string | null;
-  }) {
-    let runToInterrupt = issue.executionRunId
-      ? await heartbeat.getRun(issue.executionRunId)
-      : null;
+  async function resolveActiveIssueRun(
+    issue: {
+      id: string;
+      assigneeAgentId: string | null;
+      executionRunId?: string | null;
+    },
+    options?: {
+      excludeRunId?: string | null;
+    },
+  ) {
+    const excludeRunId = options?.excludeRunId ?? null;
+    let runToInterrupt =
+      issue.executionRunId && issue.executionRunId !== excludeRunId
+        ? await heartbeat.getRun(issue.executionRunId)
+        : null;
 
     if (
       (!runToInterrupt || runToInterrupt.status !== "running") &&
@@ -6897,7 +6900,8 @@ export function issueRoutes(
       if (
         activeRun &&
         activeRun.status === "running" &&
-        activeIssueId === issue.id
+        activeIssueId === issue.id &&
+        activeRun.id !== excludeRunId
       ) {
         runToInterrupt = activeRun;
       }
@@ -9478,6 +9482,25 @@ export function issueRoutes(
       for (const publication of postCommitActivityPublications)
         publishActivity(publication);
       await flushIssuePostCommitActions(postCommitIssueActions);
+
+      // Resolving the action removed the blocker this issue was waiting on, so
+      // the owed review handoff is reconciled before the response returns. A
+      // fire-and-forget reconciliation is not tracked by the heartbeat's active
+      // execution sets, so it could still be writing after teardown or a
+      // graceful stop.
+      if (result.issue.status === "in_review") {
+        await reconcileReviewHandoffAfterBlockerClear(db, {
+          issueId: result.issue.id,
+          companyId: result.issue.companyId,
+          enqueueWakeup: (agentId, request) => heartbeat.wakeup(agentId, request),
+          source: "routes.issues.recovery_action_resolved",
+        }).catch((err) => {
+          logger.warn(
+            { err, issueId: result.issue.id },
+            "failed to reconcile review handoff after recovery action resolution",
+          );
+        });
+      }
 
       await routinesSvc.syncRunStatusForIssue(result.issue.id);
 
@@ -12752,7 +12775,7 @@ export function issueRoutes(
         req,
         res,
         existing,
-        { allowVisibleIssueWrite: true },
+        { allowVisibleIssueWrite: true, allowRunlessAssignedAgentKey: true },
       );
       if (!issueMutationAccess) return;
       if (req.body.comment && !(await assertBoardCommentNotPaused(req, res, existing))) return;
@@ -13000,6 +13023,7 @@ export function issueRoutes(
           res,
           existing,
           "update",
+          { allowRunlessStandardAgentKey: true },
         ))
       )
         return;
@@ -13010,6 +13034,7 @@ export function issueRoutes(
           res,
           existing,
           "comment",
+          { allowRunlessStandardAgentKey: true },
         ))
       )
         return;
@@ -13320,6 +13345,12 @@ export function issueRoutes(
       const persistReviewActivityTransactionally =
         enteringReviewRequested || Boolean(reviewInteractionId);
 
+      const requestingRunId =
+        (typeof actor.runId === "string" && actor.runId.trim()) ||
+        (typeof req.header("x-paperclip-run-id") === "string" &&
+          req.header("x-paperclip-run-id")!.trim()) ||
+        null;
+
       const nextAssigneeAgentId =
         updateFields.assigneeAgentId === undefined
           ? existing.assigneeAgentId
@@ -13369,7 +13400,12 @@ export function issueRoutes(
           issueId: existing.id,
           agentId: existing.assigneeAgentId,
         });
-        const runToStopForReassignment = await resolveActiveIssueRun(existing);
+        const runToStopForReassignment = await resolveActiveIssueRun(
+          existing,
+          transition.decision && requestingRunId
+            ? { excludeRunId: requestingRunId }
+            : undefined,
+        );
         if (runToStopForReassignment) {
           const cancelled = await heartbeat.cancelRun(
             runToStopForReassignment.id,
@@ -13409,7 +13445,12 @@ export function issueRoutes(
           agentId: existing.assigneeAgentId,
         });
         const runToStopForTerminalization = goalStopAction
-          ? await resolveActiveIssueRun(existing)
+          ? await resolveActiveIssueRun(
+              existing,
+              transition.decision && requestingRunId
+                ? { excludeRunId: requestingRunId }
+                : undefined,
+            )
           : null;
         if (goalStopAction && runToStopForTerminalization) {
           const cancelled = await heartbeat.cancelRun(

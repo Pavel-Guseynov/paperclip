@@ -386,7 +386,10 @@ function readWorkspaceDivergence(action: IssueRecoveryAction): WorkspaceDivergen
     dirtyPathSample: asStringArray(workspaceValidation.dirtyPathSample),
     contention: readContention(workspaceValidation.contention),
     rescueBranchPreview: buildRescueBranchPreview(sourceIdentifier),
-    reissueBaseRef: liveBranch ?? liveHeadSha,
+    reissueBaseRef:
+      asNonEmptyString(workspaceValidation.reissueBaseRef) ??
+      liveBranch ??
+      liveHeadSha,
   };
 }
 

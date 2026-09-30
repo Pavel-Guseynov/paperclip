@@ -255,6 +255,56 @@ export function postgresJsOptions(options: DatabaseClientOptions): Record<string
   return driverOptions;
 }
 
+const POST_COMMIT_HOOKS = Symbol.for("paperclip.db.postCommitHooks");
+
+export type PostCommitHook = () => void | Promise<void>;
+
+export function registerPostCommitHook(dbOrTx: unknown, hook: PostCommitHook): boolean {
+  if (!dbOrTx || typeof dbOrTx !== "object") return false;
+  const hooks = (dbOrTx as any)[POST_COMMIT_HOOKS];
+  if (Array.isArray(hooks)) {
+    hooks.push(hook);
+    return true;
+  }
+  return false;
+}
+
+export function installPostCommitHooks<T extends { transaction: (...args: any[]) => any }>(target: T): T {
+  const originalTransaction = target.transaction.bind(target);
+  target.transaction = (async function (this: any, cb: any, config?: any) {
+    const parentHooks = this?.[POST_COMMIT_HOOKS];
+    if (Array.isArray(parentHooks)) {
+      // Nested transaction / savepoint: collect hooks in nested array and bubble up on success
+      const nestedHooks: PostCommitHook[] = [];
+      const result = await originalTransaction(async (nestedTx: any) => {
+        nestedTx[POST_COMMIT_HOOKS] = nestedHooks;
+        installPostCommitHooks(nestedTx);
+        return await cb(nestedTx);
+      }, config);
+      parentHooks.push(...nestedHooks);
+      return result;
+    }
+
+    // Top-level transaction: collect hooks and run only after successful commit
+    const rootHooks: PostCommitHook[] = [];
+    const result = await originalTransaction(async (tx: any) => {
+      tx[POST_COMMIT_HOOKS] = rootHooks;
+      installPostCommitHooks(tx);
+      return await cb(tx);
+    }, config);
+
+    for (const hook of rootHooks) {
+      try {
+        await hook();
+      } catch (err) {
+        console.error("Failed to execute post-commit hook:", err);
+      }
+    }
+    return result;
+  }) as any;
+  return target;
+}
+
 export function createDb(url: string, options?: DatabaseClientOptions) {
   const resolved = resolveDatabaseClientOptions(options ?? databaseClientOptionsFromEnv());
   const sql = postgres(url, postgresJsOptions(resolved));
@@ -263,7 +313,9 @@ export function createDb(url: string, options?: DatabaseClientOptions) {
   // The registry keeps the real client (teardown must end the actual pool);
   // drizzle gets the retrying face so a pooler-recycled socket replays the
   // query instead of failing the request that happened to draw it.
-  return drizzlePg(withTransientWriteRetry(sql), { schema });
+  const db = drizzlePg(withTransientWriteRetry(sql), { schema });
+  installPostCommitHooks(db);
+  return db;
 }
 
 export async function getPostgresDataDirectory(url: string): Promise<string | null> {

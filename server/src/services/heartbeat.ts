@@ -16,6 +16,7 @@ import {
   legacyExecutionNeedsReconciliation,
   terminalizeLegacyExecution,
 } from "./legacy-execution-recovery.js";
+import { transitionHeartbeatRunStatus, type RunCancellationAttribution } from "./heartbeat-run-lifecycle.js";
 import {
   adapterExecutionControls,
   captureAdapterStopOwnership,
@@ -657,6 +658,8 @@ const NATIVE_OWNERSHIP_UNVERIFIED_MESSAGE =
   "Native execution ownership could not be verified; automatic recovery is blocked";
 // The reaper sweeps at most this many pending_cleanup leases per tick.
 const PENDING_CLEANUP_SWEEP_PAGE_SIZE = 20;
+// The reaper sweeps at most this many orphaned active leases per tick.
+const ORPHANED_ACTIVE_LEASE_SWEEP_PAGE_SIZE = 20;
 // The reaper stops retrying a pending_cleanup lease after this many attempts.
 const PENDING_CLEANUP_SWEEP_ATTEMPT_CAP = 5;
 // The reaper stores its retry state under these keys in the lease metadata.
@@ -670,6 +673,7 @@ const PENDING_CLEANUP_CAP_WARNED_METADATA_KEY = "pendingCleanupRetryCapWarned";
 // catch site logs a constant, locally generated `errorKind` instead.
 const PENDING_CLEANUP_RETRY_ERROR_KIND = "destroy_failed";
 const PENDING_CLEANUP_SWEEP_ERROR_KIND = "sweep_failed";
+const ORPHANED_ACTIVE_LEASE_SWEEP_ERROR_KIND = "orphaned_active_lease_sweep_failed";
 
 // Read the stored retry attempt count as a safe value, directly in SQL. A
 // provider can write a malformed value under the attempts key. The type guard
@@ -1151,10 +1155,10 @@ function isRetryableInteractionContinuationInfrastructureFailure(
     "error" | "errorCode" | "resultJson"
   >,
 ) {
-  if (
-    run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE ||
-    run.errorCode === "process_lost"
-  ) {
+  if (run.errorCode === WORKSPACE_VALIDATION_FAILURE_CODE) {
+    return true;
+  }
+  if (run.errorCode === "process_lost") {
     return true;
   }
 
@@ -2756,7 +2760,7 @@ type WorkspaceValidationFailureLike =
       resultJson: Record<string, unknown>;
     };
 
-function isWorkspaceValidationFailure(
+function isWorkspaceValidationFailureDirect(
   error: unknown,
 ): error is WorkspaceValidationFailureLike {
   if (error instanceof WorkspaceValidationFailure) return true;
@@ -2768,6 +2772,33 @@ function isWorkspaceValidationFailure(
     typeof maybe.resultJson === "object" &&
     !Array.isArray(maybe.resultJson),
   );
+}
+
+function findWorkspaceValidationFailure(
+  error: unknown,
+): WorkspaceValidationFailureLike | null {
+  let current = error;
+  const visited = new Set<unknown>();
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    if (isWorkspaceValidationFailureDirect(current)) {
+      return current;
+    }
+    current = "cause" in current ? (current as { cause?: unknown }).cause : null;
+  }
+  return null;
+}
+
+export function isWorkspaceValidationFailure(
+  error: unknown,
+): error is WorkspaceValidationFailureLike {
+  return findWorkspaceValidationFailure(error) !== null;
+}
+
+export function getWorkspaceValidationFailure(
+  error: unknown,
+): WorkspaceValidationFailureLike | null {
+  return findWorkspaceValidationFailure(error);
 }
 
 function isWorkspaceValidationFailedRun(
@@ -4425,11 +4456,19 @@ function configuredPaperclipApiBaseUrl(): string | null {
     : null;
 }
 
-function paperclipApiBaseUrl(): string {
-  const configured = configuredPaperclipApiBaseUrl();
+function configuredPaperclipRuntimeApiBaseUrl(): string | null {
+  const runtime = readNonEmptyString(process.env.PAPERCLIP_RUNTIME_API_URL);
+  if (runtime) {
+    return runtime.replace(/\/+$/, "").replace(/\/api$/, "");
+  }
+  return configuredPaperclipApiBaseUrl();
+}
+
+function paperclipRuntimeApiBaseUrl(): string {
+  const configured = configuredPaperclipRuntimeApiBaseUrl();
   if (!configured) {
     throw new Error(
-      "PAPERCLIP_API_URL is required to deliver managed runtime MCP servers",
+      "PAPERCLIP_RUNTIME_API_URL or PAPERCLIP_API_URL is required to deliver managed runtime MCP servers",
     );
   }
   return configured;
@@ -4749,7 +4788,7 @@ export async function buildPaperclipRuntimeMcpServers(input: {
   return [
     {
       name: "paperclip-assigned",
-      url: `${paperclipApiBaseUrl()}/mcp/gateways/${gateway!.gatewayPublicId}`,
+      url: `${paperclipRuntimeApiBaseUrl()}/mcp/gateways/${gateway!.gatewayPublicId}`,
       token: token.token,
       connectionId: `assignment:${assignmentDigest}`,
     },
@@ -4783,7 +4822,7 @@ function createAdapterRuntimeToolAccess(input: {
   // tests invoke heartbeat execution without booting an HTTP server, however;
   // in that context there is no reachable endpoint to advertise and runtime
   // tools should simply remain unavailable instead of failing the run.
-  const baseUrl = configuredPaperclipApiBaseUrl();
+  const baseUrl = configuredPaperclipRuntimeApiBaseUrl();
   if (!baseUrl) return undefined;
   return Object.freeze({
     version: 1,
@@ -5965,8 +6004,9 @@ export async function provisionExecutionWorkspaceForFreshnessDecision<
   try {
     restored = (await input.restoreExistingWorkspace?.()) ?? null;
   } catch (error) {
-    if (isWorkspaceValidationFailure(error)) {
-      throw error;
+    const wsFailure = findWorkspaceValidationFailure(error);
+    if (wsFailure) {
+      throw wsFailure;
     }
     reuseFailure = formatInheritedExecutionWorkspaceReuseFailure({
       reason: "inherited_workspace_reuse_failed",
@@ -9295,7 +9335,10 @@ export function resolveHeartbeatSchedulingSuppression(
 ): {
   suppressed: boolean;
   reason:
-    "worktree_instance" | "database_restore_in_progress" | "task_drain" | null;
+    | "worktree_instance"
+    | "database_restore_in_progress"
+    | "task_drain"
+    | null;
 } {
   if (
     isTruthyRuntimeEnvValue(env.PAPERCLIP_IN_WORKTREE) &&
@@ -9423,6 +9466,15 @@ export function heartbeatService(
       if (!agent || agent.companyId !== run.companyId) return null;
       const result = await scheduleBoundedRetryForRun(run, agent);
       return result.outcome === "scheduled" ? result.run : null;
+    },
+    releaseEnvironmentLeasesForRun: async (run) => {
+      await releaseEnvironmentLeasesForRun({
+        runId: run.id,
+        companyId: run.companyId,
+        agentId: run.agentId,
+        status: run.status,
+        failureReason: "terminalized_in_stale_lock_sweep",
+      });
     },
   });
   const runDispatch = createRunDispatch(db);
@@ -10023,6 +10075,33 @@ export function heartbeatService(
   }) {
     const leaseOwnerRun = await getRun(input.runId);
     if (leaseOwnerRun && isNativeRunnerOwnershipHeld(leaseOwnerRun)) return;
+    if (
+      leaseOwnerRun &&
+      ((typeof leaseOwnerRun.processPid === "number" && isProcessAlive(leaseOwnerRun.processPid)) ||
+        (typeof leaseOwnerRun.processGroupId === "number" && isProcessGroupAlive(leaseOwnerRun.processGroupId)) ||
+        runningProcesses.has(input.runId))
+    ) {
+      return;
+    }
+    if (leaseOwnerRun && leaseOwnerRun.runtimeMode === "native") {
+      const coordinator = await db
+        .select({
+          phase: nativeRunFinalizations.phase,
+          resultId: nativeRunFinalizations.resultId,
+          attempt: nativeRunFinalizations.attempt,
+        })
+        .from(nativeRunFinalizations)
+        .where(eq(nativeRunFinalizations.runId, leaseOwnerRun.id))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      const nativeResumeOwnsRun =
+        coordinator?.resultId === null &&
+        (coordinator.phase === "retryable_failure" ||
+          (coordinator.phase === "observed" && coordinator.attempt > 0));
+      if (nativeResumeOwnsRun) {
+        return;
+      }
+    }
     if (input.providerResourceDisposition === "destroy") {
       const closeResult = await (
         options.closeWarmNativeSessionsForRun ??
@@ -12613,6 +12692,7 @@ export function heartbeatService(
     runId: string,
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    options?: { cancellationAttribution?: RunCancellationAttribution | null },
   ) {
     const previousStatus = await db
       .select()
@@ -12651,17 +12731,31 @@ export function heartbeatService(
             status,
             patch,
           })
-        : await db
-            .update(heartbeatRuns)
-            .set({
-              status,
+        : await transitionHeartbeatRunStatus(db, runId, {
+            toStatus: status,
+            patch: {
               ...patch,
               executionStatusDeliveryId: randomUUID(),
               updatedAt: new Date(),
-            })
-            .where(eq(heartbeatRuns.id, runId))
-            .returning()
-            .then((rows) => rows[0] ?? null);
+            },
+            phase: status === "queued" ? "queued" : status === "running" ? "started" : status === "scheduled_retry" ? "retrying" : "finished",
+            outcome: ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(status) ? (status as any) : null,
+            cancellationAttribution: options?.cancellationAttribution !== undefined
+              ? options.cancellationAttribution
+              : status === "cancelled"
+              ? (patch?.errorCode === "legacy_controller_lease_expired" || patch?.error === "Legacy controller lease lost"
+                  ? {
+                      cancellationOrigin: "legacy_controller_lease_expired",
+                      cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+                      triggerDetail: patch?.error ?? "Legacy controller lease lost",
+                    }
+                  : {
+                      cancellationOrigin: patch?.errorCode ?? "set_run_status_cancelled",
+                      cancellationActor: { actorType: "system", actorId: "heartbeat_service" },
+                      triggerDetail: patch?.error ?? null,
+                    })
+              : null,
+          });
 
     if (updated) {
       publishLiveEvent({
@@ -12680,8 +12774,9 @@ export function heartbeatService(
     runId: string,
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    options?: { cancellationAttribution?: RunCancellationAttribution | null },
   ) {
-    return setRunStatusFromLive(runId, status, ["running"], patch);
+    return setRunStatusFromLive(runId, status, ["running"], patch, options);
   }
 
   // Move a run to a new status only when its current status is one of
@@ -12694,6 +12789,7 @@ export function heartbeatService(
     status: string,
     fromStatuses: string[],
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    options?: { cancellationAttribution?: RunCancellationAttribution | null },
   ) {
     // fromStatuses can name a terminal status as its own source (for example,
     // an idempotent "still failed" patch), so the write below is not always a
@@ -12736,25 +12832,37 @@ export function heartbeatService(
             patch,
             fromStatuses,
           })
-        : await db
-            .update(heartbeatRuns)
-            .set({
-              status,
+        : await transitionHeartbeatRunStatus(db, runId, {
+            toStatus: status,
+            patch: {
               ...patch,
               executionStatusDeliveryId: randomUUID(),
               updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(heartbeatRuns.id, runId),
-                inArray(heartbeatRuns.status, fromStatuses),
-                ...(isHeartbeatRunTerminalStatus(status)
-                  ? [nativeRunnerOwnershipNotHeldCondition()]
-                  : []),
-              ),
-            )
-            .returning()
-            .then((rows) => rows[0] ?? null);
+            },
+            phase: status === "queued" ? "queued" : status === "running" ? "started" : status === "scheduled_retry" ? "retrying" : "finished",
+            outcome: ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(status) ? (status as any) : null,
+            cancellationAttribution: options?.cancellationAttribution !== undefined
+              ? options.cancellationAttribution
+              : status === "cancelled"
+              ? (patch?.errorCode === "legacy_controller_lease_expired" || patch?.error === "Legacy controller lease lost"
+                  ? {
+                      cancellationOrigin: "legacy_controller_lease_expired",
+                      cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+                      triggerDetail: patch?.error ?? "Legacy controller lease lost",
+                    }
+                  : {
+                      cancellationOrigin: patch?.errorCode ?? "set_run_status_cancelled",
+                      cancellationActor: { actorType: "system", actorId: "heartbeat_service" },
+                      triggerDetail: patch?.error ?? null,
+                    })
+              : null,
+            whereCondition: and(
+              inArray(heartbeatRuns.status, fromStatuses),
+              ...(isHeartbeatRunTerminalStatus(status)
+                ? [nativeRunnerOwnershipNotHeldCondition()]
+                : []),
+            ),
+          });
 
     if (updated) {
       publishLiveEvent({
@@ -14888,6 +14996,9 @@ export function heartbeatService(
     now = new Date(),
     runIds: readonly string[] | null = null,
   ) {
+    if (!runIds) {
+      shutdownInProgress = true;
+    }
     const selectedRunIds = runIds ? [...new Set(runIds)] : null;
     if (selectedRunIds?.length === 0) {
       return {
@@ -16944,10 +17055,9 @@ export function heartbeatService(
         const error = stopped
           ? "Automatic continuation stopped by the committed chat conversation close. Send a new request in chat or on the Board to start fresh work."
           : "Automatic continuation source could not be verified before provider admission. Review the task and send a fresh request; this attempt will not automatically retry.";
-        [terminal] = await tx
-          .update(heartbeatRuns)
-          .set({
-            status: stopped ? "cancelled" : "failed",
+        terminal = await transitionHeartbeatRunStatus(tx, current.id, {
+          toStatus: stopped ? "cancelled" : "failed",
+          patch: {
             errorCode: code,
             error,
             finishedAt: now,
@@ -16966,14 +17076,19 @@ export function heartbeatService(
               },
             },
             updatedAt: now,
-          })
-          .where(
-            and(
-              eq(heartbeatRuns.id, current.id),
-              eq(heartbeatRuns.status, current.status),
-            ),
-          )
-          .returning();
+          },
+          phase: "finished",
+          outcome: stopped ? "cancelled" : "failed",
+          cancellationAttribution: stopped
+            ? {
+                cancellationOrigin: "chat_conversation_closed",
+                cancellationActor: { actorType: "system", actorId: "chat_control" },
+                triggerDetail: error,
+              }
+            : null,
+          error: stopped ? null : { code, message: error },
+          whereCondition: eq(heartbeatRuns.status, current.status),
+        });
         if (!terminal) return null;
         if (current.wakeupRequestId)
           await tx
@@ -17277,10 +17392,9 @@ export function heartbeatService(
                 if (proof.kind === "stopped") {
                   const error =
                     "Automatic continuation stopped by the committed chat conversation close. Send a fresh request in chat or on the Board.";
-                  const [cancelled] = await tx
-                    .update(heartbeatRuns)
-                    .set({
-                      status: "cancelled",
+                  const cancelled = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                    toStatus: "cancelled",
+                    patch: {
                       errorCode: CHAT_CONTROL_RECOVERY_STOP_CODE,
                       error,
                       finishedAt: claimedAt,
@@ -17295,14 +17409,16 @@ export function heartbeatService(
                         },
                       },
                       updatedAt: claimedAt,
-                    })
-                    .where(
-                      and(
-                        eq(heartbeatRuns.id, lockedRun.id),
-                        eq(heartbeatRuns.status, "queued"),
-                      ),
-                    )
-                    .returning();
+                    },
+                    phase: "finished",
+                    outcome: "cancelled",
+                    cancellationAttribution: {
+                      cancellationOrigin: "chat_conversation_closed",
+                      cancellationActor: { actorType: "system", actorId: "chat_control" },
+                      triggerDetail: error,
+                    },
+                    whereCondition: eq(heartbeatRuns.status, "queued"),
+                  });
                   if (!cancelled) return { kind: "stale" as const, run: null };
                   await tx
                     .update(agentWakeupRequests)
@@ -17354,23 +17470,17 @@ export function heartbeatService(
                 // envelope. Preserve their established claim path; only an
                 // explicitly bound queued-message envelope is subject to the
                 // live-comment discard gate below.
-                const [claimedRun] = await tx
-                  .update(heartbeatRuns)
-                  .set({
-                    status: "running",
+                const claimedRun = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                  toStatus: "running",
+                  patch: {
                     runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
                     ...legacyControllerClaim(run.runtimeMode),
                     responsibleUserId,
                     startedAt: lockedRun.startedAt ?? claimedAt,
-                    updatedAt: claimedAt,
-                  })
-                  .where(
-                    and(
-                      eq(heartbeatRuns.id, lockedRun.id),
-                      eq(heartbeatRuns.status, "queued"),
-                    ),
-                  )
-                  .returning();
+                  },
+                  phase: "started",
+                  whereCondition: eq(heartbeatRuns.status, "queued"),
+                });
                 return claimedRun
                   ? { kind: "claimed" as const, run: claimedRun }
                   : { kind: "stale" as const, run: null };
@@ -17394,22 +17504,23 @@ export function heartbeatService(
               });
               if (liveIds.length === 0) {
                 const reason = "Queued messages were discarded before dispatch";
-                const [cancelled] = await tx
-                  .update(heartbeatRuns)
-                  .set({
-                    status: "cancelled",
+                const cancelled = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                  toStatus: "cancelled",
+                  patch: {
                     finishedAt: claimedAt,
                     error: reason,
                     errorCode: "queued_comment_discarded",
                     updatedAt: claimedAt,
-                  })
-                  .where(
-                    and(
-                      eq(heartbeatRuns.id, lockedRun.id),
-                      eq(heartbeatRuns.status, "queued"),
-                    ),
-                  )
-                  .returning();
+                  },
+                  phase: "finished",
+                  outcome: "cancelled",
+                  cancellationAttribution: {
+                    cancellationOrigin: "queued_comment_discarded",
+                    cancellationActor: { actorType: "system", actorId: "heartbeat_claim" },
+                    triggerDetail: reason,
+                  },
+                  whereCondition: eq(heartbeatRuns.status, "queued"),
+                });
                 await tx
                   .update(agentWakeupRequests)
                   .set({
@@ -17452,12 +17563,11 @@ export function heartbeatService(
                   updatedAt: claimedAt,
                 })
                 .where(eq(agentWakeupRequests.id, wake.id));
-              const [claimedRun] = await tx
-                .update(heartbeatRuns)
-                .set({
-                  status: "running",
+              const claimedRun = await transitionHeartbeatRunStatus(tx, lockedRun.id, {
+                toStatus: "running",
+                patch: {
                   runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
-                    ...legacyControllerClaim(run.runtimeMode),
+                  ...legacyControllerClaim(run.runtimeMode),
                   responsibleUserId,
                   startedAt: lockedRun.startedAt ?? claimedAt,
                   contextSnapshot: withQueuedCommentIdsInRunContext(
@@ -17465,14 +17575,10 @@ export function heartbeatService(
                     liveIds,
                   ),
                   updatedAt: claimedAt,
-                })
-                .where(
-                  and(
-                    eq(heartbeatRuns.id, lockedRun.id),
-                    eq(heartbeatRuns.status, "queued"),
-                  ),
-                )
-                .returning();
+                },
+                phase: "started",
+                whereCondition: eq(heartbeatRuns.status, "queued"),
+              });
               return claimedRun
                 ? { kind: "claimed" as const, run: claimedRun }
                 : { kind: "stale" as const, run: null };
@@ -17520,24 +17626,18 @@ export function heartbeatService(
     const claimed = queuedCommentClaim
       ? queuedCommentClaim.run
       : await withChatControlRecoveryGate(run, "claim", async (tx) =>
-          tx
-            .update(heartbeatRuns)
-            .set({
-              status: "running",
+          transitionHeartbeatRunStatus(tx, run.id, {
+            toStatus: "running",
+            patch: {
               runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
-                    ...legacyControllerClaim(run.runtimeMode),
+              ...legacyControllerClaim(run.runtimeMode),
               responsibleUserId,
               startedAt: run.startedAt ?? claimedAt,
               updatedAt: claimedAt,
-            })
-            .where(
-              and(
-                eq(heartbeatRuns.id, run.id),
-                eq(heartbeatRuns.status, "queued"),
-              ),
-            )
-            .returning()
-            .then((rows) => rows[0] ?? null),
+            },
+            phase: "started",
+            whereCondition: eq(heartbeatRuns.status, "queued"),
+          }),
         );
     if (!claimed) return null;
 
@@ -17627,19 +17727,16 @@ export function heartbeatService(
   async function releaseRunClaimedJustBeforeSuppression(runId: string) {
     const now = new Date();
     await db.transaction(async (tx) => {
-      const released = await tx
-        .update(heartbeatRuns)
-        .set({
-          status: "queued",
+      const released = await transitionHeartbeatRunStatus(tx, runId, {
+        toStatus: "queued",
+        patch: {
           startedAt: null,
           responsibleUserId: null,
           updatedAt: now,
-        })
-        .where(
-          and(eq(heartbeatRuns.id, runId), eq(heartbeatRuns.status, "running")),
-        )
-        .returning()
-        .then((rows) => rows[0] ?? null);
+        },
+        phase: "queued",
+        whereCondition: eq(heartbeatRuns.status, "running"),
+      });
       if (!released) return;
 
       if (released.wakeupRequestId) {
@@ -18166,6 +18263,143 @@ export function heartbeatService(
       );
   }
 
+  // Move a guarded orphan candidate to the back of the sweep order. The
+  // shared-resource guard below can skip a row on every tick as long as the
+  // other owner stays live, retained, or pending cleanup. The select orders
+  // by `updatedAt` ascending and takes only the oldest page, so an untouched
+  // skipped row keeps refilling that same page and blocks every row behind
+  // it. The bump pushes the row past the fixed-size page, so the next tick
+  // reaches the rows behind it. It costs the row one extra backoff wait,
+  // which is safe because the guard means a physical sandbox still exists.
+  async function deferOrphanedActiveLease(leaseId: string): Promise<void> {
+    const now = new Date();
+    await db
+      .update(environmentLeases)
+      .set({ updatedAt: now })
+      .where(
+        and(
+          eq(environmentLeases.id, leaseId),
+          eq(environmentLeases.status, "active"),
+        ),
+      );
+  }
+
+  // An active lease is reachable only while its heartbeat run keeps the
+  // running status. The reaper writes the run status and the lease release as
+  // two separate statements, so a restart between them can leave a terminal
+  // run and an active lease. `releaseRunLeases` also skips a lease whose
+  // environment row is gone, so that lease stays active too. No later query
+  // finds either lease, because every production query selects an active
+  // lease by its environment or by its heartbeat run id, never by age. This
+  // sweep finds both stranded classes and moves each lease to pending_cleanup,
+  // so the existing pending_cleanup sweep tears the sandbox down from the
+  // data already on the lease row.
+  async function sweepOrphanedActiveLeases(opts: {
+    backoffMs: number;
+  }): Promise<{ recovered: number }> {
+    const cutoff = new Date(Date.now() - opts.backoffMs);
+
+    const rows = await db
+      .select({
+        lease: environmentLeases,
+        run: heartbeatRuns,
+      })
+      .from(environmentLeases)
+      .leftJoin(
+        heartbeatRuns,
+        eq(environmentLeases.heartbeatRunId, heartbeatRuns.id),
+      )
+      .where(
+        and(
+          eq(environmentLeases.status, "active"),
+          or(
+            isNull(environmentLeases.heartbeatRunId),
+            inArray(heartbeatRuns.status, [
+              ...HEARTBEAT_RUN_TERMINAL_STATUSES,
+            ]),
+          ),
+          lte(environmentLeases.updatedAt, cutoff),
+        ),
+      )
+      .orderBy(asc(environmentLeases.updatedAt))
+      .limit(ORPHANED_ACTIVE_LEASE_SWEEP_PAGE_SIZE);
+
+    let recovered = 0;
+    for (const { lease, run } of rows) {
+      if (run) {
+        if (isNativeRunnerOwnershipHeld(run)) {
+          continue;
+        }
+        const processAlive =
+          (typeof run.processPid === "number" && isProcessAlive(run.processPid)) ||
+          (typeof run.processGroupId === "number" && isProcessGroupAlive(run.processGroupId)) ||
+          runningProcesses.has(run.id);
+        if (processAlive) {
+          continue;
+        }
+      }
+      // A provider resource id names one physical sandbox. A different lease
+      // row can still hold that same resource in a live status, so this sweep
+      // must not tear down a sandbox that a different lease still owns.
+      if (lease.provider && lease.providerLeaseId) {
+        const [otherOwner] = await db
+          .select({ id: environmentLeases.id })
+          .from(environmentLeases)
+          .where(
+            and(
+              ne(environmentLeases.id, lease.id),
+              eq(environmentLeases.provider, lease.provider),
+              eq(environmentLeases.providerLeaseId, lease.providerLeaseId),
+              inArray(environmentLeases.status, [
+                "active",
+                "retained",
+                "pending_cleanup",
+              ]),
+            ),
+          )
+          .limit(1);
+        if (otherOwner) {
+          // Defer this row so the fixed-size page reaches the rows behind
+          // it next tick, instead of re-selecting the same guarded rows
+          // forever.
+          await deferOrphanedActiveLease(lease.id);
+          continue;
+        }
+      }
+
+      if (!lease.provider || lease.provider === "local") {
+        await environmentsSvc.releaseLease(lease.id, "released", {
+          failureReason: "orphaned_active_lease_recovered",
+          cleanupStatus: "success",
+        });
+        recovered += 1;
+        continue;
+      }
+
+      // Keep the row's existing updatedAt value. The select above already
+      // proved the row is older than the backoff cutoff, so the
+      // pending_cleanup sweep can accept the same row in this same tick. A
+      // fresh timestamp here would push the row inside that sweep's own
+      // backoff window and delay the teardown by one full tick.
+      const flipped = await db
+        .update(environmentLeases)
+        .set({
+          status: "pending_cleanup",
+          failureReason: "orphaned_active_lease_recovered",
+        })
+        .where(
+          and(
+            eq(environmentLeases.id, lease.id),
+            eq(environmentLeases.status, "active"),
+          ),
+        )
+        .returning({ id: environmentLeases.id });
+      if (flipped.length > 0) recovered += 1;
+    }
+
+    return { recovered };
+  }
+
   // Retry the leases stranded in "pending_cleanup". A failed destroy leaves a
   // lease in that state forever without this sweep. The reaper tick runs the
   // sweep. The backoff equals the reaper staleness threshold, so a lease waits
@@ -18252,6 +18486,15 @@ export function heartbeatService(
         : null;
       const lease = await environmentsSvc.getLeaseById(row.id);
       if (!lease) continue;
+
+      if (!lease.provider || lease.provider === "local") {
+        await environmentsSvc.releaseLease(lease.id, "released", {
+          failureReason: "pending_cleanup_local_resolved",
+          cleanupStatus: "success",
+        });
+        destroyed += 1;
+        continue;
+      }
 
       // An orphan ephemeral lease keeps its provider, its provider lease id, and
       // its sandbox config in the lease row. A failed acquire records it, and its
@@ -18987,6 +19230,28 @@ export function heartbeatService(
       );
     }
 
+    // Recover an active lease whose run already ended before the same-tick
+    // pending_cleanup sweep, so this tick can stop the recovered sandbox.
+    // Isolate the sweep so its failure never hides the reaper result.
+    try {
+      const orphanedActiveLeaseSweep = await sweepOrphanedActiveLeases({
+        backoffMs: staleThresholdMs,
+      });
+      if (orphanedActiveLeaseSweep.recovered > 0) {
+        logger.warn(
+          { recovered: orphanedActiveLeaseSweep.recovered },
+          "recovered orphaned active environment leases",
+        );
+      }
+    } catch {
+      // Log a constant errorKind only. The exception can carry a credential in
+      // its name, code, message, cause, or stack, so the sweep never reads it.
+      logger.error(
+        { errorKind: ORPHANED_ACTIVE_LEASE_SWEEP_ERROR_KIND },
+        "orphaned active environment lease sweep failed",
+      );
+    }
+
     // Retry stranded pending_cleanup leases on the same tick. Isolate the sweep
     // so its failure never hides the reaper result. The backoff equals the
     // reaper staleness threshold.
@@ -19017,7 +19282,7 @@ export function heartbeatService(
   }
 
   async function resumeQueuedRuns() {
-    if ((await getSchedulingSuppression()).suppressed) return;
+    if (shutdownInProgress || (await getSchedulingSuppression()).suppressed) return;
     await resumeExecutionWaitComments();
     const cutoff = await getWorktreeExecutionCutoff();
     const pendingInterrupts = await db.select({ id: agentWakeupRequests.id, companyId: agentWakeupRequests.companyId })
@@ -19423,7 +19688,7 @@ export function heartbeatService(
   }
 
   async function startNextQueuedRunForAgent(agentId: string) {
-    if ((await getSchedulingSuppression()).suppressed) return [];
+    if (shutdownInProgress || (await getSchedulingSuppression()).suppressed) return [];
     const cutoff = await getWorktreeExecutionCutoff();
 
     return withAgentStartLock(agentId, async () => {
@@ -23448,7 +23713,7 @@ export function heartbeatService(
                   }
                 } catch (repairErr) {
                   const workspaceValidationFailure =
-                    isWorkspaceValidationFailure(repairErr) ? repairErr : null;
+                    getWorkspaceValidationFailure(repairErr);
                   finalizeBranchMetadata = {
                     executionWorkspaceId: branchInspection.workspaceRecord.id,
                     ...initialManagedGitWorktreeBranch,
@@ -23889,8 +24154,8 @@ export function heartbeatService(
                 connectionId: "paperclip-runtime-tools",
               });
             }
-            if (authToken && configuredPaperclipApiBaseUrl() && issueRef) {
-              runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipApiBaseUrl()}/api/mcp/project-tools`,
+            if (authToken && configuredPaperclipRuntimeApiBaseUrl() && issueRef) {
+              runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipRuntimeApiBaseUrl()}/api/mcp/project-tools`,
                 token: authToken, connectionId: "paperclip-project-tools" });
             }
             const runtimeMcp = createAdapterRuntimeMcpAccess(runtimeMcpServers);
@@ -24484,10 +24749,20 @@ export function heartbeatService(
           logSha256: logSummary?.sha256,
           logCompressed: logSummary?.compressed ?? false,
         };
+        const isLeaseLostDuringSuccess = executionControl.controller.signal.aborted &&
+          String((executionControl.controller.signal.reason as any)?.message ?? executionControl.controller.signal.reason ?? "").includes("Legacy controller lease lost");
+        const successCancellationAttribution: RunCancellationAttribution | undefined = isLeaseLostDuringSuccess
+          ? {
+              cancellationOrigin: "legacy_controller_lease_expired",
+              cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+              triggerDetail: "Legacy controller lease lost",
+            }
+          : undefined;
         const persistedRunWrite = await setRunStatusIfRunning(
           run.id,
           status,
           finalRunPatch,
+          { cancellationAttribution: successCancellationAttribution },
         );
         let persistedRun: typeof heartbeatRuns.$inferSelect | null =
           persistedRunWrite.run;
@@ -25011,9 +25286,7 @@ export function heartbeatService(
           err instanceof Error ? err.message : "Unknown adapter failure",
           await getCurrentUserRedactionOptions(),
         );
-        const workspaceValidationFailure = isWorkspaceValidationFailure(err)
-          ? err
-          : null;
+        const workspaceValidationFailure = getWorkspaceValidationFailure(err);
         const configurationIncompleteFailure = isConfigurationIncompleteFailure(
           err,
         )
@@ -25080,15 +25353,24 @@ export function heartbeatService(
         });
 
         const stoppedDuringFailure = executionControl.controller.signal.aborted;
+        const isLeaseLost = stoppedDuringFailure &&
+          String((executionControl.controller.signal.reason as any)?.message ?? executionControl.controller.signal.reason ?? "").includes("Legacy controller lease lost");
         const stopSnapshot = stoppedDuringFailure ? await getRun(run.id) : null;
         const failureOutcome = stoppedDuringFailure ? "cancelled" : "failed";
+        const failureAttribution: RunCancellationAttribution | undefined = isLeaseLost
+          ? {
+              cancellationOrigin: "legacy_controller_lease_expired",
+              cancellationActor: { actorType: "system", actorId: "controller_lease_watchdog" },
+              triggerDetail: "Legacy controller lease lost",
+            }
+          : undefined;
         const failedRunWrite = await setRunStatusIfRunning(run.id, failureOutcome, {
-          error: message,
-          errorCode: stopSnapshot?.errorCode ?? failureErrorCode,
+          error: isLeaseLost ? "Legacy controller lease lost" : message,
+          errorCode: isLeaseLost ? "legacy_controller_lease_expired" : (stopSnapshot?.errorCode ?? failureErrorCode),
           finishedAt: new Date(),
           resultJson: mergeRunStopMetadataForAgent(agent, failureOutcome, {
-            errorCode: failureErrorCode,
-            errorMessage: message,
+            errorCode: isLeaseLost ? "legacy_controller_lease_expired" : failureErrorCode,
+            errorMessage: isLeaseLost ? "Legacy controller lease lost" : message,
             resultJson: {
               ...parseObject(stopSnapshot?.resultJson),
               ...(workspaceValidationFailure?.resultJson ??
@@ -25109,7 +25391,7 @@ export function heartbeatService(
           logBytes: logSummary?.bytes,
           logSha256: logSummary?.sha256,
           logCompressed: logSummary?.compressed ?? false,
-        });
+        }, { cancellationAttribution: failureAttribution });
         if (
           !failedRunWrite.updated &&
           !(
@@ -25264,11 +25546,8 @@ export function heartbeatService(
         // A missing secret/env binding is a known pre-dispatch configuration gap,
         // not an opaque setup crash. Surface it with its own errorCode so the
         // recovery path routes it to a human owner instead of looping retries.
-        const workspaceValidationSetupFailure = isWorkspaceValidationFailure(
-          outerErr,
-        )
-          ? outerErr
-          : null;
+        const workspaceValidationSetupFailure =
+          getWorkspaceValidationFailure(outerErr);
         const configurationIncompleteSetupFailure =
           isConfigurationIncompleteFailure(outerErr) ? outerErr : null;
         const unresolvedBaseRefSetupFailure = isUnresolvedWorkspaceBaseRefError(
@@ -25656,7 +25935,7 @@ export function heartbeatService(
           eq(agentWakeupRequests.status, "deferred_issue_execution"),
           sql`${agentWakeupRequests.payload}->>'issueId' = ${String(latestRun.contextSnapshot?.issueId)}`,
         )).limit(1);
-        if (pending) await (pending.payload?.queuedCommentInterrupt
+        if (pending && !shutdownInProgress) await (pending.payload?.queuedCommentInterrupt
           ? resumeQueuedCommentInterrupt(run.companyId, pending.id)
           : releaseIssueExecutionAndPromote(latestRun, { suppressImmediateRecovery: true })).catch(err => {
           logger.error({ err, runId: run.id }, "failed to promote legacy comment queue after cleanup");
@@ -26753,25 +27032,22 @@ export function heartbeatService(
             const reason = issueCancelled
               ? "Cancelled because the issue was cancelled before the scheduled retry became due"
               : "Cancelled because the issue was reassigned before the scheduled retry became due";
-            const cancelled = await tx
-              .update(heartbeatRuns)
-              .set({
-                status: "cancelled",
+            const cancelled = await transitionHeartbeatRunStatus(tx, scheduledRun.id, {
+              toStatus: "cancelled",
+              patch: {
                 finishedAt: now,
                 error: reason,
                 errorCode: issueCancelled
                   ? "issue_cancelled"
                   : "issue_reassigned",
                 updatedAt: now,
-              })
-              .where(
-                and(
-                  eq(heartbeatRuns.id, scheduledRun.id),
-                  eq(heartbeatRuns.status, "scheduled_retry"),
-                ),
-              )
-              .returning()
-              .then((rows) => rows[0] ?? null);
+              },
+              outcome: "cancelled",
+              cancellationAttribution: {
+                cancellationOrigin: issueCancelled ? "task_cancelled" : "task_reassigned",
+              },
+              whereCondition: eq(heartbeatRuns.status, "scheduled_retry"),
+            });
 
             if (!cancelled) return false;
 
@@ -26889,25 +27165,23 @@ export function heartbeatService(
             issue.assigneeAgentId &&
             activeExecutionRun.agentId !== issue.assigneeAgentId
           ) {
-            const cancelled = await tx
-              .update(heartbeatRuns)
-              .set({
-                status: "cancelled",
+            const cancelledRun = await transitionHeartbeatRunStatus(tx, activeExecutionRun.id, {
+              toStatus: "cancelled",
+              patch: {
                 finishedAt: new Date(),
                 error:
                   "Execution lock released after issue reassigned to a different agent",
                 errorCode: "lock_released_on_reassignment",
                 updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  eq(heartbeatRuns.id, activeExecutionRun.id),
-                  eq(heartbeatRuns.status, activeExecutionRun.status),
-                ),
-              )
-              .returning();
-            if (cancelled.length > 0) {
-              cancelledRunsToEmit.push(cancelled[0]);
+              },
+              outcome: "cancelled",
+              cancellationAttribution: {
+                cancellationOrigin: "task_reassigned",
+              },
+              whereCondition: eq(heartbeatRuns.status, activeExecutionRun.status),
+            });
+            if (cancelledRun) {
+              cancelledRunsToEmit.push(cancelledRun);
               if (activeExecutionRun.wakeupRequestId) {
                 await tx
                   .update(agentWakeupRequests)
@@ -28538,6 +28812,13 @@ export function heartbeatService(
           message: options.eventMessage ?? "run cancelled",
           ...(options.eventPayload ? { payload: options.eventPayload } : {}),
         });
+        await releaseEnvironmentLeasesForRun({
+          runId: cancelled.id,
+          companyId: cancelled.companyId,
+          agentId: cancelled.agentId,
+          status: cancelled.status,
+          failureReason: options.eventMessage ?? reason,
+        });
         await releaseIssueExecutionAndPromote(cancelled, {
           suppressImmediateRecovery: options.suppressImmediateRecovery,
         });
@@ -29033,6 +29314,7 @@ export function heartbeatService(
     reconcileHotRestartAdoption,
     recoverNativeRunsAfterRestart,
     reapOrphanedRuns,
+    sweepOrphanedActiveLeases,
     sweepPendingCleanupLeases,
     // Override-aware scheduling-suppression check (honors the worktree
     // run-execution experimental setting). Callers outside the service that
@@ -29040,6 +29322,12 @@ export function heartbeatService(
     resolveSchedulingSuppression: getSchedulingSuppression,
     drainRunningRunsForShutdown,
     drainActiveRunExecutions,
+    getActiveRunExecutionIds: () => Array.from(activeRunExecutions),
+    isShutdownInProgress: () => shutdownInProgress,
+    setShutdownInProgress: (value = true) => {
+      shutdownInProgress = value;
+    },
+    startNextQueuedRunForAgent,
     startTaskDrain,
     stopTaskDrain,
     getTaskDrainStatus,

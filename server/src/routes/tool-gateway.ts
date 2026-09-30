@@ -6,6 +6,7 @@ import {
   humanizeConnectionDisplayName,
   type PermissionKey,
   type ToolConnectionLifecycleEventType,
+  type ToolMcpGatewayTokenAction,
 } from "@paperclipai/shared";
 import {
   createToolMcpGatewaySchema,
@@ -37,7 +38,7 @@ const TOOL_GATEWAY_WINDOWS: Record<string, number | null> = {
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function gatewayToken(req: { header(name: string): string | undefined }) {
-  return req.header("x-paperclip-tool-gateway-token")?.trim() || null;
+  return req.header("x-paperclip-tool-gateway-token")?.trim() || bearerToken(req);
 }
 
 function bearerToken(req: { header(name: string): string | undefined }) {
@@ -71,17 +72,25 @@ async function handleMcpGatewayProtocol(
     const body = (req.body ?? {}) as { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> };
     const id = body.id ?? null;
     if (body.method === "initialize") {
-      await toolGateway.initializeNamedGatewayProtocol({
+      const session = await toolGateway.initializeNamedGatewayProtocol({
         ...locator,
         bearerToken: token,
         callerHeaders: headers,
       });
+      const allowedActions = session.gatewayTokenAllowedActions;
+      const capabilities: Record<string, unknown> = { tools: {} };
+      if (!allowedActions || allowedActions.includes("resources/list") || allowedActions.includes("resources/read")) {
+        capabilities.resources = {};
+      }
+      if (!allowedActions || allowedActions.includes("prompts/list") || allowedActions.includes("prompts/get")) {
+        capabilities.prompts = {};
+      }
       res.json({
         jsonrpc: "2.0",
         id,
         result: {
           protocolVersion: "2025-03-26",
-          capabilities: { tools: {}, resources: {}, prompts: {} },
+          capabilities,
           serverInfo: { name: "Paperclip MCP Gateway", version: "1.0.0" },
           _meta: {
             "paperclip/mcp-app-ui": "unsupported",
@@ -92,46 +101,84 @@ async function handleMcpGatewayProtocol(
       return;
     }
     if (body.method === "notifications/initialized") {
+      // Notifications return only a transport status. Verify the credential
+      // without charging initialization twice; failed authentication still
+      // uses the gateway's failure limiter and audit path.
+      try {
+        await toolGateway.verifyNamedGatewayProtocolNotification({
+          ...locator,
+          bearerToken: token,
+          callerHeaders: headers,
+        });
+      } catch (err) {
+        res.status(err instanceof ToolGatewayHttpError ? err.status : 500).end();
+        return;
+      }
       res.status(202).end();
       return;
     }
     if (body.method === "tools/list") {
-      const tools = await toolGateway.listToolsForNamedGateway({
+      const { tools, allowedActions } = await toolGateway.listToolsForNamedGateway({
         ...locator,
         bearerToken: token,
         callerHeaders: headers,
       });
+      const contextTools: Array<{
+        action: ToolMcpGatewayTokenAction;
+        tool: {
+          name: string;
+          description: string;
+          inputSchema: Record<string, unknown>;
+        };
+      }> = [
+        {
+          action: "resources/list",
+          tool: {
+            name: "paperclip_list_resources",
+            description: "List resources from fully assigned MCP connections.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
+        },
+        {
+          action: "resources/read",
+          tool: {
+            name: "paperclip_read_resource",
+            description: "Read a resource URI returned by paperclip_list_resources.",
+            inputSchema: { type: "object", required: ["uri"], properties: { uri: { type: "string" } }, additionalProperties: false },
+          },
+        },
+        {
+          action: "prompts/list",
+          tool: {
+            name: "paperclip_list_prompts",
+            description: "List prompts from fully assigned MCP connections.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
+        },
+        {
+          action: "prompts/get",
+          tool: {
+            name: "paperclip_get_prompt",
+            description: "Get a prompt returned by paperclip_list_prompts.",
+            inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" }, arguments: { type: "object" } }, additionalProperties: false },
+          },
+        },
+      ];
+      const activeContextTools = contextTools
+        .filter((entry) => !allowedActions || allowedActions.includes(entry.action))
+        .map((entry) => entry.tool);
       res.json({
         jsonrpc: "2.0",
         id,
         result: {
           tools: [
             ...tools.map((tool) => ({
-            name: tool.name,
-            title: tool.displayName,
-            description: tool.description,
-            inputSchema: tool.parametersSchema ?? { type: "object", properties: {} },
+              name: tool.name,
+              title: tool.displayName,
+              description: tool.description,
+              inputSchema: tool.parametersSchema ?? { type: "object", properties: {} },
             })),
-            {
-              name: "paperclip_list_resources",
-              description: "List resources from fully assigned MCP connections.",
-              inputSchema: { type: "object", properties: {}, additionalProperties: false },
-            },
-            {
-              name: "paperclip_read_resource",
-              description: "Read a resource URI returned by paperclip_list_resources.",
-              inputSchema: { type: "object", required: ["uri"], properties: { uri: { type: "string" } }, additionalProperties: false },
-            },
-            {
-              name: "paperclip_list_prompts",
-              description: "List prompts from fully assigned MCP connections.",
-              inputSchema: { type: "object", properties: {}, additionalProperties: false },
-            },
-            {
-              name: "paperclip_get_prompt",
-              description: "Get a prompt returned by paperclip_list_prompts.",
-              inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" }, arguments: { type: "object" } }, additionalProperties: false },
-            },
+            ...activeContextTools,
           ],
         },
       });
@@ -203,6 +250,9 @@ async function handleMcpGatewayProtocol(
     res.status(404).json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
   } catch (err) {
     if (err instanceof ToolGatewayHttpError) {
+      (res as any).__errorContext = {
+        error: { message: `${err.message} (${err.reasonCode})` },
+      };
       const id = (req.body as { id?: unknown } | undefined)?.id ?? null;
       res.status(err.status).json({
         jsonrpc: "2.0",

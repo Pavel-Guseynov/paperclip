@@ -1,5 +1,6 @@
 import { hasLiveLegacyController } from "../legacy-controller-lease.js";
 import { instanceSettingsService } from "../instance-settings.js";
+import { environmentService } from "../environments.js";
 import { isWaitingConversation, settleConversationTurn, deliverConversationComments } from "../agent-conversations.js";
 import {
   and,
@@ -9,8 +10,10 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   not,
+  notExists,
   notInArray,
   or,
   sql,
@@ -80,6 +83,7 @@ import {
   legacyExecutionNeedsReconciliation,
   terminalizeLegacyExecution,
 } from "../legacy-execution-recovery.js";
+import { transitionHeartbeatRunStatus } from "../heartbeat-run-lifecycle.js";
 import { issueTreeControlService } from "../issue-tree-control.js";
 import { isExternalChatPresentationContext } from "../heartbeat-run-summary.js";
 import {
@@ -133,6 +137,7 @@ import {
   dispositionRepairDelayMs,
   DISPOSITION_REPAIR_MAX_ATTEMPTS,
 } from "./disposition-repair.js";
+import { reconcileReviewHandoffAfterBlockerClear } from "./review-handoff-retry.js";
 import {
   createActiveRunWatchdog,
   WatchdogDecisionApplicationError,
@@ -380,6 +385,25 @@ function resolveStrandedRecoveryCause(
   latestRun: LatestIssueRun,
   explicitCause?: StrandedRecoveryCause,
 ): StrandedRecoveryCause {
+  if (
+    explicitCause &&
+    explicitCause !== "stranded_assigned_issue" &&
+    explicitCause !== EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON
+  ) {
+    return explicitCause;
+  }
+  if (
+    latestRun?.errorCode === "workspace_validation_failed" ||
+    readWorkspaceValidationPayload(latestRun) !== null
+  ) {
+    return "workspace_validation_failed";
+  }
+  if (
+    latestRun?.errorCode === "configuration_incomplete" ||
+    readConfigurationIncompletePayload(latestRun) !== null
+  ) {
+    return "configuration_incomplete";
+  }
   if (explicitCause) return explicitCause;
   if (isProviderQuotaRecovery(latestRun)) return "provider_quota";
   if (latestRun?.errorCode === "process_lost") return "process_lost";
@@ -901,6 +925,9 @@ export function recoveryService(
     ) => Promise<typeof heartbeatRuns.$inferSelect | null>;
     liveRunExecutions?: Readonly<{ has(id: string): boolean }>;
     beforeOrphanedRunTerminalWrite?: (runId: string) => Promise<void>;
+    releaseEnvironmentLeasesForRun?: (
+      run: typeof heartbeatRuns.$inferSelect,
+    ) => Promise<void>;
   },
 ) {
   const issuesSvc = issueService(db);
@@ -3397,7 +3424,9 @@ export function recoveryService(
         healthyChildren.length > 0 ||
         hasNewSourcePath
       ) {
-        if (healthyChildren.length > 0 && !sourceState.hasDurableWaitingPath) {
+        const blockedForHealthyChildren =
+          healthyChildren.length > 0 && !sourceState.hasDurableWaitingPath;
+        if (blockedForHealthyChildren) {
           const blockerIds = await existingUnresolvedBlockerIssueIds(
             issue.companyId,
             issue.id,
@@ -3427,6 +3456,25 @@ export function recoveryService(
         if (resolved) {
           result.resolved += 1;
           result.issueIds.push(issue.id);
+          // `issue` is the row this pass read before the branch above may have
+          // moved it to blocked, so a handoff is owed only when the issue is
+          // still in review. One issue's failure must not abort the pass.
+          if (!blockedForHealthyChildren && issue.status === "in_review") {
+            try {
+              await reconcileReviewHandoffAfterBlockerClear(db, {
+                issueId: issue.id,
+                companyId: issue.companyId,
+                enqueueWakeup: deps.enqueueWakeup,
+                treeControlSvc,
+                source: "reconcileActiveRecoveryActions",
+              });
+            } catch (err) {
+              logger.warn(
+                { err, issueId: issue.id },
+                "failed to reconcile review handoff after recovery action resolution",
+              );
+            }
+          }
         }
         continue;
       }
@@ -3852,8 +3900,8 @@ export function recoveryService(
 
     const shouldPostEscalationComment =
       recoveryAction.attemptCount === 1 ||
-      input.recoveryCause === "workspace_validation_failed" ||
-      input.recoveryCause === "configuration_incomplete";
+      recoveryCause === "workspace_validation_failed" ||
+      recoveryCause === "configuration_incomplete";
     if (shouldPostEscalationComment) {
       const escalationCommentMarker = `Recovery action: \`${recoveryAction.id}\``;
 
@@ -3916,7 +3964,7 @@ export function recoveryService(
       agentId: null,
       runId: null,
       action:
-        input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+        recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
           ? "issue.successful_run_handoff_escalated"
           : "issue.updated",
       entityType: "issue",
@@ -3926,17 +3974,17 @@ export function recoveryService(
         status: "blocked",
         previousStatus: input.previousStatus,
         source:
-          input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+          recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
             ? "recovery.reconcile_successful_run_handoff_missing_state"
-            : input.recoveryCause === "workspace_validation_failed"
+            : recoveryCause === "workspace_validation_failed"
               ? "recovery.reconcile_workspace_validation_failed"
-              : input.recoveryCause === "configuration_incomplete"
+              : recoveryCause === "configuration_incomplete"
                 ? "recovery.reconcile_configuration_incomplete"
-                : input.recoveryCause ===
+                : recoveryCause ===
                     "execution_review_participant_recovery"
                   ? "recovery.reconcile_execution_review_participant"
                   : "recovery.reconcile_stranded_assigned_issue",
-        recoveryCause: input.recoveryCause ?? "stranded_assigned_issue",
+        recoveryCause: recoveryCause ?? "stranded_assigned_issue",
         latestRunId: input.latestRun?.id ?? null,
         latestRunStatus: input.latestRun?.status ?? null,
         latestRunErrorCode: input.latestRun?.errorCode ?? null,
@@ -4731,6 +4779,39 @@ export function recoveryService(
             } else {
               result.skipped += 1;
             }
+          } else if (!participantLatestRun) {
+            // One issue's handoff failure is contained here so the rest of the
+            // sweep still runs, the same way the resolved-dependency backstop
+            // contains its own reconciliation failures.
+            let handoffResult: Awaited<
+              ReturnType<typeof reconcileReviewHandoffAfterBlockerClear>
+            > | null = null;
+            try {
+              handoffResult = await reconcileReviewHandoffAfterBlockerClear(
+                db,
+                {
+                  issueId: issue.id,
+                  companyId: issue.companyId,
+                  enqueueWakeup: deps.enqueueWakeup,
+                  treeControlSvc,
+                  source: "reconcileStrandedAssignedIssues.no_participant_run",
+                },
+              );
+            } catch (err) {
+              logger.warn(
+                { err, issueId: issue.id },
+                "failed to reconcile review handoff for stranded review participant",
+              );
+            }
+            if (handoffResult?.action === "enqueued") {
+              result.reviewParticipantRequeued += 1;
+              result.issueIds.push(issue.id);
+            } else if (handoffResult?.action === "exhausted") {
+              result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
           } else {
             result.skipped += 1;
           }
@@ -4783,6 +4864,26 @@ export function recoveryService(
               participantLatestRun,
               participantAdapterFailureClassification,
             );
+            result.escalated += 1;
+            result.issueIds.push(issue.id);
+          } else {
+            result.skipped += 1;
+          }
+          continue;
+        }
+        if (
+          participantLatestRun?.errorCode === "workspace_validation_failed" ||
+          readWorkspaceValidationPayload(participantLatestRun) !== null
+        ) {
+          const updated = await escalateStrandedAssignedIssue({
+            issue,
+            previousStatus: "in_review",
+            latestRun: participantLatestRun,
+            recoveryCause: "workspace_validation_failed",
+            comment:
+              "Workspace validation failed for the review participant's workspace.",
+          });
+          if (updated) {
             result.escalated += 1;
             result.issueIds.push(issue.id);
           } else {
@@ -5282,6 +5383,62 @@ export function recoveryService(
         .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
     };
 
+    if (opts?.blockerIssueId) {
+      // A relation row and its dependent must belong to the same company, and
+      // the sweep is bounded by the same candidate limit as the blocked-issue
+      // backstop below so one blocker with many dependents cannot make this
+      // pass unbounded.
+      let inReviewDependents: Array<{ id: string; companyId: string }> = [];
+      try {
+        inReviewDependents = await db
+          .select({ id: issues.id, companyId: issues.companyId })
+          .from(issueRelations)
+          .innerJoin(
+            issues,
+            and(
+              eq(issueRelations.relatedIssueId, issues.id),
+              eq(issueRelations.companyId, issues.companyId),
+            ),
+          )
+          .where(
+            and(
+              eq(issueRelations.type, "blocks"),
+              eq(issueRelations.issueId, opts.blockerIssueId),
+              opts.companyId
+                ? eq(issueRelations.companyId, opts.companyId)
+                : undefined,
+              eq(issues.status, "in_review"),
+              visibleIssueCondition(),
+            ),
+          )
+          .orderBy(asc(issues.id))
+          .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
+      } catch (err) {
+        logger.warn(
+          { err, blockerIssueId: opts.blockerIssueId },
+          "failed to list in_review dependents in resolved dependency backstop",
+        );
+      }
+      // The candidates are ordered by issue id, so a dependent that keeps
+      // failing would starve every later one if its failure ended the pass.
+      for (const dep of inReviewDependents) {
+        try {
+          await reconcileReviewHandoffAfterBlockerClear(db, {
+            issueId: dep.id,
+            companyId: dep.companyId,
+            enqueueWakeup: deps.enqueueWakeup,
+            treeControlSvc,
+            source: "reconcileResolvedDependencyWakeBackstop",
+          });
+        } catch (err) {
+          logger.warn(
+            { err, blockerIssueId: opts.blockerIssueId, issueId: dep.id },
+            "failed to reconcile an in_review dependent in resolved dependency backstop",
+          );
+        }
+      }
+    }
+
     let candidateRows = await queryCandidates(
       useCursor ? resolvedDependencyWakeBackstopCandidateCursor : null,
     );
@@ -5638,41 +5795,65 @@ export function recoveryService(
 
     await deps.beforeOrphanedRunTerminalWrite?.(run.id);
     const now = new Date();
-    const updated = await db
-      .update(heartbeatRuns)
-      .set({
-        status: terminalStatus,
+    const updated = await transitionHeartbeatRunStatus(db, run.id, {
+      toStatus: terminalStatus,
+      patch: {
         finishedAt: run.finishedAt ?? now,
         error: run.error ?? (terminalStatus === "interrupted" ? message : null),
         errorCode:
           run.errorCode ??
           (terminalStatus === "interrupted" ? errorCode : null),
         updatedAt: now,
-      })
-      .where(
-        and(
-          eq(heartbeatRuns.id, run.id),
-          eq(heartbeatRuns.status, "running"),
-          eq(heartbeatRuns.runtimeMode, run.runtimeMode),
-          nativeRunnerOwnershipNotHeldCondition(),
-          // Recheck ownership in the write: a controller can renew or claim
-          // the run after the liveness read. An old snapshot cannot end a new
-          // controller's run, even if that controller's lease later expires.
-          run.runtimeMode === "legacy"
-            ? and(
-                run.controllerBootId
-                  ? eq(heartbeatRuns.controllerBootId, run.controllerBootId)
-                  : isNull(heartbeatRuns.controllerBootId),
+      },
+      whereCondition: and(
+        eq(heartbeatRuns.status, "running"),
+        eq(heartbeatRuns.runtimeMode, run.runtimeMode),
+        nativeRunnerOwnershipNotHeldCondition(),
+        // Provider exit is expected while the native coordinator resumes a
+        // session or copies its completed workspace back. The coordinator
+        // owns those retries, including expired leases and future attempts.
+        // Check at the write so a newly recorded result cannot be orphaned
+        // using the earlier liveness snapshot. Terminal issue status remains
+        // the stronger authority.
+        !issueTerminalStatus && run.runtimeMode === "native"
+          ? notExists(db.select({ runId: nativeRunFinalizations.runId })
+              .from(nativeRunFinalizations).where(and(
+                eq(nativeRunFinalizations.runId, heartbeatRuns.id),
+                eq(nativeRunFinalizations.companyId, heartbeatRuns.companyId),
                 or(
-                  isNull(heartbeatRuns.controllerBootId),
-                  sql`${heartbeatRuns.controllerLeaseExpiresAt} <= clock_timestamp()`,
+                  and(
+                    isNotNull(nativeRunFinalizations.resultId),
+                    inArray(nativeRunFinalizations.phase, [
+                      "observed", "workspace_finalizing", "ready_for_assessment",
+                      "arbitrating", "retryable_failure",
+                    ]),
+                  ),
+                  and(
+                    isNull(nativeRunFinalizations.resultId),
+                    or(
+                      eq(nativeRunFinalizations.phase, "retryable_failure"),
+                      and(eq(nativeRunFinalizations.phase, "observed"), gt(nativeRunFinalizations.attempt, 0)),
+                    ),
+                  ),
                 ),
-              )
-            : undefined,
-        ),
-      )
-      .returning()
-      .then((rows) => rows[0] ?? null);
+              )))
+          : undefined,
+        // Recheck ownership in the write: a controller can renew or claim
+        // the run after the liveness read. An old snapshot cannot end a new
+        // controller's run, even if that controller's lease later expires.
+        run.runtimeMode === "legacy"
+          ? and(
+              run.controllerBootId
+                ? eq(heartbeatRuns.controllerBootId, run.controllerBootId)
+                : isNull(heartbeatRuns.controllerBootId),
+              or(
+                isNull(heartbeatRuns.controllerBootId),
+                sql`${heartbeatRuns.controllerLeaseExpiresAt} <= clock_timestamp()`,
+              ),
+            )
+          : undefined,
+      ),
+    });
     if (!updated) {
       // Another path finalized the run between the read and this write. Keep
       // that terminal outcome authoritative.
@@ -5687,6 +5868,22 @@ export function recoveryService(
     // the stale lock below, so fire it and do not await it.
     void emitAgentTaskRun(db, updated);
     runningProcesses.delete(run.id);
+    try {
+      if (deps.releaseEnvironmentLeasesForRun) {
+        await deps.releaseEnvironmentLeasesForRun(updated);
+      } else {
+        const envSvc = environmentService(db);
+        await envSvc.releaseLeasesForRun(run.id, "expired", {
+          failureReason: "terminalized_in_stale_lock_sweep",
+          cleanupStatus: "success",
+        });
+      }
+    } catch (error) {
+      logger.error(
+        { err: error, runId: run.id },
+        "failed to release environment leases after terminalizing orphaned run in stale-lock sweep",
+      );
+    }
     // The run update above already committed the terminal status. The audit
     // event is best-effort: if the insert fails, the caller must still treat
     // the run as terminalized and clear the lock in the same sweep. So catch

@@ -34,6 +34,58 @@ export function parseRemoteHttpEndpoint(
   return parsed;
 }
 
+export function parseRemoteHttpProxy(
+  value: unknown,
+  error: RemoteHttpEndpointErrorFactory,
+): URL | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") {
+    throw error("Remote MCP connection proxy URL is invalid", "mcp_remote_proxy_invalid");
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw error("Remote MCP connection proxy URL is invalid", "mcp_remote_proxy_invalid");
+  }
+  if (parsed.protocol !== "socks5h:") {
+    throw error("Remote MCP connection proxy must use socks5h", "mcp_remote_proxy_invalid");
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "").trim();
+  if (!hostname) {
+    throw error("Remote MCP connection proxy hostname is required", "mcp_remote_proxy_invalid");
+  }
+  if (parsed.port) {
+    const portNum = Number(parsed.port);
+    if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535) {
+      throw error("Remote MCP connection proxy port is invalid", "mcp_remote_proxy_invalid");
+    }
+  }
+  return parsed;
+}
+
+export function assertProxiedRemoteHttpEndpoint(
+  endpoint: URL,
+  options: RemoteHttpEndpointGuardOptions,
+  error: RemoteHttpEndpointErrorFactory,
+): void {
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+    throw error("Remote MCP connection URL must use http or https", "mcp_remote_url_invalid");
+  }
+  const hostname = endpoint.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!options.allowPrivateNetwork && (hostname === "localhost" || hostname.endsWith(".localhost"))) {
+    throw error("Remote MCP connection URL cannot target private or reserved network addresses", "remote_http_private_endpoint");
+  }
+  const literalVersion = isIP(hostname);
+  if (literalVersion !== 0) {
+    if (isAlwaysDeniedLinkLocalIp(hostname) || (!options.allowPrivateNetwork && isPrivateOrReservedIp(hostname))) {
+      throw error("Remote MCP connection URL cannot target private or reserved network addresses", "remote_http_private_endpoint");
+    }
+  }
+}
+
 export async function assertPublicRemoteHttpEndpoint(
   endpoint: URL,
   options: RemoteHttpEndpointGuardOptions,

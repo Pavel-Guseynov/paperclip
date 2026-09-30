@@ -283,6 +283,11 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 <br/>
 
+An external MCP client using a standard agent API key can update issues the
+agent is authorized to edit without a heartbeat run. Edits to its own assigned
+in-progress issue require a clear checkout and execution lock. See
+[issue updates](docs/api/issues.md#update-issue) for the API contract.
+
 ## What Paperclip is not
 
 |                              |                                                                                                                      |
@@ -393,11 +398,26 @@ pnpm install
 pnpm dev
 ```
 
-This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically — no setup required.
+This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically — no setup required. If database initialization fails, the startup error includes PostgreSQL's `initdb` diagnostic output and the temporary password file is removed.
 
-> **Requirements:** Node.js 24.11+, pnpm 9.15+
+> **Requirements:** Node.js 24.11+, pnpm 11.21+
 
 <br/>
+
+### Managed MCP authentication
+
+Managed MCP clients send their gateway bearer to
+`POST /api/tool-gateway/gateways/:gatewayId/mcp`. Paperclip validates it against
+that gateway and its current token and run state; it does not grant the bearer
+board or agent API access. Other API paths and the gateway descriptor GET keep
+their existing authentication requirements.
+
+Clients send `initialize`, then `notifications/initialized`, before using tools.
+The notification verifies the credential and returns an empty HTTP 202 on
+success. It does not consume another protocol-action allowance or update token
+usage or run identity. Invalid credentials remain subject to gateway failure
+throttling and auditing. The same notification behavior applies to the public
+MCP gateway endpoint. No new configuration option is required.
 
 ## FAQ
 
@@ -423,6 +443,12 @@ By default, agents run on scheduled heartbeats and event-based triggers (task as
 <br/>
 
 ## Development
+
+Adapters using `@paperclipai/adapter-utils` `runChildProcess` receive a failed
+process result with `errorCode` when writing supplied stdin fails. The helper
+records the error with the owning run ID and requests a graceful child stop;
+other runs remain independent. Callers should retain `errorCode` when reporting
+the run outcome.
 
 ```bash
 pnpm dev              # Full dev (API + UI, watch mode)
@@ -508,7 +534,8 @@ Telemetry is **enabled by default** and can be disabled with any of the followin
 
 ## Contributing
 
-We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for details.
+We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for details
+and [AGENTS.md](AGENTS.md) for contributor commands and verification requirements.
 
 <br/>
 

@@ -111,6 +111,10 @@ export interface GitWorktreeBranchIncoherenceEvidence {
   repoRoot: string;
   expectedBranch: string;
   actualBranch: string | null;
+  /** Actual commit SHA checked out at HEAD in the worktree. */
+  actualHeadSha?: string | null;
+  /** Ref a re-issue should base off — the live branch when known, else actualHeadSha. */
+  reissueBaseRef?: string | null;
   cleanliness: "clean" | "dirty" | "unknown";
   /**
    * Interrupted git operation (rebase/merge/cherry-pick/revert/bisect) whose

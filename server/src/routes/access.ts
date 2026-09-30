@@ -44,6 +44,7 @@ import {
   archiveCompanyMemberSchema,
   updateMemberPermissionsSchema,
   updateUserCompanyAccessSchema,
+  replayLifecycleEventsSchema,
   PERMISSION_KEYS,
   isUuidLike,
 } from "@paperclipai/shared";
@@ -58,6 +59,7 @@ import {
 } from "../errors.js";
 import { getHiddenSettings } from "../services/settings-visibility.js";
 import { runtimeCanonicalOrigin } from "../services/cloud-runtime-identity.js";
+import { replayActivityLogLifecycleEvents } from "../services/activity-log-replay.js";
 
 /**
  * Floor: when the hosting operator hides the Instance Access surface
@@ -4756,6 +4758,20 @@ export function accessRoutes(
         { actorUserId: req.actor.userId ?? null },
       );
       res.json(await loadUserCompanyAccessResponse(db, access, userId));
+    }
+  );
+
+  router.post(
+    "/admin/lifecycle-events/replay",
+    validate(replayLifecycleEventsSchema),
+    async (req, res) => {
+      await assertInstanceAdmin(req);
+      const result = await replayActivityLogLifecycleEvents(db, {
+        companyId: req.body.companyId,
+        since: req.body.since,
+        dryRun: req.body.dryRun,
+      });
+      res.json(result);
     }
   );
 

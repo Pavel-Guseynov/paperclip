@@ -1,7 +1,14 @@
 import pino from "pino";
-import type { Logger } from "pino";
+import type { Logger, LoggerOptions } from "pino";
 import { pinoHttp } from "pino-http";
-import { HTTP_LOG_REDACT_PATHS } from "./http-log-redaction.js";
+import {
+  HTTP_LOG_REDACT_PATHS,
+  HEADER_REDACTION_MARKER,
+  redactCredentialFields,
+  redactSensitiveHeaders,
+  sanitizeCredentialText,
+  sanitizeErrorObject,
+} from "./http-log-redaction.js";
 import {
   isPrivateChatWebhookHttpRequest,
   isSecretSensitiveHttpRequest,
@@ -18,16 +25,85 @@ const sharedOpts = {
   singleLine: true,
 };
 
+/**
+ * Serializes an error for a log record. `pino.stdSerializers.err` runs first so
+ * the non-enumerable `Error.cause` chain is folded into `message` and `stack`,
+ * and the sanitizer then strips credential material from that output.
+ */
+export function serializeLoggedError(err: unknown): unknown {
+  return sanitizeErrorObject(pino.stdSerializers.err(err as Error));
+}
+
+/**
+ * The redaction configuration shared by every logger this module exports.
+ *
+ * A credential-bearing name is removed wherever it can appear in a record:
+ * - at the top level of any record or child binding, by `redact` (pino applies
+ *   the same stringifiers to `child()` bindings);
+ * - inside `req.headers` / `res.headers`, by `redact` and the HTTP serializers,
+ *   which also catch credential-shaped names that are not on the known list;
+ * - inside a `headers` field, by `serializers.headers`;
+ * - inside merge objects and child bindings, by `redactCredentialFields`;
+ *   subtrees beyond its inspection limit are replaced with a redaction marker;
+ * - anywhere inside `reqBody` / `reqParams` / `errorContext` on a failed HTTP
+ *   record, by `redactSensitive` in `customProps`;
+ * - in `err`, by the serializer, including the cause chain.
+ *
+ * `logMethod` guards live objects before pino serializes them and strips
+ * credential text from messages. `streamWrite` applies the same field policy
+ * to the final JSON, including bindings that bypass `logMethod`. Unchanged
+ * records retain their original serialization; malformed output becomes a
+ * content-free diagnostic. Both production and pretty transports receive only
+ * the sanitized stream.
+ */
+export const basePinoOptions = {
+  redact: {
+    paths: [...HTTP_LOG_REDACT_PATHS],
+    censor: HEADER_REDACTION_MARKER,
+  },
+  serializers: {
+    headers: (h: unknown) =>
+      h && typeof h === "object"
+        ? redactSensitiveHeaders(h as Record<string, unknown>)
+        : h,
+    err: serializeLoggedError,
+  },
+  hooks: {
+    streamWrite(serialized: string) {
+      try {
+        const record: unknown = JSON.parse(serialized);
+        const safe = redactCredentialFields(record);
+        return safe === record ? serialized : `${JSON.stringify(safe)}\n`;
+      } catch {
+        return '{"level":50,"msg":"Log record could not be safely redacted"}\n';
+      }
+    },
+    logMethod(this: unknown, inputArgs: unknown[], method: any) {
+      // Neither rewrite throws: `redactCredentialFields` marks the fields it
+      // cannot read and keeps redacting the rest of the record.
+      for (let index = 0; index < inputArgs.length; index += 1) {
+        const arg = inputArgs[index];
+        const safe =
+          typeof arg === "string"
+            ? sanitizeCredentialText(arg)
+            : redactCredentialFields(arg);
+        if (safe !== arg) inputArgs[index] = safe;
+      }
+      return method.apply(this, inputArgs);
+    },
+  },
+} satisfies LoggerOptions;
+
 const isProduction = process.env.NODE_ENV === "production";
-export const logger = isProduction
+export const logger: Logger = isProduction
   ? pino({
       level: process.env.PAPERCLIP_LOG_LEVEL?.trim() || "info",
-      redact: [...HTTP_LOG_REDACT_PATHS],
+      ...basePinoOptions,
     })
   : pino(
       {
         level: process.env.PAPERCLIP_LOG_LEVEL?.trim() || "debug",
-        redact: [...HTTP_LOG_REDACT_PATHS],
+        ...basePinoOptions,
       },
       pino.transport({
         target: "pino-pretty",
@@ -76,7 +152,11 @@ export function createHttpLogger(baseLogger: Logger) {
   return pinoHttp({
     logger: baseLogger,
     serializers: {
-      req(req: Record<string, unknown> & { url?: unknown }) {
+      // pino-http wraps a custom `err` serializer with `pino.stdSerializers.err`,
+      // so this receives the standard projection (cause chain already folded
+      // into `message` and `stack`) and only has to sanitize it.
+      err: sanitizeErrorObject,
+      req(req: Record<string, unknown> & { url?: unknown; headers?: unknown }) {
         if (
           isPrivateWebhook({
             method: typeof req.method === "string" ? req.method : undefined,
@@ -92,12 +172,17 @@ export function createHttpLogger(baseLogger: Logger) {
             url: "/api/chat-webhooks/:publicId/:provider",
           };
         }
+        const headers =
+          req.headers && typeof req.headers === "object"
+            ? redactSensitiveHeaders(req.headers as Record<string, unknown>)
+            : req.headers;
         return {
           ...req,
           url:
             typeof req.url === "string"
               ? stripSecretBearingUrlParts(req.url)
               : req.url,
+          headers,
           // The URL policy intentionally drops all query parameters. The default
           // serializer also exposes the parsed query separately, so omit that
           // duplicate path instead of letting credentials bypass the URL scrub.
@@ -106,6 +191,7 @@ export function createHttpLogger(baseLogger: Logger) {
       },
       res(
         res: Record<string, unknown> & {
+          headers?: unknown;
           raw?: {
             req?: { method?: string; originalUrl?: unknown; url?: unknown };
           };
@@ -113,9 +199,18 @@ export function createHttpLogger(baseLogger: Logger) {
       ) {
         // A provider error may also be reflected in response headers. Keep the
         // same content-free contract on both sides of a webhook request.
-        return res.raw?.req && isPrivateWebhook(res.raw.req)
-          ? { statusCode: res.statusCode }
-          : res;
+        if (res.raw?.req && isPrivateWebhook(res.raw.req)) {
+          return { statusCode: res.statusCode };
+        }
+        if (res.headers && typeof res.headers === "object") {
+          return {
+            ...res,
+            headers: redactSensitiveHeaders(
+              res.headers as Record<string, unknown>,
+            ),
+          };
+        }
+        return res;
       },
     },
     customLogLevel(_req, res, err) {
@@ -136,6 +231,8 @@ export function createHttpLogger(baseLogger: Logger) {
         return `${req.method} ${requestLogUrl(req)} ${res.statusCode} — request failed`;
       }
       const ctx = (res as any).__errorContext;
+      // `hooks.logMethod` sanitizes credential material out of this message
+      // before it is written, so there is one scrubbing path, not two.
       const errMsg =
         ctx?.error?.message ||
         err?.message ||

@@ -190,8 +190,10 @@ import {
   parseMcpHttpResponseBody,
 } from "./mcp-http.js";
 import {
+  assertProxiedRemoteHttpEndpoint,
   assertPublicRemoteHttpEndpoint,
   parseRemoteHttpEndpoint,
+  parseRemoteHttpProxy,
   type RemoteHttpEndpointLookup,
 } from "./remote-http-endpoint-guard.js";
 import {
@@ -3198,10 +3200,11 @@ export function toolAccessService(
     return endpoint.toString();
   }
 
-  function remoteHttpFetchOptions(): GuardedRemoteHttpFetchOptions {
+  function remoteHttpFetchOptions(proxy?: string | null): GuardedRemoteHttpFetchOptions {
     return {
       allowPrivateNetwork: allowPrivateRemoteEndpoints(),
       lookup: options.remoteHttpEndpointLookup,
+      proxy: proxy ?? null,
       error: (message, code) => badRequest(message, { code }),
     };
   }
@@ -3209,13 +3212,14 @@ export function toolAccessService(
   async function requestRemoteHttpEndpoint(
     endpoint: URL,
     init: RequestInit,
+    proxy?: string | null,
   ): Promise<Response> {
     return options.remoteHttpRequest
       ? options.remoteHttpRequest(endpoint.toString(), {
           ...init,
           redirect: "manual",
         })
-      : guardedRemoteHttpFetch(endpoint, init, remoteHttpFetchOptions());
+      : guardedRemoteHttpFetch(endpoint, init, remoteHttpFetchOptions(proxy));
   }
 
   /**
@@ -3231,6 +3235,7 @@ export function toolAccessService(
   async function fetchRemoteHttpUrl(
     value: string,
     init: RequestInit = {},
+    proxy?: string | null,
   ): Promise<Response> {
     let currentUrl = value;
     const method = (init.method ?? "GET").toUpperCase();
@@ -3242,7 +3247,7 @@ export function toolAccessService(
       const endpoint = parseRemoteHttpEndpoint(currentUrl, (message, code) =>
         badRequest(message, { code }),
       );
-      const response = await requestRemoteHttpEndpoint(endpoint, init);
+      const response = await requestRemoteHttpEndpoint(endpoint, init, proxy);
       const location = REMOTE_HTTP_REDIRECT_STATUSES.has(response.status)
         ? (response.headers?.get?.("location") ?? null)
         : null;
@@ -3273,7 +3278,25 @@ export function toolAccessService(
   async function assertRemoteEndpointAllowed(
     config: Record<string, unknown>,
   ): Promise<string> {
-    return assertRemoteHttpUrlAllowed(remoteEndpoint(config));
+    const proxy = parseRemoteHttpProxy(config.proxy, (message, code) =>
+      badRequest(message, { code }),
+    );
+    const rawEndpoint = remoteEndpoint(config);
+    if (proxy) {
+      const endpoint = parseRemoteHttpEndpoint(rawEndpoint, (message, code) =>
+        badRequest(message, { code }),
+      );
+      assertProxiedRemoteHttpEndpoint(
+        endpoint,
+        {
+          allowPrivateNetwork: allowPrivateRemoteEndpoints(),
+          lookup: options.remoteHttpEndpointLookup,
+        },
+        (message, code) => badRequest(message, { code }),
+      );
+      return endpoint.toString();
+    }
+    return assertRemoteHttpUrlAllowed(rawEndpoint);
   }
 
   function normalizeTokenBrokerAllowedHost(value: string): string | null {
@@ -6753,8 +6776,9 @@ export function toolAccessService(
       method: "tools/list",
       params: {},
     });
+    const proxy = readConfigString(connection.config, "proxy");
     const sendRemote = (init: RequestInit) =>
-      requestRemoteHttpEndpoint(new URL(endpoint), init);
+      requestRemoteHttpEndpoint(new URL(endpoint), init, proxy);
     const sendToolsList = (requestHeaders: Record<string, string>) =>
       sendRemote({
         method: "POST",
@@ -9052,9 +9076,10 @@ export function toolAccessService(
 
   async function fetchJsonRecord(
     url: string,
+    proxy?: string | null,
   ): Promise<Record<string, unknown> | null> {
     try {
-      const response = await fetchRemoteHttpUrl(url);
+      const response = await fetchRemoteHttpUrl(url, {}, proxy);
       if (!response.ok) return null;
       return asRecord((await response.json()) as unknown) ?? null;
     } catch {
@@ -9099,7 +9124,8 @@ export function toolAccessService(
     rejections: HttpError[] = [],
     firstPartyOrigin?: string | null,
   ): Promise<OAuthProviderEndpoints | null> {
-    const metadata = await fetchJsonRecord(metadataUrl);
+    const proxy = readConfigString(connection.config, "proxy");
+    const metadata = await fetchJsonRecord(metadataUrl, proxy);
     if (!metadata) return null;
     // Every endpoint below is a string the remote server chose, so none of them
     // is adopted before `safeOAuthEndpointUrl` has vetted its scheme and host.
@@ -9148,7 +9174,7 @@ export function toolAccessService(
         ? metadata.resource.trim()
         : null;
     for (const candidate of authServerMetadataUrls(metadata)) {
-      const authMetadata = await fetchJsonRecord(candidate.metadataUrl);
+      const authMetadata = await fetchJsonRecord(candidate.metadataUrl, proxy);
       if (!authMetadata) continue;
       const candidateAuthorizationUrl = safeOAuthEndpointUrl(
         "authorization",
@@ -9875,6 +9901,7 @@ export function toolAccessService(
       // others apply native-client redirect rules without it.
       application_type: "web",
     };
+    const proxy = readConfigString(input.connection.config, "proxy");
     const response = await fetchRemoteHttpUrl(
       assertOAuthEndpointUrl("registration", input.endpoints.registrationUrl),
       {
@@ -9882,6 +9909,7 @@ export function toolAccessService(
         headers: { "content-type": "application/json" },
         body: JSON.stringify(requestedMetadata),
       },
+      proxy,
     );
     const record = asRecord(
       (await response.json().catch(() => ({}))) as unknown,
@@ -10455,6 +10483,7 @@ export function toolAccessService(
     refreshToken?: string | null;
     /** RFC 8707 resource indicator: the MCP server this token is for. */
     resource?: string | null;
+    proxy?: string | null;
   }) {
     const body = new URLSearchParams();
     if (input.grantType === "client_credentials") {
@@ -10518,11 +10547,15 @@ export function toolAccessService(
         "utf8",
       ).toString("base64")}`;
     }
-    const response = await fetchRemoteHttpUrl(tokenUrl, {
-      method: "POST",
-      headers,
-      body,
-    });
+    const response = await fetchRemoteHttpUrl(
+      tokenUrl,
+      {
+        method: "POST",
+        headers,
+        body,
+      },
+      input.proxy,
+    );
     const payload = (await response.json().catch(() => ({}))) as unknown;
     const record = asRecord(payload);
     if (!response.ok || record.ok === false) {
@@ -10865,6 +10898,7 @@ export function toolAccessService(
           typeof oauth.resource === "string" && oauth.resource
             ? oauth.resource
             : null,
+        proxy: readConfigString(connection.config, "proxy"),
       });
     } catch (error) {
       if (
@@ -11556,6 +11590,7 @@ export function toolAccessService(
               typeof oauth.resource === "string" && oauth.resource
                 ? oauth.resource
                 : null,
+            proxy: readConfigString(connection.config, "proxy"),
           });
         } catch (error) {
           if (
@@ -15915,6 +15950,7 @@ export function toolAccessService(
       codeVerifier: stateRow.codeVerifier,
       code: input.code,
       resource: endpoints.resource,
+      proxy: readConfigString(connection.config, "proxy"),
     });
     const connectedAt = now();
     const expiresAt = token.expiresIn
