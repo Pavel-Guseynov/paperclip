@@ -818,6 +818,35 @@ function shortStableId(id: string): string {
   return id.replace(/-/g, "").slice(0, 8);
 }
 
+/**
+ * The gateway name of a connected catalog tool. The base name names one
+ * connection and one catalog tool name. Two eligible entries of a connection
+ * can share a base name; the gateway then exposes each with its catalog entry
+ * suffix instead.
+ */
+export function connectedGatewayToolNames(input: {
+  transport: string;
+  applicationKey: string | null;
+  connectionName: string | null;
+  applicationName: string;
+  connectionId: string;
+  applicationId: string;
+  catalogEntryId: string;
+  toolName: string;
+}): { baseName: string; disambiguatedName: string } {
+  const connectionNamespace = `${slugSegment(input.applicationKey ?? input.connectionName ?? input.applicationName, "mcp")}-${shortStableId(input.connectionId)}`;
+  const toolSlug = slugSegment(input.toolName, "tool");
+  const unboundedBaseName = `${input.transport === "rest_api" ? "app" : "mcp"}.${connectionNamespace}:${toolSlug}`;
+  const identity = [input.connectionId, input.applicationId, input.toolName];
+  return {
+    baseName: boundedMcpToolName(unboundedBaseName, identity),
+    disambiguatedName: boundedMcpToolName(
+      `${unboundedBaseName}-${shortStableId(input.catalogEntryId)}`,
+      [...identity, input.catalogEntryId],
+    ),
+  };
+}
+
 function toolRequiresFormalApproval(tool: ToolGatewayDescriptor): boolean {
   return tool.risk === "destructive";
 }
@@ -1376,14 +1405,20 @@ export function createToolGatewayService(
         (connection.transport === "local_stdio" &&
           application.type === "mcp_stdio")),
     );
-    const baseNames = eligibleRows.map(
-      ({ catalogEntry, connection, application }) => {
-        const applicationKey = application.applicationKey ?? null;
-        const connectionNamespace = `${slugSegment(applicationKey ?? connection.name ?? application.name, "mcp")}-${shortStableId(connection.id)}`;
-        const toolSlug = slugSegment(catalogEntry.toolName, "tool");
-        return `${connection.transport === "rest_api" ? "app" : "mcp"}.${connectionNamespace}:${toolSlug}`;
-      },
+    const gatewayNames = eligibleRows.map(
+      ({ catalogEntry, connection, application }) =>
+        connectedGatewayToolNames({
+          transport: connection.transport,
+          applicationKey: application.applicationKey ?? null,
+          connectionName: connection.name,
+          applicationName: application.name,
+          connectionId: connection.id,
+          applicationId: application.id,
+          catalogEntryId: catalogEntry.id,
+          toolName: catalogEntry.toolName,
+        }),
     );
+    const baseNames = gatewayNames.map((names) => names.baseName);
     const baseNameCounts = baseNames.reduce<Map<string, number>>(
       (counts, name) => {
         counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -1402,15 +1437,9 @@ export function createToolGatewayService(
             `Non-MCP connection ${connection.id} cannot be exposed through the MCP gateway`,
           );
         }
-        const baseName = baseNames[index]!;
-        const unboundedGatewayToolName =
-          baseNameCounts.get(baseName)! > 1
-            ? `${baseName}-${shortStableId(catalogEntry.id)}`
-            : baseName;
-        const gatewayToolName = boundedMcpToolName(unboundedGatewayToolName, [
-          connection.id, application.id, catalogEntry.toolName,
-          ...(baseNameCounts.get(baseName)! > 1 ? [catalogEntry.id] : []),
-        ]);
+        const { baseName, disambiguatedName } = gatewayNames[index]!;
+        const gatewayToolName =
+          baseNameCounts.get(baseName)! > 1 ? disambiguatedName : baseName;
         const applicationKey = application.applicationKey ?? null;
         const inputSchema = projectedConnectionToolInputSchema(
           connection,
