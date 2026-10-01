@@ -1218,6 +1218,7 @@ export function createToolGatewayService(
 
   async function connectedMcpToolsForCompany(
     companyId: string,
+    scope?: { applicationIds: string[]; connectionIds: string[]; catalogEntryIds: string[] } | null,
   ): Promise<ToolGatewayDescriptor[]> {
     const rows = await db
       .select({
@@ -1256,6 +1257,13 @@ export function createToolGatewayService(
           eq(toolApplications.companyId, companyId),
           inArray(toolApplications.type, ["mcp_http", "mcp_stdio", "rest_api"]),
           eq(toolApplications.status, "active"),
+          scope
+            ? or(
+                inArray(toolApplications.id, scope.applicationIds),
+                inArray(toolCatalogEntries.connectionId, scope.connectionIds),
+                inArray(toolCatalogEntries.id, scope.catalogEntryIds),
+              )
+            : undefined,
         ),
       )
       .orderBy(toolConnections.name, toolCatalogEntries.name);
@@ -2586,6 +2594,20 @@ export function createToolGatewayService(
     });
   }
 
+  function policyActor(input: {
+    companyId: string;
+    agentId: string | null;
+    actorType?: "agent" | "user" | "system" | "plugin";
+    actorId?: string | null;
+    gatewayId?: string | null;
+  }): ToolAccessDecisionInput["actor"] {
+    return {
+      actorType: input.actorType ?? (input.agentId ? "agent" : "system"),
+      actorId: input.actorId ?? input.agentId ?? input.gatewayId ?? input.companyId,
+      agentId: input.agentId,
+    };
+  }
+
   function policyInputForAgentTool(input: {
     companyId: string;
     agentId: string | null;
@@ -2600,16 +2622,9 @@ export function createToolGatewayService(
     projectId?: string | null;
     gatewayId?: string | null;
   }): ToolAccessDecisionInput {
-    const actorType = input.actorType ?? (input.agentId ? "agent" : "system");
-    const actorId =
-      input.actorId ?? input.agentId ?? input.gatewayId ?? input.companyId;
     return {
       companyId: input.companyId,
-      actor: {
-        actorType,
-        actorId,
-        agentId: input.agentId,
-      },
+      actor: policyActor(input),
       runContext: {
         heartbeatRunId: input.heartbeatRunId ?? null,
         issueId: input.issueId ?? null,
@@ -2872,8 +2887,22 @@ export function createToolGatewayService(
       await assertAgentInCompany(session.companyId, session.agentId);
     }
     const guestBotConnection = await githubGuestBotConnectionForSession(db, session);
+    const discoveryScope = session.gatewayId
+      ? await policyService.namedGatewayDiscoveryScope({
+          companyId: session.companyId,
+          gatewayId: session.gatewayId,
+          actor: policyActor({
+            companyId: session.companyId,
+            agentId: session.agentId,
+            actorType: session.actorType,
+            actorId: session.actorId ?? session.gatewayTokenId ?? null,
+            gatewayId: session.gatewayId,
+          }),
+        })
+      : null;
     const allConnectedTools = (await connectedMcpToolsForCompany(
       session.companyId,
+      discoveryScope,
     )).filter(tool => !guestBotConnection || !tool.connectionId || (tool.connectionId === guestBotConnection && tool.providerType === "paperclip_github_chat"));
     const onDemandTargets = allConnectedTools.filter(isOnDemandRemoteTool);
     const tools = [
