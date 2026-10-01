@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -25,6 +26,17 @@ const describePostgres = postgresSupport.supported ? describe : describe.skip;
 // A PID that no process on the host uses, so the stale-lock sweep sees the
 // run's process as gone.
 const DEAD_PID = 2_147_483_000;
+
+function spawnLiveProcess() {
+  return spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+}
+
+async function stopProcess(child: ChildProcess) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGKILL");
+  await exited;
+}
 
 describePostgres("leases of runs that end without an executor", () => {
   let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -138,5 +150,37 @@ describePostgres("leases of runs that end without an executor", () => {
     expect(run!.status).toBe("interrupted");
     expect((await readLease(leaseId)).status).toBe("released");
     expect(await getConversationOwnershipBlocker(db, companyId, issueId)).toBeNull();
+  });
+
+  it("keeps the lease of a cancelled run while its detached local process still runs", async () => {
+    const child = spawnLiveProcess();
+    try {
+      const { runId, leaseId } = await seedRunWithLease({ processPid: child.pid });
+
+      const cancelled = await heartbeatService(db).cancelRun(runId, "Cancelled by control plane");
+
+      expect(cancelled?.status).toBe("cancelled");
+      expect((await readLease(leaseId)).status).toBe("active");
+    } finally {
+      await stopProcess(child);
+    }
+  });
+
+  it("recovers the lease of a terminal run in the orphaned-lease sweep only after its local process exits", async () => {
+    const child = spawnLiveProcess();
+    try {
+      const { runId, leaseId } = await seedRunWithLease({ processPid: child.pid });
+      const heartbeat = heartbeatService(db);
+      await heartbeat.cancelRun(runId, "Cancelled by control plane");
+
+      await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 0 });
+      expect((await readLease(leaseId)).status).toBe("active");
+
+      await stopProcess(child);
+      await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 0 });
+      expect((await readLease(leaseId)).status).toBe("pending_cleanup");
+    } finally {
+      await stopProcess(child);
+    }
   });
 });

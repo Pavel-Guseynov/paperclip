@@ -10279,14 +10279,20 @@ export function heartbeatService(
   // An executor releases its run's leases at the end of its own cleanup, after
   // workspace copy-back. A legacy run that ends with no executor in this process
   // never reaches that boundary, so its leases stay active and keep the issue
-  // blocked until the orphaned-lease sweep. Release them when the run ends.
+  // blocked until the orphaned-lease sweep. Release them when the run ends,
+  // unless its detached local process still runs.
   async function releaseLeasesForRunWithoutExecutor(
-    run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "companyId" | "agentId" | "runtimeMode">,
+    run: Pick<
+      typeof heartbeatRuns.$inferSelect,
+      "id" | "companyId" | "agentId" | "runtimeMode" | "processPid" | "processGroupId"
+    >,
     status: string,
     failureReason: string | null,
   ) {
     if (run.runtimeMode !== "legacy" || activeRunExecutions.has(run.id)) return;
     try {
+      const agent = await getAgent(run.agentId);
+      if (trackedLocalRunProcessAlive(run, agent?.adapterType)) return;
       await releaseEnvironmentLeasesForRun({
         runId: run.id,
         companyId: run.companyId,
@@ -10302,6 +10308,24 @@ export function heartbeatService(
         "failed to release environment leases of a run that ended without an executor",
       );
     }
+  }
+
+  // A Stop cannot signal a detached local child that this process holds no
+  // handle for, so the child can outlive its terminal run row. While it runs,
+  // its lease still guards the environment it works in. This is the liveness
+  // rule the reaper applies to the same adapters before it ends a run.
+  function trackedLocalRunProcessAlive(
+    run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "runtimeMode" | "processPid" | "processGroupId">,
+    adapterType: string | null | undefined,
+  ) {
+    if (run.runtimeMode !== "legacy" || !adapterType || !isTrackedLocalChildProcessAdapter(adapterType)) {
+      return false;
+    }
+    return (
+      runningProcesses.has(run.id) ||
+      (!!run.processPid && isProcessAlive(run.processPid)) ||
+      (!!run.processGroupId && isProcessGroupAlive(run.processGroupId))
+    );
   }
 
   async function acknowledgeRemoteStop(runId: string, companyId: string) {
@@ -18529,12 +18553,22 @@ export function heartbeatService(
     const cutoff = new Date(Date.now() - opts.backoffMs);
 
     const rows = await db
-      .select({ lease: environmentLeases })
+      .select({
+        lease: environmentLeases,
+        run: {
+          id: heartbeatRuns.id,
+          runtimeMode: heartbeatRuns.runtimeMode,
+          processPid: heartbeatRuns.processPid,
+          processGroupId: heartbeatRuns.processGroupId,
+        },
+        adapterType: agents.adapterType,
+      })
       .from(environmentLeases)
       .leftJoin(
         heartbeatRuns,
         eq(environmentLeases.heartbeatRunId, heartbeatRuns.id),
       )
+      .leftJoin(agents, eq(heartbeatRuns.agentId, agents.id))
       .where(
         and(
           eq(environmentLeases.status, "active"),
@@ -18551,7 +18585,11 @@ export function heartbeatService(
       .limit(ORPHANED_ACTIVE_LEASE_SWEEP_PAGE_SIZE);
 
     let recovered = 0;
-    for (const { lease } of rows) {
+    for (const { lease, run, adapterType } of rows) {
+      if (run && trackedLocalRunProcessAlive(run, adapterType)) {
+        await deferOrphanedActiveLease(lease.id);
+        continue;
+      }
       // A provider resource id names one physical sandbox. A different lease
       // row can still hold that same resource in a live status, so this sweep
       // must not tear down a sandbox that a different lease still owns.
