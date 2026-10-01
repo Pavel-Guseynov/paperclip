@@ -145,6 +145,7 @@ import { connectRunnerPrpIngress } from "../../realtime/runner-prp-outbound.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { reportRunFailure } from "../run-failure-report.js";
 import { persistActivity, publishActivity } from "../activity-log.js";
+import { transitionHeartbeatRunStatus, type HeartbeatRunStatusPatch } from "../heartbeat-run-lifecycle.js";
 import { commitNativeStatusDecision } from "./status-decision-committer.js";
 import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
 import { documentService } from "../documents.js";
@@ -7015,22 +7016,19 @@ export async function cancelNativeSession(
             (effect) => effect.kind === "accept_replacement_turn",
           )
         ) {
-          await tx
-            .update(heartbeatRuns)
-            .set({
-              status: "running",
+          await transitionHeartbeatRunStatus(tx, runId, {
+            toStatus: "running",
+            patch: {
               continuationAttempt: sql`${heartbeatRuns.continuationAttempt} + 1`,
               nextAction: "Accept a replacement native turn on the existing run.",
               updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(heartbeatRuns.id, runId),
-                eq(heartbeatRuns.companyId, cancellationContext.companyId),
-                eq(heartbeatRuns.agentId, cancellationContext.agentId),
-                eq(heartbeatRuns.nativeIssueId, cancellationContext.issueId),
-              ),
-            );
+            },
+            where: and(
+              eq(heartbeatRuns.companyId, cancellationContext.companyId),
+              eq(heartbeatRuns.agentId, cancellationContext.agentId),
+              eq(heartbeatRuns.nativeIssueId, cancellationContext.issueId),
+            ),
+          });
         }
         const activity = await persistActivity(tx as unknown as Db, {
           companyId: cancellationContext.companyId,
@@ -8913,39 +8911,28 @@ async function executePaperclipNativeSessionWithinScope(
           .returning({ runId: nativeRunFinalizations.runId })
           .then((rows) => rows[0] ?? null);
         if (!updated) throw new Error("native_session_lease_lost");
-        const [runBeforeWrite] = await tx
-          .select({ status: heartbeatRuns.status })
-          .from(heartbeatRuns)
-          .where(eq(heartbeatRuns.id, input.execution.binding.runId))
-          .for("update");
-        const [updatedRun] = await tx
-          .update(heartbeatRuns)
-          .set({
-            // An authentication timeout does not prove the retained runner or
-            // its provider stopped. Preserve physical ownership until verified.
-            ...(!ownershipUnverified
-              ? {
-                  status: "failed",
-                  executionStatusDeliveryId: randomUUID(),
-                  finishedAt: now,
-                }
-              : {}),
-            nativePhase: phase,
-            nativePhaseUpdatedAt: now,
-            error: message,
-            errorCode: ownershipUnverified
-              ? NATIVE_OWNERSHIP_UNVERIFIED_ERROR_CODE
-              : sourceFailureCode,
-            updatedAt: now,
-          })
-          .where(eq(heartbeatRuns.id, input.execution.binding.runId))
-          .returning();
-        if (
-          updatedRun &&
-          runBeforeWrite &&
-          updatedRun.status !== runBeforeWrite.status
-        ) {
-          terminalRunToReport = updatedRun;
+        const runPatch = {
+          nativePhase: phase,
+          nativePhaseUpdatedAt: now,
+          error: message,
+          errorCode: ownershipUnverified
+            ? NATIVE_OWNERSHIP_UNVERIFIED_ERROR_CODE
+            : sourceFailureCode,
+          updatedAt: now,
+        } satisfies HeartbeatRunStatusPatch;
+        // An authentication timeout does not prove the retained runner or
+        // its provider stopped. Preserve physical ownership until verified.
+        if (ownershipUnverified) {
+          await tx
+            .update(heartbeatRuns)
+            .set(runPatch)
+            .where(eq(heartbeatRuns.id, input.execution.binding.runId));
+        } else {
+          const failed = await transitionHeartbeatRunStatus(tx, input.execution.binding.runId, {
+            toStatus: "failed",
+            patch: { ...runPatch, executionStatusDeliveryId: randomUUID(), finishedAt: now },
+          });
+          if (failed?.transition) terminalRunToReport = failed.run;
         }
         const stillOwnsTask =
           failureTask?.assigneeAgentId === input.execution.binding.agentId &&

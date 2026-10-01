@@ -47,6 +47,7 @@ import {
 } from "./native-board-response-wait.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
 import { reportRunFailure } from "../run-failure-report.js";
+import { transitionHeartbeatRunStatus, type HeartbeatRunStatusPatch } from "../heartbeat-run-lifecycle.js";
 import { resolveExternalChatResponseWaitAuthorization } from "./chat-attachment-reuse.js";
 import {
   authorizeNativeChatReviewPresentation,
@@ -443,35 +444,28 @@ async function recordRetryableFailure(input: {
     if (projectsTerminalStatus && input.failureScope === "workspace") {
       await preserveNativeWorkspaceExportLease(tx as unknown as Db, input.run, input.coordinator.resultId);
     }
-    const [updatedRun] = await tx
-      .update(heartbeatRuns)
-      .set({
-        executionStatusDeliveryId: randomUUID(),
-        ...(projectsTerminalStatus
-          ? {
-              status:
-                input.failureScope === "workspace"
-                  ? "failed"
-                  : exhaustedRunStatus,
-              finishedAt: input.run.finishedAt ?? now,
-            }
-          : {}),
-        nativePhase: phase,
-        nativePhaseUpdatedAt: now,
-        resultJson: {
-          ...record(input.run.resultJson),
-          finalizationPhase: phase,
-          failureCode,
-          originalFailureCode: input.failureCode,
-          nextAttemptAt:
-            supersededByNewerRun || exhausted
-              ? null
-              : nextAttemptAt.toISOString(),
-        },
-        updatedAt: now,
-      })
-      .where(eq(heartbeatRuns.id, input.run.id))
-      .returning();
+    const runPatch = {
+      executionStatusDeliveryId: randomUUID(),
+      nativePhase: phase,
+      nativePhaseUpdatedAt: now,
+      resultJson: {
+        ...record(input.run.resultJson),
+        finalizationPhase: phase,
+        failureCode,
+        originalFailureCode: input.failureCode,
+        nextAttemptAt:
+          supersededByNewerRun || exhausted
+            ? null
+            : nextAttemptAt.toISOString(),
+      },
+      updatedAt: now,
+    } satisfies HeartbeatRunStatusPatch;
+    const updatedRun = projectsTerminalStatus
+      ? (await transitionHeartbeatRunStatus(tx, input.run.id, {
+          toStatus: input.failureScope === "workspace" ? "failed" : exhaustedRunStatus,
+          patch: { ...runPatch, finishedAt: input.run.finishedAt ?? now },
+        }))?.run
+      : (await tx.update(heartbeatRuns).set(runPatch).where(eq(heartbeatRuns.id, input.run.id)).returning())[0];
     if (projectsTerminalStatus) terminalRunToEmit = updatedRun ?? null;
     if (supersededByNewerRun) {
       await issueRecoveryActionService(
@@ -643,11 +637,10 @@ async function projectCommittedRun(input: {
     terminalState as "succeeded" | "failed" | "cancelled",
   );
   const now = new Date();
-  const [updatedRun] = await input.db
-    .update(heartbeatRuns)
-    .set({
+  const updatedRun = (await transitionHeartbeatRunStatus(input.db, input.run.id, {
+    toStatus: projectedStatus,
+    patch: {
       executionStatusDeliveryId: randomUUID(),
-      status: projectedStatus,
       finishedAt: input.run.finishedAt ?? now,
       nativePhase: "committed",
       nativePhaseUpdatedAt: now,
@@ -673,47 +666,44 @@ async function projectCommittedRun(input: {
           }
         : { resultJson: sql`coalesce(${heartbeatRuns.resultJson}, '{}'::jsonb) || jsonb_build_object('finalizationPhase', 'committed', 'failureCode', null, 'originalFailureCode', null, 'nextAttemptAt', null)` }),
       updatedAt: now,
-    })
-    .where(
-      and(
-        eq(heartbeatRuns.id, input.run.id),
-        eq(heartbeatRuns.runtimeMode, "native"),
-        or(
-          inArray(heartbeatRuns.status, ["queued", "running", "failed"]),
-          and(
-            eq(heartbeatRuns.status, "succeeded"),
-            or(
-              isNotNull(heartbeatRuns.error),
-              isNotNull(heartbeatRuns.errorCode),
-              isNull(heartbeatRuns.finishedAt),
-              sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
-              sql`${heartbeatRuns.resultJson}->>'finalizationPhase' is distinct from 'committed'`,
-              sql`${heartbeatRuns.resultJson}->>'nextAttemptAt' is not null`,
-              sql`${heartbeatRuns.resultJson}->>'failureCode' is not null`,
-              sql`${heartbeatRuns.resultJson}->>'originalFailureCode' is not null`,
-            ),
+    },
+    where: and(
+      eq(heartbeatRuns.runtimeMode, "native"),
+      or(
+        inArray(heartbeatRuns.status, ["queued", "running", "failed"]),
+        and(
+          eq(heartbeatRuns.status, "succeeded"),
+          or(
+            isNotNull(heartbeatRuns.error),
+            isNotNull(heartbeatRuns.errorCode),
+            isNull(heartbeatRuns.finishedAt),
+            sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
+            sql`${heartbeatRuns.resultJson}->>'finalizationPhase' is distinct from 'committed'`,
+            sql`${heartbeatRuns.resultJson}->>'nextAttemptAt' is not null`,
+            sql`${heartbeatRuns.resultJson}->>'failureCode' is not null`,
+            sql`${heartbeatRuns.resultJson}->>'originalFailureCode' is not null`,
           ),
         ),
-        // Reconciliation revisits committed results periodically. Only repair
-        // a changed projection; rewriting an unchanged failed run would mint a
-        // fresh status delivery (and failure toast) on every sweep. Check the
-        // current row so concurrent replays cannot both queue the same repair.
-        or(
-          sql`${heartbeatRuns.status} is distinct from ${projectedStatus}`,
-          isNull(heartbeatRuns.finishedAt),
-          sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
-          sql`${heartbeatRuns.resultJson}->>'finalizationPhase' is distinct from 'committed'`,
-          sql`${heartbeatRuns.resultJson}->>'nextAttemptAt' is not null`,
-          sql`${heartbeatRuns.resultJson}->>'failureCode' is not null`,
-          sql`${heartbeatRuns.resultJson}->>'originalFailureCode' is not null`,
-          ...(terminalState === "succeeded"
-            ? [isNotNull(heartbeatRuns.error), isNotNull(heartbeatRuns.errorCode)]
-            : []),
-        ),
-        nativeRunnerOwnershipNotHeldCondition(),
       ),
-    )
-    .returning();
+      // Reconciliation revisits committed results periodically. Only repair
+      // a changed projection; rewriting an unchanged failed run would mint a
+      // fresh status delivery (and failure toast) on every sweep. Check the
+      // current row so concurrent replays cannot both queue the same repair.
+      or(
+        sql`${heartbeatRuns.status} is distinct from ${projectedStatus}`,
+        isNull(heartbeatRuns.finishedAt),
+        sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
+        sql`${heartbeatRuns.resultJson}->>'finalizationPhase' is distinct from 'committed'`,
+        sql`${heartbeatRuns.resultJson}->>'nextAttemptAt' is not null`,
+        sql`${heartbeatRuns.resultJson}->>'failureCode' is not null`,
+        sql`${heartbeatRuns.resultJson}->>'originalFailureCode' is not null`,
+        ...(terminalState === "succeeded"
+          ? [isNotNull(heartbeatRuns.error), isNotNull(heartbeatRuns.errorCode)]
+          : []),
+      ),
+      nativeRunnerOwnershipNotHeldCondition(),
+    ),
+  }))?.run ?? null;
   // Metadata repairs can preserve the terminal status. Only a genuine status
   // transition should emit another terminal event.
   if (updatedRun && updatedRun.status !== input.run.status) {
@@ -1391,61 +1381,52 @@ export async function finalizeNativeRun(input: {
       const alreadyEmittedByCommittedDecision = decision.effects.some(
         (effect) => effect.kind === "cancel_continuations",
       );
-      const [updatedRun] = await input.db
-        .update(heartbeatRuns)
-        .set({
-          executionStatusDeliveryId: randomUUID(),
-          ...(input.projectRunStatus
+      const runPatch = {
+        executionStatusDeliveryId: randomUUID(),
+        nativePhase: finalizationPhase,
+        nativePhaseUpdatedAt: now,
+        resultJson: {
+          ...record(run.resultJson),
+          finalizationPhase,
+          ...(finalizationPhase === "committed" ? { failureCode: null, originalFailureCode: null, nextAttemptAt: null } : {}),
+          assessmentId: assessmentRow.id,
+          decisionId: committed.decision.id,
+          authoritativeDecision: decision.toStatus,
+          finalizationPolicyVersion: decision.policyVersion,
+          finalizationReasonCode: decision.reasonCode,
+          // Only the locked status transaction can mint this presentation
+          // proof. Never carry a runner-provided marker forward.
+          externalChatReviewPresentation: record(
+            committed.decision.decisionJson,
+          ).externalChatReviewPresentation
             ? {
-                status:
-                  terminalState === "succeeded"
-                    ? "succeeded"
-                    : terminalState === "cancelled"
-                      ? "cancelled"
-                      : "failed",
-                finishedAt: now,
+                ...record(
+                  record(committed.decision.decisionJson)
+                    .externalChatReviewPresentation,
+                ),
+                decisionId: committed.decision.id,
               }
+            : null,
+          ...(record(committed.decision.decisionJson)
+            .externalChatReviewPresentation
+            ? { nativeResult: result }
             : {}),
-          nativePhase: finalizationPhase,
-          nativePhaseUpdatedAt: now,
-          resultJson: {
-            ...record(run.resultJson),
-            finalizationPhase,
-            ...(finalizationPhase === "committed" ? { failureCode: null, originalFailureCode: null, nextAttemptAt: null } : {}),
-            assessmentId: assessmentRow.id,
-            decisionId: committed.decision.id,
-            authoritativeDecision: decision.toStatus,
-            finalizationPolicyVersion: decision.policyVersion,
-            finalizationReasonCode: decision.reasonCode,
-            // Only the locked status transaction can mint this presentation
-            // proof. Never carry a runner-provided marker forward.
-            externalChatReviewPresentation: record(
-              committed.decision.decisionJson,
-            ).externalChatReviewPresentation
-              ? {
-                  ...record(
-                    record(committed.decision.decisionJson)
-                      .externalChatReviewPresentation,
-                  ),
-                  decisionId: committed.decision.id,
-                }
-              : null,
-            ...(record(committed.decision.decisionJson)
-              .externalChatReviewPresentation
-              ? { nativeResult: result }
-              : {}),
-            verificationCaveats: assessment.verificationCaveats,
-            ignoredAttentionRequests: assessment.ignoredAttentionRequests,
-            issueStatusBefore: authoritativeIssue.status,
-            issueStatusAfter: committed.issue.status,
-            statusVersionBefore: Number(authoritativeIssue.statusVersion),
-            statusVersionAfter: Number(committed.issue.statusVersion),
-            workspaceFinalizeStatus: input.workspaceFinalizeStatus,
-          },
-          updatedAt: now,
-        })
-        .where(eq(heartbeatRuns.id, run.id))
-        .returning();
+          verificationCaveats: assessment.verificationCaveats,
+          ignoredAttentionRequests: assessment.ignoredAttentionRequests,
+          issueStatusBefore: authoritativeIssue.status,
+          issueStatusAfter: committed.issue.status,
+          statusVersionBefore: Number(authoritativeIssue.statusVersion),
+          statusVersionAfter: Number(committed.issue.statusVersion),
+          workspaceFinalizeStatus: input.workspaceFinalizeStatus,
+        },
+        updatedAt: now,
+      } satisfies HeartbeatRunStatusPatch;
+      const updatedRun = input.projectRunStatus
+        ? (await transitionHeartbeatRunStatus(input.db, run.id, {
+            toStatus: terminalState === "succeeded" ? "succeeded" : terminalState === "cancelled" ? "cancelled" : "failed",
+            patch: { ...runPatch, finishedAt: now },
+          }))?.run
+        : (await input.db.update(heartbeatRuns).set(runPatch).where(eq(heartbeatRuns.id, run.id)).returning())[0];
       if (
         input.projectRunStatus &&
         !alreadyEmittedByCommittedDecision &&

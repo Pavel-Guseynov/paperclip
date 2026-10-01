@@ -23,6 +23,7 @@ import { isHeartbeatWakeOnDemandEnabled } from "../../../services/heartbeat-poli
 import { collectDispositionRepairSourceState } from "../../../services/recovery/disposition-repair.js";
 import { legacyDispositionEpisode, legacyDispositionFingerprint } from "../../../services/recovery/legacy-continuation.js";
 import { appendHeartbeatRunEvent } from "../../../services/heartbeat-run-events.js";
+import { transitionHeartbeatRunStatus } from "../../../services/heartbeat-run-lifecycle.js";
 import { emitAgentTaskRun } from "../../../services/agent-task-run-telemetry.js";
 import { issueService } from "../../../services/issues.js";
 import {
@@ -637,18 +638,15 @@ export function createPostgresRunDispatchAdapter(
     | { applied: true; run: HeartbeatRun; postCommitEffects: PostCommitEffect[] }
     | { applied: false }
   > {
-    const [row] = await tx
-      .update(heartbeatRuns)
-      .set({ status: "queued", updatedAt: input.now })
-      .where(
-        and(
-          eq(heartbeatRuns.id, input.runId),
-          eq(heartbeatRuns.companyId, input.companyId),
-          eq(heartbeatRuns.status, "scheduled_retry"),
-          lte(heartbeatRuns.scheduledRetryAt, input.now),
-        ),
-      )
-      .returning();
+    const row = (await transitionHeartbeatRunStatus(tx, input.runId, {
+      toStatus: "queued",
+      patch: { updatedAt: input.now },
+      where: and(
+        eq(heartbeatRuns.companyId, input.companyId),
+        eq(heartbeatRuns.status, "scheduled_retry"),
+        lte(heartbeatRuns.scheduledRetryAt, input.now),
+      ),
+    }))?.run ?? null;
     if (!row) return { applied: false };
 
     await appendHeartbeatRunEvent(tx as unknown as Db, {
@@ -673,24 +671,20 @@ export function createPostgresRunDispatchAdapter(
     tx: Db,
     input: CancelSuppressedRetryInput,
   ): Promise<CancelSuppressedRetryResult> {
-    const [row] = await tx
-      .update(heartbeatRuns)
-      .set({
-        status: "cancelled",
+    const row = (await transitionHeartbeatRunStatus(tx, input.runId, {
+      toStatus: "cancelled",
+      patch: {
         finishedAt: input.now,
         error: input.reason,
         errorCode: input.errorCode,
         updatedAt: input.now,
-      })
-      .where(
-        and(
-          eq(heartbeatRuns.id, input.runId),
-          eq(heartbeatRuns.companyId, input.companyId),
-          eq(heartbeatRuns.status, "scheduled_retry"),
-          lte(heartbeatRuns.scheduledRetryAt, input.now),
-        ),
-      )
-      .returning();
+      },
+      where: and(
+        eq(heartbeatRuns.companyId, input.companyId),
+        eq(heartbeatRuns.status, "scheduled_retry"),
+        lte(heartbeatRuns.scheduledRetryAt, input.now),
+      ),
+    }))?.run ?? null;
     if (!row) return { applied: false };
 
     if (row.wakeupRequestId) {
@@ -867,10 +861,9 @@ export function createPostgresRunDispatchAdapter(
     expectedStatus: "queued" | "running",
     now: Date,
   ): Promise<CancelStaleQueuedRunOutcome> {
-      const [row] = await tx
-        .update(heartbeatRuns)
-        .set({
-          status: "cancelled",
+      const row = (await transitionHeartbeatRunStatus(tx, run.id, {
+        toStatus: "cancelled",
+        patch: {
           finishedAt: now,
           error: decision.reason,
           errorCode: decision.errorCode,
@@ -886,15 +879,12 @@ export function createPostgresRunDispatchAdapter(
             timeoutFired: false,
           },
           updatedAt: now,
-        })
-        .where(
-          and(
-            eq(heartbeatRuns.id, run.id),
-            eq(heartbeatRuns.companyId, run.companyId),
-            eq(heartbeatRuns.status, expectedStatus),
-          ),
-        )
-        .returning();
+        },
+        where: and(
+          eq(heartbeatRuns.companyId, run.companyId),
+          eq(heartbeatRuns.status, expectedStatus),
+        ),
+      }))?.run ?? null;
       // A concurrent claimant or canceller already moved the run off
       // `expectedStatus`: the caller's staleness decision lost the race, so
       // this write must not overwrite whatever status won it.

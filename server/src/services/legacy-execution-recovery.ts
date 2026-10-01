@@ -10,6 +10,7 @@ import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { logActivity } from "./activity-log.js";
 import { isSupersededConversationRun } from "./agent-conversations.js";
 import { issueService } from "./issues.js";
+import { transitionHeartbeatRunStatus, type HeartbeatRunValuesPatch } from "./heartbeat-run-lifecycle.js";
 
 type Run = typeof heartbeatRuns.$inferSelect;
 export const LEGACY_RECOVERY_CAUSE = "legacy_execution_requires_reconciliation";
@@ -58,7 +59,7 @@ export async function terminalizeLegacyExecution(input: {
   db: Db;
   run: Run;
   status: string;
-  patch?: Partial<typeof heartbeatRuns.$inferInsert>;
+  patch?: HeartbeatRunValuesPatch;
   fromStatuses?: string[];
 }) {
   const { db, run, status, patch } = input;
@@ -80,22 +81,18 @@ export async function terminalizeLegacyExecution(input: {
           )
           .for("update")
       : [];
-    const [updated] = await tx
-      .update(heartbeatRuns)
-      .set({
-        status,
+    const updated = (await transitionHeartbeatRunStatus(tx, run.id, {
+      toStatus: status,
+      patch: {
         ...patch,
         executionStatusDeliveryId: randomUUID(),
         updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(heartbeatRuns.id, run.id),
-          eq(heartbeatRuns.companyId, run.companyId),
-          inArray(heartbeatRuns.status, input.fromStatuses ?? [run.status]),
-        ),
-      )
-      .returning();
+      },
+      where: and(
+        eq(heartbeatRuns.companyId, run.companyId),
+        inArray(heartbeatRuns.status, input.fromStatuses ?? [run.status]),
+      ),
+    }))?.run ?? null;
     if (!updated) return null;
     if (task?.executionRunId === run.id)
       await tx
