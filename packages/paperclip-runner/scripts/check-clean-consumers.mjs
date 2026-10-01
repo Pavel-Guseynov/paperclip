@@ -186,18 +186,15 @@ async function verifyRunnerConsumer({
     name: "paperclip-runner-clean-consumer",
     private: true,
     type: "module",
-    packageManager: "pnpm@11.21.0",
+    packageManager: "pnpm@11.27.0",
     dependencies: {
       "@paperclipai/paperclip-runner": `file:${runnerTarball}`,
     },
   }, null, 2)}\n`);
-  const overrides = localOverrides(runtimeDependencyTarballs);
-  const overridesYaml = Object.entries(overrides)
-    .map(([k, v]) => `  "${k}": "${v}"`)
-    .join("\n");
+  // JSON is valid YAML and escapes Windows path separators correctly.
   await writeFile(
     resolve(consumerRoot, "pnpm-workspace.yaml"),
-    `overrides:\n${overridesYaml}\n`,
+    `${JSON.stringify({ overrides: localOverrides(runtimeDependencyTarballs) }, null, 2)}\n`,
   );
   await writeFile(resolve(consumerRoot, "verify.mjs"), `
 import { createHash } from "node:crypto";
@@ -422,22 +419,22 @@ function run(command, args, cwd, { quiet = false, env = {} } = {}) {
 
 function resolvePnpmInvocation() {
   const corepack = process.platform === "win32" ? "corepack.cmd" : "corepack";
-  const corepackProbe = spawnSync(corepack, ["pnpm@11.21.0", "--version"], {
+  const corepackProbe = spawnSync(corepack, ["pnpm@11.27.0", "--version"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  if (corepackProbe.status === 0 && corepackProbe.stdout.trim() === "11.21.0") {
-    return { executable: corepack, prefixArgs: ["pnpm@11.21.0"] };
+  if (corepackProbe.status === 0 && corepackProbe.stdout.trim() === "11.27.0") {
+    return { executable: corepack, prefixArgs: ["pnpm@11.27.0"] };
   }
   const direct = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const directProbe = spawnSync(direct, ["--version"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  if (directProbe.status === 0 && directProbe.stdout.trim() === "11.21.0") {
+  if (directProbe.status === 0 && directProbe.stdout.trim() === "11.27.0") {
     return { executable: direct, prefixArgs: [] };
   }
-  throw new Error("Clean-consumer verification requires pnpm 11.21.0 via corepack or PATH");
+  throw new Error("Clean-consumer verification requires pnpm 11.27.0 via corepack or PATH");
 }
 
 function capture(command, args, cwd) {

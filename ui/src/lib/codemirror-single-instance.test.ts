@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // versions ship two module instances and crash the editor at runtime with
 // "Unrecognized extension value in extension set" — a failure no unit test
 // of the editor itself catches, because each test file sees only one copy.
-// The pnpm.overrides entries in the root package.json hold the graph to a
+// The overrides entries in pnpm-workspace.yaml hold the graph to a
 // single resolution; this file pins that invariant against the graph the
 // current install actually resolved, so it holds wherever the tests run —
 // CI (which installs from the lockfile it regenerates for the PR) and
@@ -112,7 +112,7 @@ describe("codemirror single-instance invariant", () => {
         `the installed graph carries multiple physical copies of ${pkg}, ` +
           "which break instanceof checks inside the editor. Reinstall " +
           "against the current manifests; if the copies persist, fix the " +
-          "pnpm.overrides entry in the root package.json instead of " +
+          "overrides entry in pnpm-workspace.yaml instead of " +
           "allowing a second copy.",
       ).toHaveLength(1);
     });

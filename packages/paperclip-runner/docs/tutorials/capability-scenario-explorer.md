@@ -18,7 +18,7 @@ requires separate approval. See
 ## What you need
 
 - Node.js 20 or newer and pnpm 11 or newer. This tutorial was verified with Node
-  24 and pnpm 11.21.0.
+  24 and pnpm 11.27.0.
 - No Rust toolchain. Every command in this tutorial is TypeScript/Node only. (A
   full `verify` still builds Rust, but nothing here does.)
 - No network access after `pnpm install`.
