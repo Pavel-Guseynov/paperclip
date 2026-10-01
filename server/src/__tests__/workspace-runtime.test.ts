@@ -1907,7 +1907,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@11.21.0",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
@@ -2008,7 +2008,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@11.21.0",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
@@ -2095,7 +2095,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@11.21.0",
+            packageManager: "pnpm@11.27.0",
           },
           null,
           2,
@@ -2336,7 +2336,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@11.21.0",
+            packageManager: "pnpm@11.27.0",
           },
           null,
           2,
@@ -2405,7 +2405,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@11.21.0",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,

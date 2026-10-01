@@ -121,7 +121,7 @@ test("the package exposes only the reviewed runner CLI binaries", () => {
 
 test("pnpm-workspace.yaml applies the exact runtime patches and package.json#pnpm is absent", () => {
   assert.equal(rootPackage.pnpm, undefined);
-  assert.equal(rootPackage.packageManager, "pnpm@11.21.0");
+  assert.equal(rootPackage.packageManager, "pnpm@11.27.0");
   assert.match(workspace, /acpx@0\.13\.1: patches\/acpx@0\.13\.1\.patch/);
   assert.match(
     workspace,
