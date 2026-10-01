@@ -377,6 +377,23 @@ function argumentConditionMatches(condition: Record<string, unknown>, ctx: ToolA
   return argumentFiltersMatch(filters, ctx);
 }
 
+/**
+ * The risk levels that the `isWrite` policy condition treats as able to change
+ * something upstream. `read` and `low` are not among them. An unknown level is
+ * not a claim either way: the caller decides what to do with `null`.
+ */
+const WRITE_CAPABLE_RISK_LEVELS: readonly ToolRiskLevel[] = [
+  "write",
+  "destructive",
+  "medium",
+  "high",
+  "critical",
+];
+
+function isWriteCapableRiskLevel(value: ToolRiskLevel | null): boolean {
+  return value !== null && WRITE_CAPABLE_RISK_LEVELS.includes(value);
+}
+
 function riskRank(value: ToolRiskLevel | null): number {
   if (value === "read" || value === "low") return 1;
   if (value === "write" || value === "medium") return 2;
@@ -1417,7 +1434,32 @@ export function toolAccessPolicyService(db: Db) {
         eq(toolInvocations.companyId, input.companyId),
         eq(toolInvocations.idempotencyKey, idempotencyKey),
       ));
-      if (existing) return { invocation: existing, replayed: true, actionRequest: null };
+      if (existing) {
+        // A timed-out call was abandoned without an outcome: it may already
+        // have taken effect upstream. Replaying one that could have changed
+        // state would risk doing the work twice, so the caller has to decide
+        // under a new idempotency key. A read cannot have changed anything, so
+        // it keeps the ordinary replay.
+        //
+        // The idempotency key is unique per company, not per tool, so what the
+        // abandoned call could have done is read from the stored invocation
+        // rather than from the tool this caller named. An invocation that
+        // recorded no risk level is unknown, and unknown fails closed.
+        const mayHaveChangedState =
+          existing.riskLevel === null || isWriteCapableRiskLevel(existing.riskLevel);
+        if (existing.status === "timed_out" && mayHaveChangedState) {
+          throw conflict(
+            "A previous write invocation timed out with an ambiguous outcome; it cannot be automatically replayed. Confirm the outcome upstream and retry with a new idempotency key.",
+            {
+              code: "ambiguous_invocation_timeout",
+              invocationId: existing.id,
+              tool: existing.toolName,
+              status: existing.status,
+            },
+          );
+        }
+        return { invocation: existing, replayed: true, actionRequest: null };
+      }
     }
     const status = accessDecision.decision === "allow"
       ? "authorized"
