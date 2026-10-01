@@ -105,7 +105,7 @@ repair_base_workspace_install() {
   command -v pnpm >/dev/null 2>&1 || return 1
   [[ -f "$base_cwd/package.json" && -f "$base_cwd/pnpm-lock.yaml" ]] || return 1
   echo "Base workspace CLI at $base_cli_entry_path failed its health check (typically dangling pnpm symlinks after a partial install); repairing with pnpm install in $base_cwd." >&2
-  local repair_cmd=(pnpm install --prod=false --force --frozen-lockfile --config.confirmModulesPurge=false)
+  local repair_cmd=(pnpm install --force --frozen-lockfile --config.confirmModulesPurge=false)
   # Node 24 reports url.parse() as DEP0169. Keep this flag while any
   # toolchain install path may call url.parse().
   local repair_node_options="${NODE_OPTIONS:-} --disable-warning=DEP0169"
