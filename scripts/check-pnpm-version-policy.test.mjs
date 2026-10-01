@@ -36,9 +36,9 @@ const validWorkflow = `jobs:
         run: pnpm install --frozen-lockfile
 `;
 
-// A git repository that satisfies the policy; `files` overrides or removes
-// (null) individual paths. Only tracked files are scanned for pnpm 9 references.
-function createRepository(t, files = {}, untracked = {}) {
+// A repository that satisfies the policy; `files` overrides or removes
+// (null) individual paths.
+function createRepository(t, files = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "pnpm-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const tracked = {
@@ -50,22 +50,24 @@ function createRepository(t, files = {}, untracked = {}) {
     ...Object.fromEntries(documentedPrerequisites.map(([docPath, snippet]) => [docPath, `Requires ${snippet}.\n`])),
     ...files,
   };
-  const write = (entries) => {
-    for (const [relativePath, content] of Object.entries(entries)) {
-      if (content === null) continue;
-      mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
-      writeFileSync(path.join(root, relativePath), content);
-    }
-  };
-  write(tracked);
+  for (const [relativePath, content] of Object.entries(tracked)) {
+    if (content === null) continue;
+    mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
+    writeFileSync(path.join(root, relativePath), content);
+  }
   execFileSync("git", ["init", "-q"], { cwd: root });
   execFileSync("git", ["add", "-A"], { cwd: root });
-  write(untracked);
   return root;
 }
 
 test("accepts a repository that follows the pnpm 11 policy", (t) => {
   assert.deepEqual(checkPnpmVersionPolicy(createRepository(t), { runningVersion: expectedPnpmVersion }), []);
+});
+
+test("accepts a source tree exported without .git", (t) => {
+  const root = createRepository(t);
+  rmSync(path.join(root, ".git"), { recursive: true, force: true });
+  assert.deepEqual(checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion }), []);
 });
 
 test("rejects a pnpm 9 package manager and a package.json#pnpm section", (t) => {
@@ -157,17 +159,15 @@ test("requires each documented prerequisite", (t) => {
   ]);
 });
 
-test("rejects tracked pnpm 9 references outside dated logs and plans", (t) => {
-  const root = createRepository(
-    t,
-    {
-      "docs/guide.md": "Install pnpm 9 first.\n",
-      "doc/logs/2026-01-01-install.md": "The old shim ran pnpm add pnpm@9.15.4.\n",
-      "doc/plans/2026-01-01-toolchain.md": "Move off pnpm 9.\n",
-      "scripts/versions.json": JSON.stringify({ unrelated: "9.15.4" }),
-    },
-    { "notes/untracked.md": "pnpm 9 scratch notes\n" },
-  );
+test("rejects active pnpm 9 references outside dated logs, plans, and generated directories", (t) => {
+  const root = createRepository(t, {
+    "docs/guide.md": "Install pnpm 9 first.\n",
+    "doc/logs/2026-01-01-install.md": "The old shim ran pnpm add pnpm@9.15.4.\n",
+    "doc/plans/2026-01-01-toolchain.md": "Move off pnpm 9.\n",
+    "scripts/versions.json": JSON.stringify({ unrelated: "9.15.4" }),
+    "node_modules/dependency/README.md": "pnpm 9 in node_modules\n",
+    "dist/bundle.js": "// built with pnpm 9\n",
+  });
   assert.deepEqual(checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion }), [
     `docs/guide.md: references pnpm 9; the supported toolchain is pnpm@${expectedPnpmVersion}`,
   ]);

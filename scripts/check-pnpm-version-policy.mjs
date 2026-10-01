@@ -6,7 +6,19 @@ import { readWorkspacePatchedDependencies } from "./prepare-bundled-package.mjs"
 
 export const expectedPnpmVersion = "11.27.0";
 const expectedPackageManager = `pnpm@${expectedPnpmVersion}`;
-const skippedDirectories = new Set([".git", ".paperclip", "coverage", "data", "dist", "node_modules"]);
+const skippedDirectories = new Set([
+  ".git",
+  ".paperclip",
+  "coverage",
+  "data",
+  "dist",
+  "dist-preview",
+  "dist-flow-preview",
+  "node_modules",
+  ".vite",
+  "tmp",
+  "target",
+]);
 
 // Documents that state the pnpm prerequisite, with the text each must contain.
 export const documentedPrerequisites = [
@@ -141,23 +153,21 @@ export function checkPnpmVersionPolicy(repoRoot, options = {}) {
     }
   }
 
-  // 6. No active pnpm 9 references in tracked files. Dated logs and plans are
+  // 6. No active pnpm 9 references in source files. Dated logs and plans are
   // historical records.
   const historicalDirectories = ["doc/logs/", "doc/plans/"];
   const scannedFile = /(\.(md|mdx|ya?ml|json|mjs|cjs|js|ts|tsx|sh)|Dockerfile)$/;
-  const trackedFiles = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
-    .split("\0")
-    .filter(Boolean);
-  for (const relativePath of trackedFiles) {
-    if (!scannedFile.test(relativePath) || relativePath === "pnpm-lock.yaml") continue;
-    if (historicalDirectories.some((directory) => relativePath.startsWith(directory))) continue;
-    if (relativePath === "scripts/check-pnpm-version-policy.mjs") continue;
-    if (relativePath === "scripts/check-pnpm-version-policy.test.mjs") continue;
-    const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+  walk(repoRoot, (filePath) => {
+    const relativePath = path.relative(repoRoot, filePath).split(path.sep).join("/");
+    if (!scannedFile.test(relativePath) || relativePath === "pnpm-lock.yaml") return;
+    if (historicalDirectories.some((directory) => relativePath.startsWith(directory))) return;
+    if (relativePath === "scripts/check-pnpm-version-policy.mjs") return;
+    if (relativePath === "scripts/check-pnpm-version-policy.test.mjs") return;
+    const source = fs.readFileSync(filePath, "utf8");
     if (/pnpm@9\.|pnpm 9\b|pnpm v9\b/.test(source)) {
       failures.push(`${relativePath}: references pnpm 9; the supported toolchain is ${expectedPackageManager}`);
     }
-  }
+  });
 
   // 7. Running pnpm version check
   let runningPnpm = options.runningVersion;
