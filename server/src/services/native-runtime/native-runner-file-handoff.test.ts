@@ -8,6 +8,7 @@ import {
   link,
   mkdir,
   readFile,
+  realpath,
   symlink,
   unlink,
   writeFile,
@@ -42,6 +43,58 @@ import {
   stageNativeRunnerWakeAttachments,
 } from "./native-runner-file-handoff.js";
 import { PaperclipRunnerToolAuthority } from "./paperclip-runner-tool-authority.js";
+
+// Darwin resolves an opened descriptor through `/usr/sbin/lsof`. When a test
+// sets `lsof.nameField`, that call is answered here with the name field it
+// returns for the environment lsof would run with; every other call runs for
+// real.
+const lsof = vi.hoisted(() => ({
+  nameField: null as ((env: NodeJS.ProcessEnv) => string) | null,
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  const fakeExecFile = (
+    file: string,
+    args: readonly string[],
+    options: { env?: NodeJS.ProcessEnv },
+    callback: (error: Error | null, stdout: Buffer) => void,
+  ) => {
+    const fd = args[args.indexOf("-d") + 1];
+    const name = lsof.nameField!(options.env ?? process.env);
+    queueMicrotask(() => callback(null, Buffer.from(`p${process.pid}\0f${fd}\0n${name}\0`, "utf8")));
+  };
+  return {
+    ...actual,
+    execFile: vi.fn((...call: Parameters<typeof fakeExecFile>) =>
+      call[0] === "/usr/sbin/lsof" && lsof.nameField
+        ? fakeExecFile(...call)
+        : Reflect.apply(actual.execFile, undefined, call)),
+  };
+});
+
+/**
+ * The name field `lsof -F0n` prints: verbatim under a UTF-8 locale, and under
+ * any other locale with every non-ASCII byte as `\xNN` and a literal
+ * backslash doubled.
+ */
+function lsofNameField(name: string, env: NodeJS.ProcessEnv): string {
+  if (/utf-?8/i.test(env.LC_ALL || env.LC_CTYPE || env.LANG || "")) return name;
+  return [...Buffer.from(name, "utf8")]
+    .map((byte) => (byte === 0x5c ? "\\\\" : byte < 0x80 ? String.fromCharCode(byte) : `\\x${byte.toString(16)}`))
+    .join("");
+}
+
+/** Runs `work` while the process reports the Darwin platform. */
+async function asDarwin<T>(work: () => Promise<T>): Promise<T> {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  try {
+    return await work();
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+  }
+}
 
 describe("native runner file handoff", () => {
   let temporary: Awaited<
@@ -1243,6 +1296,123 @@ describe("native runner file handoff", () => {
       await db.update(assets).set({ originalFilename: asset.originalFilename, byteSize: asset.byteSize, sha256: asset.sha256 }).where(eq(assets.id, asset.id));
       await db.update(issueAttachments).set({ originatingRunId: attachment.originatingRunId }).where(eq(issueAttachments.id, attachment.id));
       await db.update(heartbeatRuns).set({ resultJson: run.resultJson }).where(eq(heartbeatRuns.id, runId));
+    }
+  });
+
+  // Only Darwin resolves the opened descriptor through `/usr/sbin/lsof`; every
+  // other platform reads `/proc/self/fd` or `/dev/fd` and never sees an escape.
+  const onDarwin = process.platform === "darwin" ? it : it.skip;
+
+  onDarwin("registers deliverables whatever escaping lsof applies to their names", async () => {
+    // `lsof` renders a name field according to its locale: under a UTF-8
+    // locale it prints multi-byte characters verbatim, and otherwise it
+    // escapes each byte. A UTF-8 locale is stubbed here precisely because the
+    // handoff pins `LC_ALL=C` on its own call — that pinning is what keeps the
+    // escaped form, and therefore the decoder, on the path under test no
+    // matter what locale the server process runs in.
+    vi.stubEnv("LANG", "en_US.UTF-8");
+    const cases = [
+      // Every byte of the Chinese characters comes back as a `\xNN` run.
+      { onDisk: "猫 picture.txt", attachment: "猫 picture.txt" },
+      // Escaped runs interleaved with literal ASCII on both sides.
+      { onDisk: "résumé report.txt", attachment: "résumé report.txt" },
+      // Nothing to escape: the field is reported verbatim.
+      { onDisk: "plain report.txt", attachment: "plain report.txt" },
+      // `lsof` doubles a literal backslash, so this field reads
+      // `lit\\x41name.txt`; reading that as the escape for `A` would name a
+      // different file. The attachment name drops the backslash because the
+      // handoff rejects one there.
+      { onDisk: "lit\\x41name.txt", attachment: "lit-x41-name.txt" },
+    ];
+    await mkdir(path.join(workspaceRoot, "unicode"), { recursive: true });
+    try {
+      for (const [index, { onDisk, attachment: attachmentName }] of cases.entries()) {
+        const body = Buffer.from(`unicode deliverable ${index}\n`, "utf8");
+        await writeFile(path.join(workspaceRoot, "unicode", onDisk), body);
+        const result = (await authority().execute({
+          tool: "register_deliverable",
+          callId: `call-unicode-${index}`,
+          arguments: {
+            idempotencyKey: `unicode-deliverable-${index}`,
+            filename: attachmentName,
+            contentType: "text/plain",
+            byteSize: body.length,
+            sha256: createHash("sha256").update(body).digest("hex"),
+            contentRef: `unicode/${onDisk}`,
+            title: `Unicode deliverable ${index}`,
+          },
+        })) as { disposition: string; entityRefs: string[] };
+        expect(result.disposition).toBe("applied");
+        const [attachment] = await db
+          .select()
+          .from(issueAttachments)
+          .where(eq(issueAttachments.id, result.entityRefs[0]!));
+        await expect(
+          db.select().from(assets).where(eq(assets.id, attachment!.assetId)),
+        ).resolves.toEqual([
+          expect.objectContaining({ originalFilename: attachmentName, byteSize: body.length }),
+        ]);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("registers deliverables that lsof reports escaped, whatever locale the server runs under", async () => {
+    const cases = [
+      { onDisk: "猫 picture.txt", attachment: "猫 picture.txt" },
+      { onDisk: "résumé report.txt", attachment: "résumé report.txt" },
+      // lsof doubles this backslash; `\x41` must not decode to `A`.
+      { onDisk: "lit\\x41name.txt", attachment: "lit-x41-name.txt" },
+    ];
+    await mkdir(path.join(workspaceRoot, "lsof"), { recursive: true });
+    try {
+      for (const locale of ["C", "en_US.UTF-8"]) {
+        vi.stubEnv("LC_ALL", "");
+        vi.stubEnv("LC_CTYPE", "");
+        vi.stubEnv("LANG", locale);
+        for (const [index, { onDisk, attachment: attachmentName }] of cases.entries()) {
+          const body = Buffer.from(`lsof deliverable ${locale} ${index}\n`, "utf8");
+          const file = path.join(workspaceRoot, "lsof", onDisk);
+          await writeFile(file, body);
+          const reported = await realpath(file);
+          lsof.nameField = (env) => lsofNameField(reported, env);
+          const call = callFor(`lsof/${onDisk}`, body, `lsof-${locale}-${index}`);
+          const result = (await asDarwin(() =>
+            authority().execute({ ...call, arguments: { ...call.arguments, filename: attachmentName } }),
+          )) as { disposition: string; entityRefs: string[] };
+          expect(result.disposition).toBe("applied");
+          const [attachment] = await db
+            .select()
+            .from(issueAttachments)
+            .where(eq(issueAttachments.id, result.entityRefs[0]!));
+          await expect(
+            db.select().from(assets).where(eq(assets.id, attachment!.assetId)),
+          ).resolves.toEqual([
+            expect.objectContaining({ originalFilename: attachmentName, byteSize: body.length }),
+          ]);
+        }
+      }
+    } finally {
+      lsof.nameField = null;
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("fails closed when lsof reports an escape run that is not valid UTF-8", async () => {
+    // APFS refuses such a filename, so only a misreported name field can carry one.
+    const body = Buffer.from("truncated escape\n", "utf8");
+    const file = path.join(workspaceRoot, "lsof", "café.txt");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, body);
+    const reported = await realpath(file);
+    lsof.nameField = (env) => lsofNameField(reported, env).replace("\\xc3\\xa9", "\\xc3");
+    try {
+      await expect(
+        asDarwin(() => authority().execute(callFor("lsof/café.txt", body, "lsof-invalid-utf8"))),
+      ).rejects.toThrow("paperclip_runner_file_handoff_descriptor_unverifiable");
+    } finally {
+      lsof.nameField = null;
     }
   });
 });
