@@ -267,6 +267,59 @@ export async function withDedicatedDbConnection<T>(db: Db, action: (dedicated: D
   finally { await dedicated.$client.end({ timeout: 1 }); }
 }
 
+const POST_COMMIT_HOOKS = Symbol("paperclip.db.postCommitHooks");
+
+/** Work that must run only after the enclosing transaction has committed. */
+export type PostCommitHook = () => void | Promise<void>;
+
+type PostCommitHookCarrier = { [POST_COMMIT_HOOKS]?: PostCommitHook[] };
+
+// The part of a drizzle database or transaction that this module wraps. The
+// generic drizzle signature cannot be reassigned without widening it, so
+// `createDb` crosses this boundary once.
+type TransactionRunner = PostCommitHookCarrier & {
+  transaction: (callback: (tx: TransactionRunner) => Promise<unknown>, ...config: unknown[]) => Promise<unknown>;
+};
+
+/**
+ * Registers `hook` to run after the top-level transaction that `tx` belongs to
+ * has committed. A hook registered inside a nested transaction is dropped when
+ * that savepoint rolls back, and every hook is dropped when the top-level
+ * transaction rolls back. Returns false when `tx` is not a transaction of a
+ * `createDb` database, so the caller can run the work itself.
+ */
+export function registerPostCommitHook(tx: object, hook: PostCommitHook): boolean {
+  const hooks = (tx as PostCommitHookCarrier)[POST_COMMIT_HOOKS];
+  if (!hooks) return false;
+  hooks.push(hook);
+  return true;
+}
+
+function trackPostCommitHooks(runner: TransactionRunner, parentHooks: PostCommitHook[] | null) {
+  const transaction = runner.transaction.bind(runner);
+  runner.transaction = async (callback, ...config) => {
+    const hooks: PostCommitHook[] = [];
+    const result = await transaction(async (tx) => {
+      tx[POST_COMMIT_HOOKS] = hooks;
+      trackPostCommitHooks(tx, hooks);
+      return callback(tx);
+    }, ...config);
+    if (parentHooks) {
+      parentHooks.push(...hooks);
+      return result;
+    }
+    for (const hook of hooks) {
+      try {
+        await hook();
+      } catch (error) {
+        // The transaction has already committed; a failed hook cannot undo it.
+        console.error("A post-commit hook failed after its transaction committed:", error);
+      }
+    }
+    return result;
+  };
+}
+
 export function createDb(url: string, options?: DatabaseClientOptions) {
   const resolved = resolveDatabaseClientOptions(options ?? databaseClientOptionsFromEnv());
   const sql = postgres(url, postgresJsOptions(resolved));
@@ -277,6 +330,7 @@ export function createDb(url: string, options?: DatabaseClientOptions) {
   // message cannot establish that replay is safe. Leave retries to callers
   // that know the complete operation is idempotent.
   const db = drizzlePg(sql, { schema });
+  trackPostCommitHooks(db as unknown as TransactionRunner, null);
   dedicatedDbFactories.set(db, () => createDb(url, {
     ...resolved, maxConnections: 1, applicationName: "paperclip-workspace-finalization-lock",
   }));
