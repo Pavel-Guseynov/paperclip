@@ -6,9 +6,11 @@ import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 import {
+  assertProxiedRemoteHttpEndpoint,
   isAlwaysDeniedLinkLocalIp,
   isPrivateOrReservedIp,
   normalizeIpAddress,
+  parseRemoteHttpProxy,
   resolveApprovedRemoteHttpAddresses,
   type RemoteHttpEndpointErrorFactory,
   type RemoteHttpEndpointGuardOptions,
@@ -60,6 +62,8 @@ export type GuardedRemoteHttpFetchOptions = RemoteHttpEndpointGuardOptions & {
    * Platform `fetch`, used only for IP literals, which cannot be rebound.
    */
   unpinnedFetch?: typeof fetch;
+  /** Optional SOCKS5 proxy (`socks5h://host:port`) that carries the request. */
+  proxy?: string | null;
 };
 
 /**
@@ -96,6 +100,12 @@ export async function guardedRemoteHttpFetch(
   options: GuardedRemoteHttpFetchOptions,
 ): Promise<Response> {
   const endpoint = url instanceof URL ? url : new URL(url);
+  const proxyUrl = parseRemoteHttpProxy(options.proxy, options.error);
+  if (proxyUrl) {
+    await assertProxiedRemoteHttpEndpoint(endpoint, options, options.error);
+    return proxiedRequest(endpoint, proxyUrl, init, options);
+  }
+
   const approved = await resolveApprovedRemoteHttpAddresses(endpoint, options, options.error);
   const literalHost = isIP(endpoint.hostname.replace(/^\[|\]$/g, "")) !== 0;
   const platformFetch = options.unpinnedFetch ?? fetch;
@@ -126,6 +136,189 @@ function isDnsResolutionError(error: unknown): boolean {
     current = record.cause;
   }
   return false;
+}
+
+/**
+ * Send the request through a SOCKS5 proxy with remote name resolution
+ * (`socks5h`). The proxy host is resolved, pinned and verified exactly like a
+ * direct endpoint, so a connection cannot name a proxy inside the instance's
+ * private network unless private networking is allowed. The target hostname is
+ * resolved by the proxy, so only a literal target address is classified here.
+ */
+async function proxiedRequest(
+  endpoint: URL,
+  proxyUrl: URL,
+  init: RequestInit,
+  options: GuardedRemoteHttpFetchOptions,
+): Promise<Response> {
+  const useTls = endpoint.protocol === "https:";
+  const hostname = endpoint.hostname.replace(/^\[|\]$/g, "");
+  const port = endpoint.port ? Number(endpoint.port) : useTls ? 443 : 80;
+  const signal = init.signal ?? null;
+  const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+
+  signal?.throwIfAborted?.();
+
+  const approvedProxy = await resolveApprovedRemoteHttpAddresses(proxyUrl, options, options.error);
+  const proxySocket = await dialApprovedAddress({
+    approved: approvedProxy,
+    approvedSet: new Set(approvedProxy.map(normalizeIpAddress)),
+    port: proxyUrl.port ? Number(proxyUrl.port) : 1080,
+    hostname: proxyUrl.hostname.replace(/^\[|\]$/g, ""),
+    useTls: false,
+    signal,
+    options,
+  });
+
+  let socket: Socket | TLSSocket = proxySocket;
+  try {
+    await socks5Connect({ socket: proxySocket, hostname, port, timeoutMs: connectTimeoutMs, signal, error: options.error });
+    if (useTls) {
+      socket = tlsConnect({
+        socket: proxySocket,
+        servername: isIP(hostname) === 0 ? hostname : undefined,
+        host: hostname,
+      });
+      try {
+        await once(socket, "secureConnect", { signal, timeoutMs: connectTimeoutMs, what: "negotiate TLS with" });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        throw options.error("Remote MCP TLS handshake failed", "remote_http_connect_failed");
+      }
+    }
+    return await sendRequest({
+      endpoint,
+      hostname,
+      port,
+      useTls,
+      socket,
+      init,
+      signal,
+      responseTimeoutMs: options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
+      error: options.error,
+    });
+  } catch (error) {
+    socket.destroy();
+    proxySocket.destroy();
+    throw error;
+  }
+}
+
+/** Reads exact byte counts from a socket during the SOCKS5 handshake. */
+class SocketReader {
+  private buffer = Buffer.alloc(0);
+  private failure: Error | null = null;
+  private waiter: { count: number; resolve: (chunk: Buffer) => void; reject: (error: Error) => void } | null = null;
+  private readonly onData = (chunk: Buffer) => {
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+    this.settle();
+  };
+  private readonly onEnd = () => this.fail(this.closedError());
+  private readonly onError = (error: Error) => this.fail(error);
+
+  constructor(
+    private readonly socket: Socket,
+    private readonly closedError: () => Error,
+  ) {
+    socket.on("data", this.onData);
+    socket.on("error", this.onError);
+    socket.on("end", this.onEnd);
+    socket.on("close", this.onEnd);
+  }
+
+  read(count: number): Promise<Buffer> {
+    if (this.failure) return Promise.reject(this.failure);
+    return new Promise((resolve, reject) => {
+      this.waiter = { count, resolve, reject };
+      this.settle();
+    });
+  }
+
+  fail(error: Error) {
+    this.failure ??= error;
+    const waiter = this.waiter;
+    this.waiter = null;
+    waiter?.reject(this.failure);
+  }
+
+  /**
+   * Stops reading and hands any bytes past the handshake back to the socket.
+   * The socket is not paused: the caller hands it to TLS or the HTTP client in
+   * the same turn, before another chunk can arrive.
+   */
+  release() {
+    this.socket.off("data", this.onData);
+    this.socket.off("error", this.onError);
+    this.socket.off("end", this.onEnd);
+    this.socket.off("close", this.onEnd);
+    if (this.buffer.length > 0) this.socket.unshift(this.buffer);
+  }
+
+  private settle() {
+    if (!this.waiter || this.buffer.length < this.waiter.count) return;
+    const { count, resolve } = this.waiter;
+    this.waiter = null;
+    const chunk = this.buffer.subarray(0, count);
+    this.buffer = this.buffer.subarray(count);
+    resolve(chunk);
+  }
+}
+
+/** RFC 1928 CONNECT without authentication, asking the proxy to resolve the target name. */
+async function socks5Connect(input: {
+  socket: Socket;
+  hostname: string;
+  port: number;
+  timeoutMs: number;
+  signal: AbortSignal | null;
+  error: RemoteHttpEndpointErrorFactory;
+}): Promise<void> {
+  const { socket, hostname, port, error } = input;
+  const failed = (message: string) => error(message, "remote_http_proxy_failed");
+  const reader = new SocketReader(socket, () => failed("Remote MCP proxy closed the connection"));
+  const timer = setTimeout(() => reader.fail(failed("Remote MCP proxy handshake timed out")), input.timeoutMs);
+  timer.unref?.();
+  const onAbort = () => reader.fail(input.signal?.reason instanceof Error ? input.signal.reason : failed("Remote MCP proxy handshake was aborted"));
+  input.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    socket.write(Buffer.from([0x05, 0x01, 0x00]));
+    const greeting = await reader.read(2);
+    if (greeting[0] !== 0x05 || greeting[1] !== 0x00) {
+      throw failed("Remote MCP proxy requires an unsupported SOCKS5 authentication method");
+    }
+    const portBytes = Buffer.alloc(2);
+    portBytes.writeUInt16BE(port);
+    socket.write(Buffer.concat([Buffer.from([0x05, 0x01, 0x00]), socks5Address(hostname), portBytes]));
+    const [version, reply, , addressType] = await reader.read(4);
+    if (version !== 0x05) throw failed("Remote MCP proxy sent an invalid SOCKS5 reply");
+    if (reply !== 0x00) throw failed(`Remote MCP proxy refused the connection (SOCKS5 reply ${reply})`);
+    if (addressType === 0x01) await reader.read(4 + 2);
+    else if (addressType === 0x04) await reader.read(16 + 2);
+    else if (addressType === 0x03) await reader.read((await reader.read(1))[0]! + 2);
+    else throw failed("Remote MCP proxy sent an invalid SOCKS5 bound address");
+  } finally {
+    clearTimeout(timer);
+    input.signal?.removeEventListener("abort", onAbort);
+    reader.release();
+  }
+}
+
+/** SOCKS5 address field. `URL` has already serialized an IPv6 literal as eight hex groups. */
+function socks5Address(hostname: string): Buffer {
+  if (isIP(hostname) === 4) return Buffer.from([0x01, ...hostname.split(".").map(Number)]);
+  if (isIP(hostname) === 6) {
+    const [head = "", tail] = hostname.split("::");
+    const groups = (part: string) => (part ? part.split(":").map((group) => Number.parseInt(group, 16)) : []);
+    const left = groups(head);
+    const right = tail === undefined ? [] : groups(tail);
+    const words = [...left, ...new Array<number>(8 - left.length - right.length).fill(0), ...right];
+    const address = Buffer.alloc(17);
+    address[0] = 0x04;
+    words.forEach((word, index) => address.writeUInt16BE(word, 1 + index * 2));
+    return address;
+  }
+  const name = Buffer.from(hostname, "utf8");
+  return Buffer.concat([Buffer.from([0x03, name.length]), name]);
 }
 
 async function pinnedRequest(
