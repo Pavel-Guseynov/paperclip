@@ -154,6 +154,33 @@ export function buildExecutionReviewParticipantRecoveryNoticeSeed(): StrandedRec
   };
 }
 
+/**
+ * The pending review participant's own run failed workspace validation. The
+ * notice must carry both blockers the sweep observed: the typed physical
+ * diagnosis, and — when the participant is also not invokable — the fact that
+ * retrying the reviewer cannot restore the review stage on its own.
+ */
+export function buildExecutionReviewParticipantWorkspaceValidationNoticeSeed(input: {
+  participantInvokable: boolean;
+  workspaceValidationReason?: string | null;
+}): StrandedRecoveryNoticeSeed {
+  const reason = input.workspaceValidationReason?.trim();
+  return {
+    body:
+      "The last run of the pending execution-review participant failed workspace validation." +
+      (reason ? ` The recorded diagnosis is \`${reason}\`.` : "") +
+      (input.participantInvokable
+        ? ""
+        : " The participant is also not invokable, so retrying it cannot restore the review stage.") +
+      " Moving the issue to `blocked` until the participant workspace is repaired.",
+    title: "Workspace validation failed",
+    tone: "danger",
+    nextAction:
+      "Repair the review participant's execution workspace, then explicitly retry the reviewer, reassign the " +
+      "review, or record an intentional resolution.",
+  };
+}
+
 export function buildExecutionReviewParticipantUnavailableNoticeSeed(): StrandedRecoveryNoticeSeed {
   return {
     body:

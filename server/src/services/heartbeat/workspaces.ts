@@ -871,6 +871,26 @@ export function isWorkspaceValidationFailure(
   );
 }
 
+/**
+ * A setup or finalize wrapper can rethrow a workspace-validation failure as the
+ * `cause` of a generic error. Walk the cause chain so the typed diagnosis is
+ * found wherever it was wrapped, and return it so callers keep its payload.
+ */
+export function findWorkspaceValidationFailure(
+  error: unknown,
+): WorkspaceValidationFailureLike | null {
+  let current = error;
+  const visited = new Set<unknown>();
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    if (isWorkspaceValidationFailure(current)) {
+      return current;
+    }
+    current = "cause" in current ? (current as { cause?: unknown }).cause : null;
+  }
+  return null;
+}
+
 export function isWorkspaceValidationFailedRun(
   run: Pick<typeof heartbeatRuns.$inferSelect, "errorCode"> | null | undefined,
 ) {
@@ -2459,7 +2479,10 @@ export async function provisionExecutionWorkspaceForFreshnessDecision<
   try {
     restored = (await input.restoreExistingWorkspace?.()) ?? null;
   } catch (error) {
-    if (isWorkspaceValidationFailure(error)) {
+    // Rethrow the caught error, not the unwrapped cause: the outer message and
+    // stack name the call that failed. Downstream handlers unwrap the cause
+    // chain themselves to read the typed workspace-validation payload.
+    if (findWorkspaceValidationFailure(error)) {
       throw error;
     }
     reuseFailure = formatInheritedExecutionWorkspaceReuseFailure({

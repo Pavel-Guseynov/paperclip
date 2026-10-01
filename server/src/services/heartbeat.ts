@@ -167,6 +167,7 @@ import {
   buildReferencedProjectRunObservability,
   assertGitSensitiveAdapterWorkspaceValid,
   isWorkspaceValidationFailure,
+  findWorkspaceValidationFailure,
   fingerprintFinalizeWorkspaceBranchValidation,
   attachPaperclipSessionMetadataToSessionParams,
   type EffectiveRunSessionConfigMetadata,
@@ -7820,7 +7821,7 @@ export function heartbeatService(
                   }
                 } catch (repairErr) {
                   const workspaceValidationFailure =
-                    isWorkspaceValidationFailure(repairErr) ? repairErr : null;
+                    findWorkspaceValidationFailure(repairErr);
                   finalizeBranchMetadata = {
                     executionWorkspaceId: branchInspection.workspaceRecord.id,
                     ...initialManagedGitWorktreeBranch,
@@ -9476,9 +9477,7 @@ export function heartbeatService(
           identityRedactor.redact(err instanceof Error ? err.message : "Unknown adapter failure"),
           await getCurrentUserRedactionOptions(),
         );
-        const workspaceValidationFailure = isWorkspaceValidationFailure(err)
-          ? err
-          : null;
+        const workspaceValidationFailure = findWorkspaceValidationFailure(err);
         const configurationIncompleteFailure = isConfigurationIncompleteFailure(
           err,
         )
@@ -9739,11 +9738,8 @@ export function heartbeatService(
         // A missing secret/env binding is a known pre-dispatch configuration gap,
         // not an opaque setup crash. Surface it with its own errorCode so the
         // recovery path routes it to a human owner instead of looping retries.
-        const workspaceValidationSetupFailure = isWorkspaceValidationFailure(
-          outerErr,
-        )
-          ? outerErr
-          : null;
+        const workspaceValidationSetupFailure =
+          findWorkspaceValidationFailure(outerErr);
         const configurationIncompleteSetupFailure =
           isConfigurationIncompleteFailure(outerErr) ? outerErr : null;
         const unresolvedBaseRefSetupFailure = isUnresolvedWorkspaceBaseRefError(
