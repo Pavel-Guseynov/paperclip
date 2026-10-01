@@ -35,3 +35,12 @@ The invariant is pinned by the `no-remote-git contract` case in
 remote-only commit propagates to the local worktree through the
 prepare → restore round-trip with no git remote configured at any point. Do
 not regress that test.
+
+## Child process execution contract
+
+Adapters using `runChildProcess` receive a failed process result with
+`errorCode` when writing supplied stdin fails. The helper records the error
+with the owning run ID and stops the child: `SIGTERM`, then `SIGKILL` after
+the grace period. Other runs remain independent. Callers should retain
+`errorCode` when reporting the run outcome. When the child has already exited
+before the write, nothing is written and the result follows its exit.

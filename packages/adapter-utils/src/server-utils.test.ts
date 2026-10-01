@@ -567,6 +567,78 @@ describe("adapter skill snapshots", () => {
 });
 
 describe("runChildProcess", () => {
+  it.each([
+    // The child closes its end of the stdin pipe and stays alive, so the write
+    // meets a closed pipe (EPIPE) rather than a stream destroyed by the
+    // child's exit. "during" closes it while the 2 MB write waits on the full
+    // pipe buffer.
+    ["before", "require('fs').closeSync(0); process.stdout.write('reader-closed\\n'); setInterval(() => {}, 1000);"],
+    ["during", "setTimeout(() => { require('fs').closeSync(0); process.stdout.write('reader-closed\\n'); }, 200); setInterval(() => {}, 1000);"],
+  ])("fails only the owning run when the child closes stdin %s the write", async (phase, childScript) => {
+    const failedRunId = randomUUID();
+    const healthyRunId = randomUUID();
+    const errors: Array<{ runId: string; code: string | undefined; message: string }> = [];
+    let readerClosed!: () => void;
+    const closed = new Promise<void>((resolve) => { readerClosed = resolve; });
+    const failed = runChildProcess(
+      failedRunId,
+      process.execPath,
+      ["-e", childScript],
+      {
+        cwd: process.cwd(),
+        env: {},
+        stdin: "x".repeat(2 * 1024 * 1024),
+        timeoutSec: 0,
+        graceSec: 1,
+        onLog: async (_stream, chunk) => {
+          if (chunk.includes("reader-closed")) readerClosed();
+        },
+        onLogError: (error, runId, message) => {
+          errors.push({ runId, code: (error as NodeJS.ErrnoException).code, message });
+        },
+        ...(phase === "before" ? { onSpawn: async () => { await closed; } } : {}),
+      },
+    );
+    const healthy = runChildProcess(
+      healthyRunId,
+      process.execPath,
+      ["-e", "process.stdin.on('data', chunk => process.stdout.write(chunk)); process.stdin.on('end', () => process.exit(0));"],
+      {
+        cwd: process.cwd(),
+        env: {},
+        stdin: "healthy",
+        timeoutSec: 0,
+        graceSec: 1,
+        onLog: async () => {},
+      },
+    );
+    const [failure, success] = await Promise.all([failed, healthy]);
+    expect(failure.errorCode).toBe("EPIPE");
+    expect(failure.exitCode).not.toBe(0);
+    expect(errors).toEqual([{ runId: failedRunId, code: "EPIPE", message: "child stdin write failed" }]);
+    expect(success.exitCode).toBe(0);
+    expect(success.stdout).toBe("healthy");
+  });
+
+  it("kills a child that ignores SIGTERM after its stdin write failed", async () => {
+    const result = await runChildProcess(
+      randomUUID(),
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); require('fs').closeSync(0); setInterval(() => {}, 1000);"],
+      {
+        cwd: process.cwd(),
+        env: {},
+        stdin: "x".repeat(2 * 1024 * 1024),
+        timeoutSec: 0,
+        graceSec: 1,
+        onLog: async () => {},
+        onLogError: () => {},
+      },
+    );
+    expect(result.errorCode).toBe("EPIPE");
+    expect(result.signal).toBe("SIGKILL");
+  });
+
   it("does not arm a timeout when timeoutSec is 0", async () => {
     const result = await runChildProcess(
       randomUUID(),

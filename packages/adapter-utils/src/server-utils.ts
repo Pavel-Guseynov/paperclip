@@ -55,7 +55,7 @@ export interface RunProcessResult {
   // The sandbox runner sets them, so the exec span records a true wall time.
   finishedAt?: string | null;
   durationMs?: number | null;
-  // The typed error code of a transport-level failure, or absent when the
+  // The typed error code of a transport-level or child stdin failure, or absent when the
   // process result carries no such code. It follows the same additive-optional
   // convention as the timing fields: a producer that names no code leaves it
   // absent, so the existing `RunProcessResult` producers stay unchanged. The
@@ -4747,6 +4747,20 @@ export async function runChildProcess(
         }) as ChildProcessWithEvents;
         const startedAt = new Date().toISOString();
         const processGroupId = resolveProcessGroupId(child);
+        let stdinError: NodeJS.ErrnoException | null = null;
+        let stdinKillTimer: ReturnType<typeof setTimeout> | null = null;
+        const stdin = child.stdin;
+        const recordStdinError = (error: Error) => {
+          if (stdinError) return;
+          stdinError = error as NodeJS.ErrnoException;
+          onLogError(error, runId, "child stdin write failed");
+          signalRunningProcess({ child, processGroupId }, "SIGTERM");
+          stdinKillTimer = setTimeout(
+            () => signalRunningProcess({ child, processGroupId }, "SIGKILL"),
+            Math.max(1, opts.graceSec) * 1000,
+          );
+        };
+        if (opts.stdin != null && stdin) stdin.on("error", recordStdinError);
 
         const spawnPersistPromise =
           typeof child.pid === "number" && child.pid > 0 && opts.onSpawn
@@ -4896,12 +4910,17 @@ export async function runChildProcess(
             });
         });
 
-        const stdin = child.stdin;
         if (opts.stdin != null && stdin) {
           void spawnPersistPromise.finally(() => {
             if (child.killed || stdin.destroyed) return;
-            stdin.write(opts.stdin as string);
-            stdin.end();
+            try {
+              stdin.write(opts.stdin as string, (error) => {
+                if (error) recordStdinError(error);
+              });
+              stdin.end();
+            } catch (error) {
+              recordStdinError(error as Error);
+            }
           });
         }
 
@@ -4927,6 +4946,7 @@ export async function runChildProcess(
           "close",
           (code: number | null, signal: NodeJS.Signals | null) => {
             if (timeout) clearTimeout(timeout);
+            if (stdinKillTimer) clearTimeout(stdinKillTimer);
             clearTerminalCleanupTimers();
             runningProcesses.delete(runId);
             void logChain.finally(() => {
@@ -4934,11 +4954,12 @@ export async function runChildProcess(
                 .then(() => target.cleanup?.())
                 .finally(() => {
                   resolve({
-                    exitCode: code,
+                    exitCode: stdinError && code === 0 ? 1 : code,
                     signal,
                     timedOut,
                     stdout,
                     stderr,
+                    ...(stdinError ? { errorCode: stdinError.code ?? "child_stdin_write_failed" } : {}),
                     pid: child.pid ?? null,
                     startedAt,
                     terminalResultCleanup: terminalCleanupStarted
