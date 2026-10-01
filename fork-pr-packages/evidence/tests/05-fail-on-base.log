@@ -1,0 +1,746 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/http-log-redaction.test.ts (108 tests | 46 failed) 367ms
+     × redacts the gateway token header and fields by path, without duplicate paths 7ms
+     × redacts gateway credentials from a successful request log and keeps safe diagnostics 7ms
+     × redacts credential-bearing response headers while keeping safe response headers 6ms
+     × redacts unlisted credential-shaped headers on both sides of a request 4ms
+     × redacts a rejected session token from the 401 log and the error response 4ms
+     × redacts echoed gateway credentials from a downstream 502 message, context, and error 7ms
+     × redacts gateway credentials from an uncaught 500 error message and stack 6ms
+     × keeps the serialized error's cause chain while redacting credentials from it 3ms
+     × redacts gateway credentials from child-logger bindings, fields, and messages 4ms
+     × redacts nested credentials from child bindings without losing safe context 2ms
+     × redacts nested credentials from grandchild bindings without losing safe context 2ms
+     × redacts nested credentials from setBindings bindings without losing safe context 2ms
+     × redacts record subtrees beyond the inspection limit 2ms
+     × redacts child subtrees beyond the inspection limit 1ms
+     × replaces malformed child output with a content-free diagnostic 2ms
+     × removes credential material from prose: 'minted session token' 1ms
+     × removes credential material from prose: 'minted gateway token' 0ms
+     × removes credential material from prose: 'bearer credential with trailing punct…' 0ms
+     × removes credential material from prose: 'all-lowercase opaque bearer token' 0ms
+     × removes credential material from prose: 'Basic credential after an Authorizati…' 0ms
+     × removes credential material from prose: 'credential in a URL query' 0ms
+     × keeps safe diagnostic prose unchanged: 'documentation placeholder' 0ms
+     × keeps safe diagnostic prose unchanged: 'prose naming the header' 0ms
+     × keeps safe diagnostic prose unchanged: 'prose naming the scheme' 1ms
+     × keeps safe diagnostic prose unchanged: 'already-redacted text stays stable' 0ms
+     × keeps safe diagnostic prose unchanged: 'the ordinary word digest' 0ms
+     × keeps safe diagnostic prose unchanged: 'the ordinary word basic' 0ms
+     × keeps safe diagnostic prose unchanged: 'safe gateway token fingerprint' 0ms
+     × replaces Node HTTP objects with a content-free projection 1ms
+     × bounds a cyclic error property instead of overflowing the stack 1ms
+     × stops descending a deeply nested error property instead of recursing forever 1ms
+     × keeps array-valued error properties as arrays 9ms
+     × redacts credential header names from a captured request body 11ms
+     × projects a live HTTP object logged under an ordinary key 3ms
+     × still lets pino's own req and res serializers project the live objects 4ms
+     × redacts a credential name in every separator spelling 1ms
+     × still redacts a credential in a sibling subtree when one field getter throws 2ms
+     × marks an array element's unreadable fields without losing the rest of the array 1ms
+     × returns a record it cannot read at all unchanged, without throwing 0ms
+     × redacts a record whose proxy trap throws only for the HTTP-object probe 1ms
+     × redacts the rest of the record when a value under req throws in the HTTP-object probe 1ms
+     × returns a credential-free record, arrays included, by identity 1ms
+     × redacts credential names nested anywhere inside a log record 1ms
+     × redacts credential-named fields without renaming ordinary diagnostic keys 0ms
+     × strips credential text from string fields of a structured record 1ms
+     × writes the record when a logged error has a throwing property 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 46 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts the gateway token header and fields by path, without duplicate paths
+AssertionError: expected [ 'req.headers.authorization', …(15) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   "req.headers[\"x-paperclip-tool-gateway-token\"]",
+-   "res.headers[\"x-paperclip-tool-gateway-token\"]",
+-   "[\"x-paperclip-tool-gateway-token\"]",
++ [
+    "req.headers.authorization",
+-   "res.headers.authorization",
+-   "authorization",
+-   "gatewayToken",
+-   "sessionToken",
++   "req.headers[\"proxy-authorization\"]",
++   "req.headers.cookie",
++   "req.headers[\"set-cookie\"]",
++   "res.headers[\"set-cookie\"]",
++   "req.headers[\"x-csrf-token\"]",
++   "req.headers[\"x-xsrf-token\"]",
++   "req.headers[\"x-api-key\"]",
++   "req.headers[\"x-paperclip-cloud-tenant-token\"]",
++   "req.headers[\"x-paperclip-cloud-session-id\"]",
++   "req.headers[\"x-paperclip-cloud-runtime-identity\"]",
++   "req.headers[\"x-paperclip-cloud-control\"]",
++   "req.headers[\"x-paperclip-github-capability\"]",
++   "req.headers[\"x-telegram-bot-api-secret-token\"]",
++   "reqBody.credentials",
++   "errorContext.details.credentials",
+  ]
+
+ ❯ src/__tests__/http-log-redaction.test.ts:812:35
+    810|       HTTP_LOG_REDACT_PATHS.length,
+    811|     );
+    812|     expect(HTTP_LOG_REDACT_PATHS).toEqual(
+       |                                   ^
+    813|       expect.arrayContaining([
+    814|         'req.headers["x-paperclip-tool-gateway-token"]',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts gateway credentials from a successful request log and keeps safe diagnostics
+AssertionError: expected '{"level":30,"time":1790869193181,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":30,"time":1790869193181,"pid":24480,"hostname":"vm","req":{"id":1,"method":"POST","url":"/api/tool-gateway/tools/call","params":{},"headers":{"host":"127.0.0.1:43943","accept-encoding":"gzip, deflate","authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-tool-gateway-token":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","x-paperclip-github-capability":"capability-sentinel-84d0","x-paperclip-run-id":"run-diagnostic-6f2a","x-paperclip-client-name":"cursor-diagnostic-client","content-type":"application/json","content-length":"25","connection":"close"},"remoteAddress":"127.0.0.1","remotePort":37516},"res":{"statusCode":200,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"11","etag":"W/\"b-Ai2R8hgEarLmHKwesT1qcY913ys\""}},"responseTime":0,"msg":"POST /api/tool-gateway/tools/call 200"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:847:24
+    845|     expect(response.status).toBe(200);
+    846|     const output = chunks.join("");
+    847|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    848|     expect(output).not.toContain(GATEWAY_TOKEN);
+    849|     expect(output).not.toContain(CAPABILITY_SENTINEL);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential-bearing response headers while keeping safe response headers
+AssertionError: expected '{"level":30,"time":1790869193188,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193188,"pid":24480,"hostname":"vm","req":{"id":1,"method":"GET","url":"/api/tool-gateway/session","params":{},"headers":{"host":"127.0.0.1:33539","accept-encoding":"gzip, deflate","connection":"close"},"remoteAddress":"127.0.0.1","remotePort":39282},"res":{"statusCode":200,"headers":{"x-powered-by":"Express","x-paperclip-tool-gateway-token":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","x-paperclip-signature":"sha256=capability-sentinel-84d0","x-paperclip-bridge-outcome":"accepted","content-type":"application/json; charset=utf-8","content-length":"11","etag":"W/\"b-Ai2R8hgEarLmHKwesT1qcY913ys\""}},"responseTime":1,"msg":"GET /api/tool-gateway/session 200"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:877:24
+    875|
+    876|     const output = chunks.join("");
+    877|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    878|     expect(output).not.toContain(CAPABILITY_SENTINEL);
+    879|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts unlisted credential-shaped headers on both sides of a request
+AssertionError: expected '{"level":30,"time":1790869193193,"pid…' not to contain 'request-capability-sentinel-84d0'
+
+- Expected
++ Received
+
+- request-capability-sentinel-84d0
++ {"level":30,"time":1790869193193,"pid":24480,"hostname":"vm","req":{"id":1,"method":"GET","url":"/api/tool-gateway/session","params":{},"headers":{"host":"127.0.0.1:32983","accept-encoding":"gzip, deflate","x-acme-connector-secret":"request-capability-sentinel-84d0","x-paperclip-run-id":"run-diagnostic-6f2a","connection":"close"},"remoteAddress":"127.0.0.1","remotePort":43998},"res":{"statusCode":200,"headers":{"x-powered-by":"Express","x-acme-connector-secret":"response-capability-sentinel-84d0","x-paperclip-bridge-outcome":"accepted","content-type":"application/json; charset=utf-8","content-length":"11","etag":"W/\"b-Ai2R8hgEarLmHKwesT1qcY913ys\""}},"responseTime":0,"msg":"GET /api/tool-gateway/session 200"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:905:24
+    903|
+    904|     const output = chunks.join("");
+    905|     expect(output).not.toContain(`request-${CAPABILITY_SENTINEL}`);
+       |                        ^
+    906|     expect(output).not.toContain(`response-${CAPABILITY_SENTINEL}`);
+    907|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts a rejected session token from the 401 log and the error response
+AssertionError: expected '{"level":40,"time":1790869193197,"pid…' not to contain 'pcgt_11111111-2222-3333-4444-55555555…'
+
+- Expected
++ Received
+
+- pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU
++ {"level":40,"time":1790869193197,"pid":24480,"hostname":"vm","req":{"id":1,"method":"POST","url":"/api/tool-gateway/tools","params":{},"headers":{"host":"127.0.0.1:39845","accept-encoding":"gzip, deflate","x-paperclip-tool-gateway-token":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","x-paperclip-run-id":"run-diagnostic-6f2a","connection":"close","content-length":"0"},"remoteAddress":"127.0.0.1","remotePort":49096},"routePath":"/api/tool-gateway/tools","res":{"statusCode":401,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"181","etag":"W/\"b5-4ncLq6MWwV1O/gcyA47FwryRwcQ\""}},"responseTime":1,"msg":"POST /api/tool-gateway/tools 401"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:944:24
+    942|
+    943|     const output = chunks.join("");
+    944|     expect(output).not.toContain(SESSION_TOKEN);
+       |                        ^
+    945|
+    946|     const [log] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts echoed gateway credentials from a downstream 502 message, context, and error
+AssertionError: expected '{"level":50,"time":1790869193201,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":50,"time":1790869193201,"pid":24480,"hostname":"vm","req":{"id":1,"method":"POST","url":"/api/tool-gateway/tools/call","params":{},"headers":{"host":"127.0.0.1:39983","accept-encoding":"gzip, deflate","authorization":"Bearer bearer-sentinel-3f9c17ab","content-type":"application/json","content-length":"27","connection":"close"},"remoteAddress":"127.0.0.1","remotePort":49308},"errorContext":{"message":"Downstream MCP call failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","stack":"Error: Downstream MCP call failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:961:9\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/home/pc/wt/w1/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)","name":"Error","details":{"reasonCode":"downstream_failed","phase":"invoke","mechanism":"streamable_http"}},"reqBody":{"tool":"weather:forecast"},"reqParams":{},"res":{"statusCode":502,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"204","etag":"W/\"cc-SVO4RS64401cq/gEdrmSdGh06vk\""}},"err":{"type":"HttpError","message":"Downstream MCP call failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","stack":"Error: Downstream MCP call failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:961:9\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/home/pc/wt/w1/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)","status":502,"details":{"reasonCode":"downstream_failed","phase":"invoke","mechanism":"streamable_http"}},"responseTime":0,"msg":"POST /api/tool-gateway/tools/call 502 — Downstream MCP call failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:982:24
+    980|
+    981|     const output = chunks.join("");
+    982|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    983|     expect(output).not.toContain(BEARER_SENTINEL);
+    984|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts gateway credentials from an uncaught 500 error message and stack
+AssertionError: expected '{"level":50,"time":1790869193208,"pid…' not to contain 'pcgt_11111111-2222-3333-4444-55555555…'
+
+- Expected
++ Received
+
+- pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU
++ {"level":50,"time":1790869193208,"pid":24480,"hostname":"vm","req":{"id":1,"method":"POST","url":"/api/tool-gateway/crash","params":{},"headers":{"host":"127.0.0.1:35789","accept-encoding":"gzip, deflate","content-type":"application/json","content-length":"21","connection":"close"},"remoteAddress":"127.0.0.1","remotePort":37600},"errorContext":{"message":"Unexpected crash resolving pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU with Authorization: Bearer bearer-sentinel-3f9c17ab","stack":"Error: Unexpected crash resolving pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU with Authorization: Bearer bearer-sentinel-3f9c17ab\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1008:13\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/home/pc/wt/w1/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)","name":"Error"},"reqBody":{"data":"crash-test"},"reqParams":{},"res":{"statusCode":500,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"33","etag":"W/\"21-u8tno/8IdqEY6PFcopkQe0syfE4\""}},"err":{"type":"Error","message":"Unexpected crash resolving pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU with Authorization: Bearer bearer-sentinel-3f9c17ab","stack":"Error: Unexpected crash resolving pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU with Authorization: Bearer bearer-sentinel-3f9c17ab\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1008:13\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)\n    at handle (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)\n    at /home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15\n    at processParams (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)\n    at next (/home/pc/wt/w1/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)\n    at loggingMiddleware (/home/pc/wt/w1/node_modules/.pnpm/pino-http@11.0.0/node_modules/pino-http/logger.js:206:7)"},"responseTime":1,"msg":"POST /api/tool-gateway/crash 500 — Unexpected crash resolving pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU with Authorization: Bearer bearer-sentinel-3f9c17ab"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1020:24
+    1018|
+    1019|     const output = chunks.join("");
+    1020|     expect(output).not.toContain(SESSION_TOKEN);
+       |                        ^
+    1021|     expect(output).not.toContain(BEARER_SENTINEL);
+    1022|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps the serialized error's cause chain while redacting credentials from it
+AssertionError: expected '{"level":50,"time":1790869193212,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":50,"time":1790869193212,"pid":24480,"hostname":"vm","err":{"type":"Error","message":"gateway call failed: upstream rejected pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28 for connector acme-crm","stack":"Error: gateway call failed\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1043:14\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64\ncaused by: Error: upstream rejected pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28 for connector acme-crm\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1044:18\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"},"msg":"tool gateway invocation failed"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1053:24
+    1051|
+    1052|     const output = chunks.join("");
+    1053|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    1054|
+    1055|     const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts gateway credentials from child-logger bindings, fields, and messages
+AssertionError: expected '{"level":30,"time":1790869193216,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193216,"pid":24480,"hostname":"vm","service":"tool-gateway","gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","x-paperclip-tool-gateway-token":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","headers":{"authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-run-id":"run-diagnostic-6f2a"},"sessionToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","phase":"invoke","msg":"calling gateway with Authorization: Bearer bearer-sentinel-3f9c17ab"}
++ {"level":50,"time":1790869193216,"pid":24480,"hostname":"vm","service":"tool-gateway","gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","x-paperclip-tool-gateway-token":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","headers":{"authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-run-id":"run-diagnostic-6f2a"},"err":{"type":"Error","message":"connection failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","stack":"Error: connection failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1083:14\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"},"msg":"downstream failure"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1088:24
+    1086|
+    1087|     const output = chunks.join("");
+    1088|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    1089|     expect(output).not.toContain(SESSION_TOKEN);
+    1090|     expect(output).not.toContain(BEARER_SENTINEL);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts nested credentials from child bindings without losing safe context
+AssertionError: expected '{"level":30,"time":1790869193219,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193219,"pid":24480,"hostname":"vm","context":{"gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","nested":[{"X-Paperclip-Tool-Gateway-Token":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"}],"runId":"run-diagnostic-6f2a"},"phase":"invoke","msg":"gateway invocation"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1127:35
+    1125|       child.info({ phase: "invoke" }, "gateway invocation");
+    1126|
+    1127|       expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+       |                                   ^
+    1128|       expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+    1129|       const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts nested credentials from grandchild bindings without losing safe context
+AssertionError: expected '{"level":30,"time":1790869193221,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193221,"pid":24480,"hostname":"vm","service":"tool-gateway","context":{"gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","nested":[{"X-Paperclip-Tool-Gateway-Token":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"}],"runId":"run-diagnostic-6f2a"},"phase":"invoke","msg":"gateway invocation"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1127:35
+    1125|       child.info({ phase: "invoke" }, "gateway invocation");
+    1126|
+    1127|       expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+       |                                   ^
+    1128|       expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+    1129|       const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts nested credentials from setBindings bindings without losing safe context
+AssertionError: expected '{"level":30,"time":1790869193222,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193222,"pid":24480,"hostname":"vm","service":"tool-gateway","context":{"gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","nested":[{"X-Paperclip-Tool-Gateway-Token":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"}],"runId":"run-diagnostic-6f2a"},"phase":"invoke","msg":"gateway invocation"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1127:35
+    1125|       child.info({ phase: "invoke" }, "gateway invocation");
+    1126|
+    1127|       expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+       |                                   ^
+    1128|       expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+    1129|       const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts record subtrees beyond the inspection limit
+AssertionError: expected '{"level":30,"time":1790869193224,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193224,"pid":24480,"hostname":"vm","phase":"invoke","context":{"a":{"b":{"c":{"d":{"e":{"gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28"}}}}}},"msg":"gateway invocation"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1153:35
+    1151|       else root.info(fields, "gateway invocation");
+    1152|
+    1153|       expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+       |                                   ^
+    1154|       const [record] = logRecords(chunks);
+    1155|       expect(record.context.a.b.c.d.e).toBe("[Redacted]");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts child subtrees beyond the inspection limit
+AssertionError: expected '{"level":30,"time":1790869193226,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193226,"pid":24480,"hostname":"vm","phase":"invoke","context":{"a":{"b":{"c":{"d":{"e":{"gatewayToken":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28"}}}}}},"msg":"gateway invocation"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1153:35
+    1151|       else root.info(fields, "gateway invocation");
+    1152|
+    1153|       expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+       |                                   ^
+    1154|       const [record] = logRecords(chunks);
+    1155|       expect(record.context.a.b.c.d.e).toBe("[Redacted]");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > replaces malformed child output with a content-free diagnostic
+AssertionError: expected '{"level":30,"time":1790869193228,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":30,"time":1790869193228,"pid":24480,"hostname":"vm","invalid"key":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","msg":"gateway invocation"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1167:33
+    1165|     expect(() => child.info("gateway invocation")).not.toThrow();
+    1166|
+    1167|     expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+       |                                 ^
+    1168|     expect(logRecords(chunks)).toEqual([
+    1169|       { level: 50, msg: "Log record could not be safely redacted" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'minted session token'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'minted gateway token'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'bearer credential with trailing punct…'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'all-lowercase opaque bearer token'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'Basic credential after an Authorizati…'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > removes credential material from prose: 'credential in a URL query'
+TypeError: sanitizeCredentialText is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1254:12
+    1252|     },
+    1253|   ])("removes credential material from prose: $label", ({ input, expec…
+    1254|     expect(sanitizeCredentialText(input)).toBe(expected);
+       |            ^
+    1255|   });
+    1256|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'documentation placeholder'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'prose naming the header'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'prose naming the scheme'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'already-redacted text stays stable'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'the ordinary word digest'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'the ordinary word basic'
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'safe gateway token fingerprint'
+TypeError: sanitizeCredentialText is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1287:12
+    1285|     },
+    1286|   ])("keeps safe diagnostic prose unchanged: $label", ({ input }) => {
+    1287|     expect(sanitizeCredentialText(input)).toBe(input);
+       |            ^
+    1288|   });
+    1289|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > replaces Node HTTP objects with a content-free projection
+TypeError: redactCredentialFields is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1297:22
+    1295|     incoming.headers = { authorization: `Bearer ${BEARER_SENTINEL}` };
+    1296|
+    1297|     const redacted = redactCredentialFields({
+       |                      ^
+    1298|       message: "provider call failed",
+    1299|       request: incoming,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > bounds a cyclic error property instead of overflowing the stack
+TypeError: sanitizeErrorObject is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1322:24
+    1320|     );
+    1321|
+    1322|     const serialized = sanitizeErrorObject(error) as {
+       |                        ^
+    1323|       message: string;
+    1324|       context: { stage: string; self: unknown };
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > stops descending a deeply nested error property instead of recursing forever
+TypeError: sanitizeErrorObject is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1342:24
+    1340|     let deep: Record<string, unknown> = { leaf: "bottom" };
+    1341|     for (let level = 0; level < 12; level += 1) deep = { next: deep };
+    1342|     const serialized = sanitizeErrorObject(
+       |                        ^
+    1343|       Object.assign(new Error("boom"), { details: deep }),
+    1344|     ) as Record<string, any>;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps array-valued error properties as arrays
+AssertionError: expected '{"level":50,"time":1790869193241,"pid…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+- Expected
++ Received
+
+- pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28
++ {"level":50,"time":1790869193241,"pid":24480,"hostname":"vm","err":{"type":"AggregateError","message":"all gateway legs failed","stack":"AggregateError: all gateway legs failed\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1359:23\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64","aggregateErrors":[{"type":"Error","message":"first leg failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","stack":"Error: first leg failed for pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1361:9\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"},{"type":"Error","message":"second leg failed","stack":"Error: second leg failed\n    at /home/pc/wt/w1/server/src/__tests__/http-log-redaction.test.ts:1362:9\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"}]},"msg":"aggregate provider failure"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1372:24
+    1370|
+    1371|     const output = chunks.join("");
+    1372|     expect(output).not.toContain(GATEWAY_TOKEN);
+       |                        ^
+    1373|
+    1374|     const [record] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential header names from a captured request body
+AssertionError: expected '{"level":40,"time":1790869193260,"pid…' not to contain 'body-cookie-sentinel'
+
+- Expected
++ Received
+
+- body-cookie-sentinel
++ {"level":40,"time":1790869193260,"pid":24480,"hostname":"vm","req":{"id":1,"method":"POST","url":"/api/tool-gateway/register","params":{},"headers":{"host":"127.0.0.1:43835","accept-encoding":"gzip, deflate","content-type":"application/json","content-length":"535","connection":"close"},"remoteAddress":"127.0.0.1","remotePort":40192},"reqBody":{"cookie":"sid=body-cookie-sentinel","proxy-authorization":"Basic Ym9keS1wcm94eS1zZW50aW5lbA==","x-api-key":"body-api-key-sentinel","x-csrf-token":"body-csrf-sentinel","x-telegram-bot-api-secret-token":"body-telegram-sentinel","x-paperclip-tool-gateway-token":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","gatewayToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","toolGatewayToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","connectorId":"acme-crm"},"routePath":"/api/tool-gateway/register","res":{"statusCode":422,"headers":{"x-powered-by":"Express","content-type":"application/json; charset=utf-8","content-length":"32","etag":"W/\"20-uKGVwMf7EFxsXpDekytDo7vwmKE\""}},"responseTime":1,"msg":"POST /api/tool-gateway/register 422"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1429:26
+    1427|       SESSION_TOKEN,
+    1428|     ]) {
+    1429|       expect(output).not.toContain(sentinel);
+       |                          ^
+    1430|     }
+    1431|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > projects a live HTTP object logged under an ordinary key
+AssertionError: expected { _events: {}, …(18) } to deeply equal { type: '[HttpObject]', method: 'GET' }
+
+- Expected
++ Received
+
+  {
++   "_consuming": false,
++   "_dumped": false,
++   "_events": {},
++   "_readableState": {
++     "awaitDrainWriters": null,
++     "buffer": [],
++     "bufferIndex": 0,
++     "highWaterMark": 65536,
++     "length": 0,
++     "pipes": [],
++   },
++   "aborted": false,
++   "client": null,
++   "complete": false,
++   "httpVersion": null,
++   "httpVersionMajor": null,
++   "httpVersionMinor": null,
++   "joinDuplicateHeaders": false,
+    "method": "GET",
+-   "type": "[HttpObject]",
++   "rawHeaders": [],
++   "rawTrailers": [],
++   "socket": null,
++   "statusCode": null,
++   "statusMessage": null,
++   "upgrade": null,
++   "url": "",
+  }
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1460:37
+    1458|
+    1459|     const [record] = logRecords(chunks);
+    1460|     expect(record.upstreamResponse).toEqual({
+       |                                     ^
+    1461|       type: "[HttpObject]",
+    1462|       method: "GET",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > still lets pino's own req and res serializers project the live objects
+AssertionError: expected 'Bearer bearer-sentinel-3f9c17ab' to be '[Redacted]' // Object.is equality
+
+Expected: "[Redacted]"
+Received: "Bearer bearer-sentinel-3f9c17ab"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1483:43
+    1481|     expect(log.res.statusCode).toBe(200);
+    1482|     expect(log.req.method).toBe("GET");
+    1483|     expect(log.req.headers.authorization).toBe("[Redacted]");
+       |                                           ^
+    1484|   });
+    1485|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts a credential name in every separator spelling
+TypeError: redactCredentialFields is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1487:22
+    1485|
+    1486|   it("redacts a credential name in every separator spelling", () => {
+    1487|     const redacted = redactCredentialFields({
+       |                      ^
+    1488|       proxyAuthorization: "proxy-auth-sentinel-1",
+    1489|       proxy_authorization: "proxy-auth-sentinel-2",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > still redacts a credential in a sibling subtree when one field getter throws
+AssertionError: expected '{"level":40,"time":1790869193270,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":40,"time":1790869193270,"pid":24480,"hostname":"vm","stage":"relay","probe":"[unable to serialize, circular reference is too complex to analyze]","connection":{"authorization":"Bearer bearer-sentinel-3f9c17ab","gatewayToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","connectorId":"acme-crm"},"msg":"relay diagnostics"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1533:24
+    1531|
+    1532|     const output = chunks.join("");
+    1533|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    1534|     expect(output).not.toContain(SESSION_TOKEN);
+    1535|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > marks an array element's unreadable fields without losing the rest of the array
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1573:45
+    1571|
+    1572|     const [written] = logRecords(chunks);
+    1573|     expect(Array.isArray(written.attempts)).toBe(true);
+       |                                             ^
+    1574|     expect(written.attempts[0]).toEqual({
+    1575|       authorization: "[Redacted]",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > returns a record it cannot read at all unchanged, without throwing
+TypeError: redactCredentialFields is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1596:12
+    1594|       },
+    1595|     );
+    1596|     expect(redactCredentialFields(hostile)).toBe(hostile);
+       |            ^
+    1597|   });
+    1598|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts a record whose proxy trap throws only for the HTTP-object probe
+AssertionError: expected '{"level":40,"time":1790869193273,"pid…' not to contain 'pcgt_11111111-2222-3333-4444-55555555…'
+
+- Expected
++ Received
+
+- pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU
++ {"level":40,"time":1790869193273,"pid":24480,"hostname":"vm","stage":"relay","context":{"gatewayToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"},"msg":"relay diagnostics"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1619:33
+    1617|     log.warn(record, "relay diagnostics");
+    1618|
+    1619|     expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+       |                                 ^
+    1620|     const [written] = logRecords(chunks);
+    1621|     expect(written.stage).toBe("relay");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts the rest of the record when a value under req throws in the HTTP-object probe
+AssertionError: expected '{"level":40,"time":1790869193274,"pid…' not to contain 'pcgt_11111111-2222-3333-4444-55555555…'
+
+- Expected
++ Received
+
+- pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU
++ {"level":40,"time":1790869193274,"pid":24480,"hostname":"vm","req":{"url":"/api/tool-gateway/tools"},"context":{"gatewayToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"},"msg":"relay diagnostics"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1645:33
+    1643|     );
+    1644|
+    1645|     expect(chunks.join("")).not.toContain(SESSION_TOKEN);
+       |                                 ^
+    1646|     const [written] = logRecords(chunks);
+    1647|     expect(written.context).toEqual({ gatewayToken: "[Redacted]" });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > returns a credential-free record, arrays included, by identity
+TypeError: redactCredentialFields is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1656:12
+    1654|       nested: { ok: true },
+    1655|     };
+    1656|     expect(redactCredentialFields(record)).toBe(record);
+       |            ^
+    1657|   });
+    1658|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential names nested anywhere inside a log record
+AssertionError: expected '{"level":40,"time":1790869193277,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":40,"time":1790869193277,"pid":24480,"hostname":"vm","outcome":"rejected","context":{"connection":{"authorization":"Bearer bearer-sentinel-3f9c17ab","x-paperclip-tool-gateway-token":"pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28","connectorId":"acme-crm"},"attempts":[{"gatewayToken":"pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU","durationMs":12}]},"msg":"gateway attempt rejected"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1698:24
+    1696|
+    1697|     const output = chunks.join("");
+    1698|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    1699|     expect(output).not.toContain(GATEWAY_TOKEN);
+    1700|     expect(output).not.toContain(SESSION_TOKEN);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential-named fields without renaming ordinary diagnostic keys
+TypeError: redactCredentialFields is not a function
+ ❯ src/__tests__/http-log-redaction.test.ts:1717:22
+    1715|
+    1716|   it("redacts credential-named fields without renaming ordinary diagno…
+    1717|     const redacted = redactCredentialFields({
+       |                      ^
+    1718|       session: {
+    1719|         gatewayToken: GATEWAY_TOKEN,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > strips credential text from string fields of a structured record
+AssertionError: expected '{"level":40,"time":1790869193278,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":40,"time":1790869193278,"pid":24480,"hostname":"vm","detail":"provider replied 401 to Authorization: Bearer bearer-sentinel-3f9c17ab","attempts":["retry with pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"],"connectorId":"acme-crm","msg":"gateway call rejected"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1750:24
+    1748|
+    1749|     const output = chunks.join("");
+    1750|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    1751|     expect(output).not.toContain(SESSION_TOKEN);
+    1752|     const [written] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/46]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > writes the record when a logged error has a throwing property
+AssertionError: expected [Function] to not throw an error but 'Error: getter exploded' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"Error: getter exploded"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1769:87
+    1767|     });
+    1768|
+    1769|     expect(() => log.error({ err: error, stage: "connect" }, "provider…
+       |                                                                                       ^
+    1770|
+    1771|     expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/46]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  46 failed | 62 passed (108)
+   Start at  15:39:48
+   Duration  4.94s (transform 2.69s, setup 101ms, import 4.21s, tests 367ms, environment 0ms)
+

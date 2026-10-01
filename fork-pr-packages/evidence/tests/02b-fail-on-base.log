@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (83 tests | 1 failed | 82 skipped) 15779ms
+     × rejects a named gateway token on the run-scoped session endpoints 439ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > rejects a named gateway token on the run-scoped session endpoints
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ src/__tests__/tool-gateway.test.ts:5782:27
+    5780|       .get("/api/tool-gateway/tools")
+    5781|       .set("x-paperclip-tool-gateway-token", gatewayToken.token);
+    5782|     expect(listed.status).toBe(401);
+       |                           ^
+    5783|     expect(listed.body).toMatchObject({ reasonCode: "session_invalid" …
+    5784|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 82 skipped (83)
+   Start at  09:17:14
+   Duration  38.86s (transform 13.14s, setup 127ms, import 22.78s, tests 15.78s, environment 0ms)
+

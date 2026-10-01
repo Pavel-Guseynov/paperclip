@@ -1,0 +1,15 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+[16:18:52] WARN: terminalized orphaned running heartbeat run in stale-lock sweep {"runId":"1da236a6-a950-459a-8aa3-fa3e64d67edb","authority":"process_gone","previousStatus":"running","terminalStatus":"interrupted","issueId":"dd7eaa36-4311-4076-ac2a-ddbbea24e721","processGroupId":null}
+[16:18:52] WARN: swept stale issue lock columns {"cleared":1,"issueIds":["dd7eaa36-4311-4076-ac2a-ddbbea24e721"],"terminalizedRunIds":["1da236a6-a950-459a-8aa3-fa3e64d67edb"]}
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  16:18:31
+   Duration  22.17s (transform 11.41s, setup 94ms, import 16.42s, tests 5.51s, environment 0ms)
+

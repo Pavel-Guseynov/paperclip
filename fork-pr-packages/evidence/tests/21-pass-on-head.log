@@ -1,0 +1,10 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+[14:30:47] WARN: runtime connection tools could not be delivered {"companyId":"9e3bb0ac-be03-4053-bec3-523d0067b659","agentId":"15caca63-8ec5-47d0-bf11-452feaafd9de","runId":"ba7a305b-83cb-4d8a-8675-4749abccf618"}
+
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  14:30:23
+   Duration  25.75s (transform 13.16s, setup 198ms, import 18.68s, tests 6.50s, environment 0ms)
+

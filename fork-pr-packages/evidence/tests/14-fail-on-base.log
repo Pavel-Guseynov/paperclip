@@ -1,0 +1,530 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (88 tests | 22 failed) 26085ms
+     × preserves provider tool errors in MCP responses and failed invocation audits 216ms
+     × exposes a named gateway with scoped bearer-token auth and revocation 207ms
+     × keeps additive app-gallery assignments out of gateway-only runtimes 198ms
+     × rate limits public named gateway session setup, discovery, and calls with redacted audits 129ms
+     × lists connected remote MCP catalog tools only for the scoped company and agent policy 291ms
+     × lists and executes connected local stdio MCP catalog tools through the gateway 226ms
+     × passes only approved env values to local stdio MCP processes 178ms
+     × keeps connected remote MCP gateway names collision-safe and excludes inactive catalog sources 160ms
+     × starts with another user's personal app and requests authorization only when used 182ms
+     × uses virtual on-demand run_tool while applying target tool policy and audit metadata 145ms
+     × expires legacy managed-connector approvals before provider dispatch 85ms
+     × does not expire a managed-connector provider execution already in flight 88ms
+     × enforces policy, approvals, retries, rate limits, and company boundaries for connected remote MCP calls 98ms
+     × requires re-review when an approved connected MCP replay target changed 73ms
+     × expires an abandoned unsigned ask-first request so a later retry can proceed 107ms
+     × does not expire a recent unsigned ask-first request that a parallel create still owns 76ms
+     × requires re-review when an approved connected MCP replay credential latest version changed 75ms
+     × matches a tool_name profile entry against the catalog tool name on every surface 94ms
+       × lists connected tools under names that MCP clients accept 81ms
+       × calls a connected tool by its client-safe name with its upstream name 58ms
+       × keeps an existing tool name when another connection exposes the same tool 57ms
+       × applies policies stored under a legacy tool name and resolves calls by that name 62ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 22 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > preserves provider tool errors in MCP responses and failed invocation audits
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ src/__tests__/tool-gateway.test.ts:634:10
+    632|         .set("authorization", `Bearer ${token.token}`)
+    633|         .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {…
+    634|         .expect(200);
+       |          ^
+    635|       expect(response.body.result).toEqual({
+    636|         content: [{ type: "text", text: "Search denied: outside consen…
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > exposes a named gateway with scoped bearer-token auth and revocation
+AssertionError: expected [ …(5) ] to include 'named-gateway-app_read_note'
+ ❯ src/__tests__/tool-gateway.test.ts:728:32
+    726|         .expect(200);
+    727|       const visibleToolNames = listed.body.result.tools.map((tool: { n…
+    728|       expect(visibleToolNames).toContain(gatewayToolName);
+       |                                ^
+    729|       expect(visibleToolNames).not.toContain("mcp-remote-fixture:updat…
+    730|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > keeps additive app-gallery assignments out of gateway-only runtimes
+AssertionError: expected [ …(5) ] to include 'gateway-assigned-app_get_me'
+ ❯ src/__tests__/tool-gateway.test.ts:890:30
+    888|       .expect(200);
+    889|     const visibleToolNames = listed.body.result.tools.map((tool: { nam…
+    890|     expect(visibleToolNames).toContain(assignedToolName);
+       |                              ^
+    891|     expect(visibleToolNames).not.toContain(unassignedToolName);
+    892|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > rate limits public named gateway session setup, discovery, and calls with redacted audits
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ src/__tests__/tool-gateway.test.ts:1312:10
+    1310|           params: { name: gatewayToolName, arguments: { key: "a", valu…
+    1311|         })
+    1312|         .expect(200);
+       |          ^
+    1313|       const callLimited = await request(app)
+    1314|         .post(endpoint)
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > lists connected remote MCP catalog tools only for the scoped company and agent policy
+AssertionError: expected { …(14) } to match object { name: 'kv-demo_kv_set', …(11) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+@@ -2,16 +2,15 @@
+    "applicationId": "254f8349-857c-4768-9cd6-37de1e6b9a78",
+    "applicationKey": "kv-demo",
+    "catalogEntryId": "87abfd21-c966-4ef3-86da-1048b4a837b2",
+    "connectionId": "8979d01f-3580-44aa-826b-f8e602fc4e53",
+    "displayName": "Set KV value",
+-   "legacyToolName": "mcp.kv-demo-8979d01f:kv-set",
+-   "name": "kv-demo_kv_set",
+-   "parametersSchema": {
++   "name": "mcp.kv-demo-8979d01f:kv-set",
++   "parametersSchema": ObjectContaining {
+      "type": "object",
+    },
+-   "providerMetadata": {
++   "providerMetadata": ObjectContaining {
+      "annotations": {
+        "readOnlyHint": false,
+      },
+      "applicationKey": "kv-demo",
+      "catalogEntryId": "87abfd21-c966-4ef3-86da-1048b4a837b2",
+
+ ❯ src/__tests__/tool-gateway.test.ts:1507:27
+    1505|     const tools = await gateway.listToolsForSession(session.token);
+    1506|     const connectedTool = tools.find((tool) => tool.providerType === "…
+    1507|     expect(connectedTool).toMatchObject({
+       |                           ^
+    1508|       name: "kv-demo_kv_set",
+    1509|       legacyToolName: `mcp.kv-demo-${remoteTool.connection.id.replace(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > lists and executes connected local stdio MCP catalog tools through the gateway
+AssertionError: expected [ { …(14) } ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+@@ -1,16 +1,59 @@
+- ArrayContaining [
+-   ObjectContaining {
++ [
++   {
++     "applicationDisplayName": "Local stdio app 045917fd-9ee6-46ac-b3a3-204e63f1cefc",
+      "applicationId": "b82aeb20-ae6f-41dd-a4ca-fccf1137b411",
+      "applicationKey": "local-demo",
+      "catalogEntryId": "fea4422d-9959-43ed-898c-b4cb9465ead2",
+      "connectionId": "4d85b760-9c82-4acc-abda-6b7467a4bd9a",
++     "description": "Call echo",
+      "displayName": "Local echo",
+-     "name": "local-demo_echo",
+-     "providerMetadata": ObjectContaining {
++     "name": "mcp.local-demo-4d85b760:echo",
++     "parametersSchema": {
++       "additionalProperties": false,
++       "properties": {
++         "message": {
++           "type": "string",
++         },
++       },
++       "required": [
++         "message",
++       ],
++       "type": "object",
++     },
++     "pluginId": "mcp:local-demo",
++     "providerMetadata": {
++       "annotations": {
++         "readOnlyHint": true,
++       },
++       "applicationDisplayName": "Local stdio app 045917fd-9ee6-46ac-b3a3-204e63f1cefc",
++       "applicationId": "b82aeb20-ae6f-41dd-a4ca-fccf1137b411",
++       "applicationKey": "local-demo",
+        "catalogEntryId": "fea4422d-9959-43ed-898c-b4cb9465ead2",
++       "catalogName": "echo-8522ab04-acd0-4bd8-9a02-1fb81c5848c7",
+        "connectionId": "4d85b760-9c82-4acc-abda-6b7467a4bd9a",
++       "gatewayToolName": "mcp.local-demo-4d85b760:echo",
++       "inputSchema": {
++         "additionalProperties": false,
++         "properties": {
++           "message": {
++             "type": "string",
++           },
++         },
++         "required": [
++           "message",
++         ],
++         "type": "object",
++       },
++       "onDemandTools": false,
++       "outputSchema": null,
++       "risk": {
++         "isDestructive": false,
++         "isReadOnly": true,
++         "isWrite": false,
++         "level": "read",
++       },
+        "transport": "local_stdio",
+        "upstreamToolName": "echo",
+      },
+      "providerType": "mcp_local_stdio",
+      "risk": "read",
+
+ ❯ src/__tests__/tool-gateway.test.ts:1597:19
+    1595|
+    1596|     const tools = await gateway.listToolsForSession(session.token);
+    1597|     expect(tools).toEqual(expect.arrayContaining([
+       |                   ^
+    1598|       expect.objectContaining({
+    1599|         name: expectedName,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > passes only approved env values to local stdio MCP processes
+AssertionError: promise rejected "Error: Tool "local-env-demo_inspect_env" … { …(3) }" instead of resolving
+ ❯ src/__tests__/tool-gateway.test.ts:1718:10
+    1716|         tool: expectedName,
+    1717|         parameters: { message: "hello" },
+    1718|       })).resolves.toMatchObject({
+       |          ^
+    1719|         status: "completed",
+    1720|         result: {
+
+Caused by: Error: Tool "local-env-demo_inspect_env" not found
+ ❯ findToolForSession src/services/tool-gateway.ts:2695:13
+ ❯ Object.executeTool src/services/tool-gateway.ts:9756:18
+ ❯ src/__tests__/tool-gateway.test.ts:1714:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { status: 404, reasonCode: 'tool_not_found', details: { tool: 'local-env-demo_inspect_env' } }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > keeps connected remote MCP gateway names collision-safe and excludes inactive catalog sources
+AssertionError: expected [ 'mcp.kv-demo-09ec3192:kv-set', …(1) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   "kv-demo_kv_set",
+-   "kv-demo_kv_set_9cddd852",
++ [
++   "mcp.kv-demo-09ec3192:kv-set",
++   "mcp.kv-demo-9cddd852:kv-set",
+  ]
+
+ ❯ src/__tests__/tool-gateway.test.ts:2080:53
+    2078|     ].sort());
+    2079|     expect(new Set(connectedTools.map((tool) => tool.name)).size).toBe…
+    2080|     expect(connectedTools.map((tool) => tool.name)).toEqual(expect.arr…
+       |                                                     ^
+    2081|       "kv-demo_kv_set",
+    2082|       `kv-demo_kv_set_${second.connection.id.replace(/-/g, "").slice(0…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > starts with another user's personal app and requests authorization only when used
+AssertionError: expected undefined to be defined
+ ❯ src/__tests__/tool-gateway.test.ts:2418:20
+    2416|         applicationKey: application.applicationKey, connectionId: conn…
+    2417|       }));
+    2418|       expect(tool).toBeDefined();
+       |                    ^
+    2419|       const call = () => request(app).post(endpoint).set("authorizatio…
+    2420|         .send({ jsonrpc: "2.0", id: "call", method: "tools/call", para…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > uses virtual on-demand run_tool while applying target tool policy and audit metadata
+AssertionError: expected '{"content":"{\"tools\":[{\"name\":\"m…' to contain 'virtual-demo_kv_set'
+
+Expected: "virtual-demo_kv_set"
+Received: "{"content":"{\"tools\":[{\"name\":\"mcp.virtual-demo-410f8bfa:kv-set\",\"displayName\":\"KV Set\",\"description\":\"Call kv_set\",\"parametersSchema\":{\"type\":\"object\",\"required\":[\"key\",\"value\"],\"properties\":{\"key\":{\"type\":\"string\"},\"value\":{\"type\":\"string\"}},\"additionalProperties\":false},\"applicationId\":\"507b679d-3dad-4da3-a7bc-92ffa243a0ee\",\"connectionId\":\"410f8bfa-19cf-487a-ba38-98da844aa881\",\"catalogEntryId\":\"4560c144-3b7d-4fc5-ab95-197167edb6dd\",\"upstreamToolName\":\"kv_set\",\"risk\":\"write\"}]}","data":{"tools":[{"name":"mcp.virtual-demo-410f8bfa:kv-set","displayName":"KV Set","description":"Call kv_set","parametersSchema":{"type":"object","required":["key","value"],"properties":{"key":{"type":"string"},"value":{"type":"string"}},"additionalProperties":false},"applicationId":"507b679d-3dad-4da3-a7bc-92ffa243a0ee","connectionId":"410f8bfa-19cf-487a-ba38-98da844aa881","catalogEntryId":"4560c144-3b7d-4fc5-ab95-197167edb6dd","upstreamToolName":"kv_set","risk":"write"}]}}"
+
+ ❯ src/__tests__/tool-gateway.test.ts:2986:45
+    2984|         parameters: { query: "kv", limit: 5 },
+    2985|       });
+    2986|       expect(JSON.stringify(search.result)).toContain(targetToolName);
+       |                                             ^
+    2987|
+    2988|       const result = await gateway.executeTool({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > expires legacy managed-connector approvals before provider dispatch
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:3203:20
+ ❯ src/__tests__/tool-gateway.test.ts:3195:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > does not expire a managed-connector provider execution already in flight
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:3329:20
+ ❯ src/__tests__/tool-gateway.test.ts:3321:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > enforces policy, approvals, retries, rate limits, and company boundaries for connected remote MCP calls
+AssertionError: expected 404 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:3523:20
+ ❯ src/__tests__/tool-gateway.test.ts:3515:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > requires re-review when an approved connected MCP replay target changed
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:3913:20
+ ❯ src/__tests__/tool-gateway.test.ts:3905:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > expires an abandoned unsigned ask-first request so a later retry can proceed
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:4011:20
+ ❯ src/__tests__/tool-gateway.test.ts:4003:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > does not expire a recent unsigned ask-first request that a parallel create still owns
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:4116:20
+ ❯ src/__tests__/tool-gateway.test.ts:4108:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > requires re-review when an approved connected MCP replay credential latest version changed
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:4234:20
+ ❯ src/__tests__/tool-gateway.test.ts:4226:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > matches a tool_name profile entry against the catalog tool name on every surface
+AssertionError: expected [ Array(1) ] to include 'catalog-identity_echo'
+ ❯ src/__tests__/tool-gateway.test.ts:5752:46
+    5750|     });
+    5751|     const visible = await gateway.listToolsForSession(session.token);
+    5752|     expect(visible.map((tool) => tool.name)).toContain(gatewayToolName…
+       |                                              ^
+    5753|     const called = await gateway.executeTool({
+    5754|       sessionToken: session.token,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > client-safe connected tool names > lists connected tools under names that MCP clients accept
+AssertionError: expected [ 'mcp-remote-fixture:echo', …(11) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   "remote-analytics_query",
+-   "document-service_export-markdown",
+-   "enterprise-data-war_summarize_quarterly",
++ [
++   "mcp-remote-fixture:echo",
++   "mcp-remote-fixture:add",
++   "mcp-remote-fixture:update_note",
++   "mcp-stdio-fixture:increment_counter",
++   "mcp-stdio-fixture:runtime_status",
++   "mcp.document-service-1a3cebf4:export-markdown",
++   "mcp.enterprise-data-warehouse-platform-6a2fb50a:summarize-quarterly-revenue-by-region",
++   "mcp.remote-analytics-3d01b8db:query",
++   "paperclip_list_resources",
++   "paperclip_read_resource",
++   "paperclip_list_prompts",
++   "paperclip_get_prompt",
+  ]
+
+ ❯ src/__tests__/tool-gateway.test.ts:5907:23
+    5905|           "enterprise-data-war_summarize_quarterly",
+    5906|         ];
+    5907|         expect(names).toEqual(expect.arrayContaining(connectedNames));
+       |                       ^
+    5908|         for (const name of connectedNames) expect(name).toMatch(/^[A-Z…
+    5909|       } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > client-safe connected tool names > calls a connected tool by its client-safe name with its upstream name
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ src/__tests__/tool-gateway.test.ts:5931:12
+    5929|           method: "tools/call",
+    5930|           params: { name: "remote-analytics_query", arguments: { query…
+    5931|         }).expect(200);
+       |            ^
+    5932|         expect(called.body.result).toMatchObject({ content: [{ type: "…
+    5933|         expect(calls.at(-1)).toMatchObject({
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > client-safe connected tool names > keeps an existing tool name when another connection exposes the same tool
+AssertionError: expected [ 'mcp-remote-fixture:echo', …(9) ] to include 'remote-analytics_query'
+ ❯ src/__tests__/tool-gateway.test.ts:5953:85
+    5951|         const { send } = await namedGatewayFor(company.id);
+    5952|         const before = await send({ jsonrpc: "2.0", id: 1, method: "to…
+    5953|         expect(before.body.result.tools.map((tool: { name: string }) =…
+       |                                                                                     ^
+    5954|
+    5955|         const second = await createRemoteMcpTool(db, company.id, {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/22]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > client-safe connected tool names > applies policies stored under a legacy tool name and resolves calls by that name
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectGatewayError src/__tests__/tool-gateway.test.ts:450:31
+    448|   expect(error).toBeInstanceOf(ToolGatewayHttpError);
+    449|   const gatewayError = error as ToolGatewayHttpError;
+    450|   expect(gatewayError.status).toBe(status);
+       |                               ^
+    451|   expect(gatewayError.reasonCode).toBe(reasonCode);
+    452| }
+ ❯ src/__tests__/tool-gateway.test.ts:5999:24
+ ❯ src/__tests__/tool-gateway.test.ts:5995:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/22]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  22 failed | 66 passed (88)
+   Start at  10:10:36
+   Duration  43.53s (transform 12.23s, setup 109ms, import 17.19s, tests 26.09s, environment 0ms)
+

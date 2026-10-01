@@ -1,0 +1,118 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (88 tests | 4 failed) 30245ms
+       × authenticates tools/list and tools/call for its own session over an Authorization bearer 77ms
+       × reads only a session-token bearer out of Authorization 58ms
+       × rejects revoked, cross-session, unknown, and malformed session bearers 71ms
+       × rejects a session bound to another agent's run and a session whose run has finished 69ms
+ ❯ src/__tests__/agent-auth-middleware.test.ts (31 tests | 1 failed) 148ms
+     × leaves gateway session tokens on tools endpoints for the gateway service to validate 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/agent-auth-middleware.test.ts > agent auth middleware > leaves gateway session tokens on tools endpoints for the gateway service to validate
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/agent-auth-middleware.test.ts:289:28
+    287|       .set("Authorization", `Bearer pcgt_${randomUUID()}.secret-abc`);
+    288|
+    289|     expect(listRes.status).toBe(200);
+       |                            ^
+    290|     expect(listRes.body).toMatchObject({ reachedSessionTools: true, ac…
+    291|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > authenticates tools/list and tools/call for its own session over an Authorization bearer
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/tool-gateway.test.ts:5786:29
+    5784|         .get("/api/tool-gateway/tools")
+    5785|         .set("Authorization", `Bearer ${session.token}`);
+    5786|       expect(listed.status).toBe(200);
+       |                             ^
+    5787|       expect(listed.body).toEqual(expect.arrayContaining([
+    5788|         expect.objectContaining({ name: toolName }),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > reads only a session-token bearer out of Authorization
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ src/__tests__/tool-gateway.test.ts:5849:36
+    5847|         .get("/api/tool-gateway/tools")
+    5848|         .set("Authorization", `Bearer ${session.token}`);
+    5849|       expect(sessionBearer.status).toBe(200);
+       |                                    ^
+    5850|
+    5851|       // The documented precedence: the header wins when both are pres…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > rejects revoked, cross-session, unknown, and malformed session bearers
+AssertionError: expected {} to match object { reasonCode: 'session_revoked' }
+
+- Expected
++ Received
+
+- {
+-   "reasonCode": "session_revoked",
+- }
++ {}
+
+ ❯ src/__tests__/tool-gateway.test.ts:5886:28
+    5884|         .set("Authorization", `Bearer ${sessionA.token}`);
+    5885|       expect(revoked.status).toBe(401);
+    5886|       expect(revoked.body).toMatchObject({ reasonCode: "session_revoke…
+       |                            ^
+    5887|
+    5888|       // Session A's id carrying Session B's secret: a stolen secret m…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > run-scoped gateway session-token verification > rejects a session bound to another agent's run and a session whose run has finished
+AssertionError: expected {} to match object { reasonCode: 'session_run_inactive' }
+
+- Expected
++ Received
+
+- {
+-   "reasonCode": "session_run_inactive",
+- }
++ {}
+
+ ❯ src/__tests__/tool-gateway.test.ts:5939:29
+    5937|         .set("Authorization", `Bearer ${wrongRunSession.token}`);
+    5938|       expect(wrongRun.status).toBe(401);
+    5939|       expect(wrongRun.body).toMatchObject({ reasonCode: "session_run_i…
+       |                             ^
+    5940|
+    5941|       const finishedRunSession = await gateway.createSession({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 114 passed (119)
+   Start at  14:59:57
+   Duration  51.79s (transform 13.85s, setup 164ms, import 20.90s, tests 30.39s, environment 0ms)
+

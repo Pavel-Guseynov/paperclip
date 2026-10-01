@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  09:36:48
+   Duration  39.18s (transform 12.79s, setup 95ms, import 21.23s, tests 17.72s, environment 0ms)
+

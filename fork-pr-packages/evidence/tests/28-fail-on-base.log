@@ -1,0 +1,95 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.patchedDependencies", "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w2
+
+ ❯ |@paperclipai/adapter-utils| src/server-utils.test.ts (129 tests | 3 failed) 22397ms
+     × fails only the owning run when the child closes stdin before the write 5011ms
+     × fails only the owning run when the child closes stdin during the write 5006ms
+     × kills a child that ignores SIGTERM after its stdin write failed 5003ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > runChildProcess > fails only the owning run when the child closes stdin before the write
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > runChildProcess > fails only the owning run when the child closes stdin during the write
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/server-utils.test.ts:577:5
+    575|     ["before", "require('fs').closeSync(0); process.stdout.write('read…
+    576|     ["during", "setTimeout(() => { require('fs').closeSync(0); process…
+    577|   ])("fails only the owning run when the child closes stdin %s the wri…
+       |     ^
+    578|     const failedRunId = randomUUID();
+    579|     const healthyRunId = randomUUID();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > runChildProcess > kills a child that ignores SIGTERM after its stdin write failed
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/server-utils.test.ts:623:3
+    621|   });
+    622|
+    623|   it("kills a child that ignores SIGTERM after its stdin write failed"…
+       |   ^
+    624|     const result = await runChildProcess(
+    625|       randomUUID(),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 3 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: write EPIPE
+ ❯ afterWriteDispatched node:internal/stream_base_commons:159:15
+ ❯ writeGeneric node:internal/stream_base_commons:150:3
+ ❯ Socket._writeGeneric node:net:1262:11
+ ❯ Socket._write node:net:1274:8
+ ❯ writeOrBuffer node:internal/streams/writable:574:12
+ ❯ _write node:internal/streams/writable:503:10
+ ❯ Socket.Writable.write node:internal/streams/writable:512:10
+ ❯ packages/adapter-utils/src/server-utils.ts:4903:19
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -32, code: 'EPIPE', syscall: 'write' }
+This error originated in "packages/adapter-utils/src/server-utils.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "fails only the owning run when the child closes stdin before the write". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: write EPIPE
+ ❯ WriteWrap.onWriteComplete [as oncomplete] node:internal/stream_base_commons:87:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -32, code: 'EPIPE', syscall: 'write' }
+This error originated in "packages/adapter-utils/src/server-utils.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "fails only the owning run when the child closes stdin during the write". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: write EPIPE
+ ❯ WriteWrap.onWriteComplete [as oncomplete] node:internal/stream_base_commons:87:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -32, code: 'EPIPE', syscall: 'write' }
+This error originated in "packages/adapter-utils/src/server-utils.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "kills a child that ignores SIGTERM after its stdin write failed". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 126 passed (129)
+     Errors  3 errors
+   Start at  14:34:10
+   Duration  26.15s (transform 2.57s, setup 0ms, import 3.58s, tests 22.40s, environment 0ms)
+

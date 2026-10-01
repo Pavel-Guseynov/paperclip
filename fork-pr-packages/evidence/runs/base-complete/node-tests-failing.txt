@@ -1,0 +1,123 @@
+✖ failing tests:
+
+test at scripts/__tests__/storybook-viewport-config.test.mjs:17:1
+✖ Storybook viewport config uses the Storybook 10 parameter shape (558.253605ms)
+  AssertionError [ERR_ASSERTION]: Storybook 10 uses globals.viewport.value for selection and parameters.viewport.options for definitions
+  + actual - expected
+  
+  + [
+  +   '/home/pc/wt/base/ui/storybook/stories/dialogs-modals.stories.tsx',
+  +   '/home/pc/wt/base/ui/storybook/stories/mobile-entity-pickers.stories.tsx'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/__tests__/storybook-viewport-config.test.mjs:25:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ '/home/pc/wt/base/ui/storybook/stories/dialogs-modals.stories.tsx', '/home/pc/wt/base/ui/storybook/stories/mobile-entity-pickers.stories.tsx' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/extract-proposed-events.test.mjs:65:1
+✖ extractor emits deterministic proposed-telemetry-extractor.v2 records (2.701215ms)
+  TypeError: Cannot read properties of undefined (reading 'Latest')
+      at extractProposedEvents (file:///home/pc/wt/base/scripts/extract-proposed-events.mjs:75:82)
+      at file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:67:5
+      at withFixtureRepo (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:21:12)
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:66:18)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+
+test at scripts/extract-proposed-events.test.mjs:99:1
+✖ extractor flags a missing proposed-telemetry suffix without hard-failing (2.404632ms)
+  TypeError: Cannot read properties of undefined (reading 'Latest')
+      at extractProposedEvents (file:///home/pc/wt/base/scripts/extract-proposed-events.mjs:75:82)
+      at file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:101:5
+      at withFixtureRepo (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:21:12)
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:100:18)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+
+test at scripts/extract-proposed-events.test.mjs:114:1
+✖ extractor scans TelemetryClient wrappers whose receiver is not named client (1.344182ms)
+  TypeError: Cannot read properties of undefined (reading 'Latest')
+      at extractProposedEvents (file:///home/pc/wt/base/scripts/extract-proposed-events.mjs:75:82)
+      at file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:129:35
+      at withFixtureRepo (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:21:12)
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:115:18)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at scripts/extract-proposed-events.test.mjs:139:1
+✖ extractor scans variable-assigned wrappers and ignores nullable union members (1.466069ms)
+  TypeError: Cannot read properties of undefined (reading 'Latest')
+      at extractProposedEvents (file:///home/pc/wt/base/scripts/extract-proposed-events.mjs:75:82)
+      at file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:165:35
+      at withFixtureRepo (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:21:12)
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:140:18)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at scripts/extract-proposed-events.test.mjs:176:1
+✖ extractor rejects invalid rationale issue references when present (2.425301ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /rationale issue must be PAP-<digits>/. Input:
+  
+  "TypeError: Cannot read properties of undefined (reading 'Latest')"
+  
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:177:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: TypeError: Cannot read properties of undefined (reading 'Latest')
+        at extractProposedEvents (file:///home/pc/wt/base/scripts/extract-proposed-events.mjs:75:82)
+        at file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:181:39
+        at withFixtureRepo (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:21:12)
+        at file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:179:7
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:177:10)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18),
+    expected: /rationale issue must be PAP-<digits>/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+test at scripts/extract-proposed-events.test.mjs:250:1
+✖ TS2578 expires the directive once a fixture event is registered (0.718086ms)
+  TypeError: Cannot read properties of undefined (reading 'ES2023')
+      at diagnosticsFor (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:214:31)
+      at TestContext.<anonymous> (file:///home/pc/wt/base/scripts/extract-proposed-events.test.mjs:251:24)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+# node-tests exit 1 files 65

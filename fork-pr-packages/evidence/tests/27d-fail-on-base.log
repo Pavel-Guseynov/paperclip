@@ -1,0 +1,67 @@
+
+ RUN  v4.1.11 /home/pc/wt/w2/server
+
+[12:40:14] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[12:40:14] INFO: heartbeat run status changed {"lifecycleEvent":{"eventType":"run_transition","eventId":"run:d245c2b3-e55f-4d67-a3fa-ffee72c2dc4d:1790858414976016:cancelled","runId":"d245c2b3-e55f-4d67-a3fa-ffee72c2dc4d","companyId":"14826f10-3342-436d-8b5b-a110190419b4","agentId":"4a8b4a50-c2d9-476a-88a9-85b4063d8a77","issueId":null,"fromStatus":"running","toStatus":"cancelled","terminal":true,"transitionedAtEpochUs":"1790858414976016"}}
+[12:40:15] INFO: heartbeat run status changed {"lifecycleEvent":{"eventType":"run_transition","eventId":"run:bcaf6632-5087-4997-ab10-7bc677a5ba6d:1790858415050300:cancelled","runId":"bcaf6632-5087-4997-ab10-7bc677a5ba6d","companyId":"8b2e19fe-c2ca-47e8-9670-c9303d53139a","agentId":"b5122614-a80b-45bf-ad7b-e271ba4c2ed0","issueId":null,"fromStatus":"running","toStatus":"cancelled","terminal":true,"transitionedAtEpochUs":"1790858415050300"}}
+ ❯ src/__tests__/heartbeat-run-cancellation-attribution.test.ts (2 tests | 2 failed) 5515ms
+     × names the board user who stopped the run 194ms
+     × gives the cause and no requester when the system cancels the run 27ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-run-cancellation-attribution.test.ts > cancellation attribution in run lifecycle events > names the board user who stopped the run
+AssertionError: expected undefined to deeply equal { code: 'cancelled', …(2) }
+
+- Expected:
+{
+  "code": "cancelled",
+  "reason": "Cancelled by a board operator",
+  "requestedBy": {
+    "id": "board-user",
+    "type": "user",
+  },
+}
+
++ Received:
+undefined
+
+ ❯ src/__tests__/heartbeat-run-cancellation-attribution.test.ts:77:52
+     75|
+     76|     expect(res.status, JSON.stringify(res.body)).toBe(200);
+     77|     expect(cancellationEvent(runId)?.cancellation).toEqual({
+       |                                                    ^
+     78|       code: "cancelled",
+     79|       reason: "Cancelled by a board operator",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/heartbeat-run-cancellation-attribution.test.ts > cancellation attribution in run lifecycle events > gives the cause and no requester when the system cancels the run
+AssertionError: expected undefined to deeply equal { code: 'agent_paused', …(2) }
+
+- Expected:
+{
+  "code": "agent_paused",
+  "reason": "Cancelled due to agent pause",
+  "requestedBy": null,
+}
+
++ Received:
+undefined
+
+ ❯ src/__tests__/heartbeat-run-cancellation-attribution.test.ts:89:52
+     87|     await heartbeatService(db).cancelActiveForAgent(agentId, "Cancelle…
+     88|
+     89|     expect(cancellationEvent(runId)?.cancellation).toEqual({
+       |                                                    ^
+     90|       code: "agent_paused",
+     91|       reason: "Cancelled due to agent pause",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  12:39:53
+   Duration  21.82s (transform 12.14s, setup 91ms, import 16.05s, tests 5.52s, environment 0ms)
+

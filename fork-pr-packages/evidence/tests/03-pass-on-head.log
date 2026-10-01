@@ -1,0 +1,71 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+[15:34:26] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_direct_tls_only","deploymentMode":"authenticated"}
+[15:34:26] INFO: plugin job coordinator started — listening to lifecycle events {"service":"plugin-job-coordinator"}
+[15:34:26] INFO: plugin job scheduler started {"service":"plugin-job-scheduler","tickIntervalMs":30000,"maxConcurrentJobs":10}
+[15:34:26] INFO: initializing plugin tool dispatcher {"service":"plugin-tool-dispatcher"}
+[15:34:26] INFO: plugin-dev-watcher: initialized {"service":"plugin-dev-watcher","resolvesInstalledPlugins":true}
+[15:34:26] INFO: plugin-loader: loading all ready plugins {"service":"plugin-loader"}
+[15:34:26] INFO: loaded tools from ready plugins {"service":"plugin-tool-dispatcher","readyPlugins":0,"registeredTools":0}
+[15:34:26] DEBUG: subscribed to lifecycle events {"service":"plugin-tool-dispatcher"}
+[15:34:26] INFO: plugin tool dispatcher initialized {"service":"plugin-tool-dispatcher","totalTools":0}
+[15:34:26] INFO: plugin-loader: no ready plugins to load {"service":"plugin-loader"}
+[15:34:26] INFO: GET /issues/735cd131-c59b-4b93-8546-e5b28703018f/attachments 200
+[15:34:27] INFO: POST /companies/22192bae-5c92-45a7-adda-0cb9e7c62872/issues/735cd131-c59b-4b93-8546-e5b28703018f/attachments 201
+[15:34:27] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/work-products 201
+[15:34:27] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/comments 201
+[15:34:27] INFO: GET /issues/735cd131-c59b-4b93-8546-e5b28703018f/attachments 200
+[15:34:28] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/work-products 201
+[15:34:28] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/comments 201
+[15:34:28] INFO: GET /attachments/09a54c74-95c8-4486-82af-dead93b712f9/content 200
+[15:34:29] INFO: GET /issues/735cd131-c59b-4b93-8546-e5b28703018f/attachments 200
+[15:34:29] INFO: POST /companies/22192bae-5c92-45a7-adda-0cb9e7c62872/issues/735cd131-c59b-4b93-8546-e5b28703018f/attachments 201
+[15:34:29] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/work-products 201
+[15:34:29] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/comments 201
+[15:34:30] INFO: GET /issues/735cd131-c59b-4b93-8546-e5b28703018f/attachments 200
+[15:34:30] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/work-products 201
+[15:34:30] INFO: POST /issues/735cd131-c59b-4b93-8546-e5b28703018f/comments 201
+[15:34:30] INFO: GET /attachments/d4f344d9-6a91-441f-887f-dbc4098ad952/content 200
+[15:34:31] WARN: GET /issues/4940d114-b0c2-41d1-9ddf-0a086b93e08f/attachments 404 {"reqParams":{"id":"4940d114-b0c2-41d1-9ddf-0a086b93e08f"},"routePath":"/issues/:id/attachments"}
+[15:34:32] INFO: GET /attachments/09a54c74-95c8-4486-82af-dead93b712f9/content 200
+[15:34:32] INFO: GET /attachments/d4f344d9-6a91-441f-887f-dbc4098ad952/content 200
+[15:34:32] INFO: GET /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/attachments 200
+[15:34:33] INFO: POST /companies/74af2cd1-b34a-4679-a60b-4ff2574f4c7c/issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/attachments 201
+[15:34:33] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/work-products 201
+[15:34:33] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/comments 201
+[15:34:33] INFO: GET /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/attachments 200
+[15:34:33] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/work-products 201
+[15:34:33] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/comments 201
+[15:34:33] INFO: GET /attachments/d5b82964-5ab8-462c-8527-9df21944a38e/content 200
+[15:34:33] INFO: GET /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/attachments 200
+[15:34:33] INFO: POST /companies/74af2cd1-b34a-4679-a60b-4ff2574f4c7c/issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/attachments 201
+[15:34:33] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/work-products 201
+[15:34:33] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/comments 201
+[15:34:34] INFO: GET /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/attachments 200
+[15:34:34] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/work-products 201
+[15:34:34] INFO: POST /issues/f324b6dd-f807-4ae4-9a2f-a2c53d42ff02/comments 201
+[15:34:34] INFO: GET /attachments/9ad1f803-01a4-4339-8a77-0cd1aad63f06/content 200
+[15:34:34] WARN: GET /issues/b97ebd3f-435d-49ab-80b7-0a6317bfd5ac/attachments 404 {"reqParams":{"id":"b97ebd3f-435d-49ab-80b7-0a6317bfd5ac"},"routePath":"/issues/:id/attachments"}
+[15:34:34] INFO: GET /attachments/d5b82964-5ab8-462c-8527-9df21944a38e/content 200
+[15:34:34] INFO: GET /attachments/9ad1f803-01a4-4339-8a77-0cd1aad63f06/content 200
+[15:34:34] INFO: GET /issues/c7930a6a-c312-4a19-b031-31b895560fe3/attachments 200
+[15:34:34] INFO: POST /companies/01ce31b9-0cda-47d8-a959-7e2b5a87ff0d/issues/c7930a6a-c312-4a19-b031-31b895560fe3/attachments 201
+[15:34:35] INFO: POST /issues/c7930a6a-c312-4a19-b031-31b895560fe3/work-products 201
+[15:34:35] INFO: GET /attachments/ef9256a5-a36c-4b0a-9a52-06f01e00291a/content 200
+[15:34:35] INFO: GET /attachments/345e429a-7d7c-4f54-bf22-a10171f094f5/content 200
+[15:34:35] INFO: plugin job scheduler stopped {"service":"plugin-job-scheduler","activeJobCount":0}
+[15:34:35] INFO: plugin job coordinator stopped {"service":"plugin-job-coordinator"}
+(node:23108) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:23108) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGTERM listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+
+ Test Files  10 passed (10)
+      Tests  352 passed (352)
+   Start at  15:32:22
+   Duration  158.75s (transform 29.75s, setup 290ms, import 53.91s, tests 124.35s, environment 1ms)
+

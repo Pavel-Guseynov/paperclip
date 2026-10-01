@@ -1,0 +1,97 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/issue-runless-agent-key-routes.test.ts (6 tests | 4 failed) 18323ms
+     × updates the title and blockers of its assigned issue 176ms
+     × edits its own in-progress issue only while no run holds it 37ms
+     × adds the inline comment of a runless update 34ms
+     × answers 409 while a checkout run holds its in-progress issue 28ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-runless-agent-key-routes.test.ts > issue updates from an agent API key without a heartbeat run > updates the title and blockers of its assigned issue
+AssertionError: {"error":"Cross-issue writes need a run to attribute them to (Heartbeat run context). Every agent comment and task update is attributed to a heartbeat run so the cross-issue cap can be counted and the audit trail can name who acted for whom. This request arrived without a valid run, so it could not be contained. Who can act: this agent, once the request carries its own run id. Try this: Send the `X-Paperclip-Run-Id` header with your current run (`$PAPERCLIP_RUN_ID`) and retry."}: expected 403 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 403
+
+ ❯ src/__tests__/issue-runless-agent-key-routes.test.ts:144:50
+    142|       .send({ title: "Edited by an external client", blockedByIssueIds…
+    143|
+    144|     expect(res.status, JSON.stringify(res.body)).toBe(200);
+       |                                                  ^
+    145|     expect((await readIssue(issue.id)).title).toBe("Edited by an exter…
+    146|     const relations = await db.select().from(issueRelations).where(eq(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-runless-agent-key-routes.test.ts > issue updates from an agent API key without a heartbeat run > edits its own in-progress issue only while no run holds it
+AssertionError: {"error":"Agent run id required"}: expected 401 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 401
+
+ ❯ src/__tests__/issue-runless-agent-key-routes.test.ts:163:52
+    161|     const held = await request(app).patch(`/api/issues/${issue.id}`).s…
+    162|
+    163|     expect(held.status, JSON.stringify(held.body)).toBe(409);
+       |                                                    ^
+    164|     expect((await readIssue(issue.id)).title).toBe("Assigned issue");
+    165|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-runless-agent-key-routes.test.ts > issue updates from an agent API key without a heartbeat run > adds the inline comment of a runless update
+AssertionError: {"error":"Cross-issue writes need a run to attribute them to (Heartbeat run context). Every agent comment and task update is attributed to a heartbeat run so the cross-issue cap can be counted and the audit trail can name who acted for whom. This request arrived without a valid run, so it could not be contained. Who can act: this agent, once the request carries its own run id. Try this: Send the `X-Paperclip-Run-Id` header with your current run (`$PAPERCLIP_RUN_ID`) and retry."}: expected 403 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 403
+
+ ❯ src/__tests__/issue-runless-agent-key-routes.test.ts:181:50
+    179|       .send({ title: "Edited with a note", comment: "Updated from an e…
+    180|
+    181|     expect(res.status, JSON.stringify(res.body)).toBe(200);
+       |                                                  ^
+    182|     const comments = await db.select().from(issueComments).where(eq(is…
+    183|     expect(comments).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-runless-agent-key-routes.test.ts > issue updates from an agent API key without a heartbeat run > answers 409 while a checkout run holds its in-progress issue
+AssertionError: {"error":"Agent run id required"}: expected 401 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 401
+
+ ❯ src/__tests__/issue-runless-agent-key-routes.test.ts:200:50
+    198|     const res = await request(app).patch(`/api/issues/${issue.id}`).se…
+    199|
+    200|     expect(res.status, JSON.stringify(res.body)).toBe(409);
+       |                                                  ^
+    201|     expect((await readIssue(issue.id)).title).toBe("Assigned issue");
+    202|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  16:02:26
+   Duration  21.16s (transform 11.58s, setup 96ms, import 2.57s, tests 18.32s, environment 0ms)
+

@@ -1,0 +1,619 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/adapter-cursor-cloud| src/server/execute.test.ts (13 tests | 1 failed) 41ms
+     × creates a fresh Cursor agent and injects Paperclip env without CURSOR_API_KEY 11ms
+ ❯ |@paperclipai/adapter-claude-local| src/server/execute.acp-fallback.test.ts (4 tests | 1 failed) 55ms
+     × also trusts a pinned internal callback origin when network access is allowlisted 18ms
+ ❯ |@paperclipai/adapter-codex-local| src/server/execute.runtime-callback.test.ts (5 tests | 5 failed) 99ms
+     × points managed MCP gateways at the internal runtime origin, never the public dashboard origin 37ms
+     × exports the internal runtime origin and the public dashboard origin as distinct child env vars 29ms
+     × trusts the internal runtime origin when network access is allowlisted 10ms
+     × keeps a PAPERCLIP_API_URL override when nothing is pinned, instead of a derived loopback origin 13ms
+     × resolves both origins from PAPERCLIP_RUNTIME_API_URL alone in a sanitized inherited environment 8ms
+ ❯ |paperclipai| src/__tests__/common.test.ts (10 tests | 1 failed) 21ms
+     × resolves api base by explicit, env, profile, then config/default precedence 7ms
+ ❯ |@paperclipai/adapter-utils| src/server-utils.test.ts (129 tests | 5 failed) 7518ms
+     × keeps the internal callback URL distinct from the public dashboard URL 12ms
+     × uses a PAPERCLIP_API_URL override as the internal callback URL when no runtime URL is set 1ms
+     × keeps an empty PAPERCLIP_API_URL as the public URL 1ms
+     × falls back to the derived runtime URL when no explicit override is set 1ms
+     × derives a listen-host URL when neither override is set 1ms
+ ❯ |@paperclipai/adapter-utils| src/execution-target-sandbox.test.ts (146 tests | 2 failed) 89126ms
+     × starts a localhost Paperclip bridge for sandbox targets in bridge mode 2303ms
+     × test_daytona_selects_http2_v1 107ms
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-runtime-mcp-servers.test.ts (5 tests | 1 failed) 5850ms
+     × provisions one aggregate gateway and omits unavailable access without blocking any runtime 314ms
+(node:13129) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:13129) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGTERM listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+ ❯ |@paperclipai/server| src/__tests__/server-startup-feedback-export.test.ts (23 tests | 2 failed) 81ms
+     × leads the runtime candidates with a pre-set PAPERCLIP_RUNTIME_API_URL 7ms
+     × keeps a PAPERCLIP_API_URL override as the runtime URL when a public base URL is configured and nothing is pinned 3ms
+[15:32:01] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_direct_tls_only","deploymentMode":"authenticated"}
+[15:32:01] INFO: plugin job coordinator started — listening to lifecycle events {"service":"plugin-job-coordinator"}
+[15:32:01] INFO: plugin job scheduler started {"service":"plugin-job-scheduler","tickIntervalMs":30000,"maxConcurrentJobs":10}
+[15:32:01] INFO: initializing plugin tool dispatcher {"service":"plugin-tool-dispatcher"}
+[15:32:01] INFO: plugin-dev-watcher: initialized {"service":"plugin-dev-watcher","resolvesInstalledPlugins":true}
+[15:32:01] INFO: plugin-loader: loading all ready plugins {"service":"plugin-loader"}
+[15:32:01] INFO: loaded tools from ready plugins {"service":"plugin-tool-dispatcher","readyPlugins":0,"registeredTools":0}
+[15:32:01] DEBUG: subscribed to lifecycle events {"service":"plugin-tool-dispatcher"}
+[15:32:01] INFO: plugin tool dispatcher initialized {"service":"plugin-tool-dispatcher","totalTools":0}
+[15:32:01] INFO: plugin-loader: no ready plugins to load {"service":"plugin-loader"}
+[15:32:02] INFO: GET /issues/cec28698-407e-4068-8b80-51c2d856076f/attachments 200
+[15:32:02] INFO: POST /companies/69ebc1be-fd61-4850-ada5-e28d58852655/issues/cec28698-407e-4068-8b80-51c2d856076f/attachments 201
+[15:32:03] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/work-products 201
+[15:32:03] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/comments 201
+[15:32:03] INFO: GET /issues/cec28698-407e-4068-8b80-51c2d856076f/attachments 200
+[15:32:03] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/work-products 201
+[15:32:04] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/comments 201
+[15:32:04] INFO: GET /attachments/15e96ef8-cebe-4ad5-bf40-7034f980d14e/content 200
+[15:32:04] INFO: GET /issues/cec28698-407e-4068-8b80-51c2d856076f/attachments 200
+[15:32:04] INFO: POST /companies/69ebc1be-fd61-4850-ada5-e28d58852655/issues/cec28698-407e-4068-8b80-51c2d856076f/attachments 201
+[15:32:05] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/work-products 201
+[15:32:05] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/comments 201
+[15:32:05] INFO: GET /issues/cec28698-407e-4068-8b80-51c2d856076f/attachments 200
+[15:32:05] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/work-products 201
+[15:32:06] INFO: POST /issues/cec28698-407e-4068-8b80-51c2d856076f/comments 201
+[15:32:06] INFO: GET /attachments/bb10b71e-714e-4846-ba4d-5f8f852c8ffe/content 200
+[15:32:06] WARN: GET /issues/83fc821e-eaf6-4d0b-b4fc-adffdbff243f/attachments 404 {"reqParams":{"id":"83fc821e-eaf6-4d0b-b4fc-adffdbff243f"},"routePath":"/issues/:id/attachments"}
+[15:32:08] INFO: GET /attachments/15e96ef8-cebe-4ad5-bf40-7034f980d14e/content 200
+[15:32:08] INFO: GET /attachments/bb10b71e-714e-4846-ba4d-5f8f852c8ffe/content 200
+[15:32:08] INFO: GET /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/attachments 200
+[15:32:08] INFO: POST /companies/d4a1bc29-bb55-42b1-bb07-382106d46e67/issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/attachments 201
+[15:32:08] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/work-products 201
+[15:32:08] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/comments 201
+[15:32:08] INFO: GET /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/attachments 200
+[15:32:09] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/work-products 201
+[15:32:09] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/comments 201
+[15:32:09] INFO: GET /attachments/d7ad9db7-a7b7-4447-8b88-d798cadf6784/content 200
+[15:32:09] INFO: GET /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/attachments 200
+[15:32:09] INFO: POST /companies/d4a1bc29-bb55-42b1-bb07-382106d46e67/issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/attachments 201
+[15:32:09] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/work-products 201
+[15:32:09] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/comments 201
+[15:32:09] INFO: GET /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/attachments 200
+[15:32:09] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/work-products 201
+[15:32:10] INFO: POST /issues/a581ff3b-7c5b-447c-bed9-00438b76d9e3/comments 201
+[15:32:10] INFO: GET /attachments/d9779ad2-a5f1-4e68-88be-5e2e18168604/content 200
+[15:32:10] WARN: GET /issues/1f5ca324-d19e-4466-9604-bc3e659e4a2e/attachments 404 {"reqParams":{"id":"1f5ca324-d19e-4466-9604-bc3e659e4a2e"},"routePath":"/issues/:id/attachments"}
+[15:32:10] INFO: GET /attachments/d7ad9db7-a7b7-4447-8b88-d798cadf6784/content 200
+[15:32:10] INFO: GET /attachments/d9779ad2-a5f1-4e68-88be-5e2e18168604/content 200
+[15:32:10] INFO: GET /attachments/f838e528-8f7a-47c2-a7ed-7ea30d412c2c/content 200
+[15:32:10] INFO: GET /attachments/1eb0e38d-fce8-4161-85c3-990853762ebf/content 200
+[15:32:10] INFO: plugin job scheduler stopped {"service":"plugin-job-scheduler","activeJobCount":0}
+[15:32:10] INFO: plugin job coordinator stopped {"service":"plugin-job-coordinator"}
+ ❯ |@paperclipai/server| src/__tests__/file-delivery-bridges.test.ts (4 tests | 1 failed) 13610ms
+     × uploads through PAPERCLIP_RUNTIME_API_URL when PAPERCLIP_API_URL is unreachable 131ms
+ ❯ |@paperclipai/server| src/__tests__/cloud-runtime-identity.test.ts (13 tests | 1 failed) 4615ms
+     × moves an unpinned runtime callback origin to the claimed origin 13ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 20 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/adapter-cursor-cloud| src/server/execute.test.ts > cursor_cloud execute > creates a fresh Cursor agent and injects Paperclip env without CURSOR_API_KEY
+AssertionError: expected { EXTRA_FLAG: '1', …(7) } to have property "PAPERCLIP_RUNTIME_API_URL"
+ ❯ src/server/execute.test.ts:241:59
+    239|     // authenticate its Paperclip API calls.
+    240|     expect(createMock.mock.calls[0]?.[0]?.cloud?.envVars).toHaveProper…
+    241|     expect(createMock.mock.calls[0]?.[0]?.cloud?.envVars).toHaveProper…
+       |                                                           ^
+    242|     expect(createMock.mock.calls[0]?.[0]?.cloud?.envVars).not.toHavePr…
+    243|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/execution-target-sandbox.test.ts > sandbox adapter execution targets > starts a localhost Paperclip bridge for sandbox targets in bridge mode
+AssertionError: expected undefined to be 'http://127.0.0.1:38507' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:38507"
+
++ Received:
+undefined
+
+ ❯ src/execution-target-sandbox.test.ts:2328:53
+    2326|       // actually dials it. The bridge owns that namespace, so it over…
+    2327|       // host-side origin the adapter exported with its own in-target …
+    2328|       expect(bridge?.env.PAPERCLIP_RUNTIME_API_URL).toBe(bridge?.env.P…
+       |                                                     ^
+    2329|
+    2330|       const response = await fetch(`${bridge!.env.PAPERCLIP_API_URL}/a…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/execution-target-sandbox.test.ts > sandbox adapter execution targets > test_daytona_selects_http2_v1
+AssertionError: expected undefined to be 'http://127.0.0.1:38445' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:38445"
+
++ Received:
+undefined
+
+ ❯ src/execution-target-sandbox.test.ts:3601:53
+    3599|       // Same in-sandbox origin for the internal runtime callback URL:…
+    3600|       // sandbox namespace cannot reach the host-side origin the adapt…
+    3601|       expect(bridge?.env.PAPERCLIP_RUNTIME_API_URL).toBe(bridge?.env.P…
+       |                                                     ^
+    3602|       expect(bridge?.env.PAPERCLIP_API_KEY).not.toBe("real-run-jwt");
+    3603|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > keeps the internal callback URL distinct from the public dashboard URL
+AssertionError: expected undefined to be 'http://127.0.0.1:3100' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3839:47
+    3837|         const env = buildPaperclipEnv({ id: "agent-1", companyId: "com…
+    3838|         expect(env.PAPERCLIP_API_URL).toBe("https://dashboard.example.…
+    3839|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:3…
+       |                                               ^
+    3840|       },
+    3841|     );
+ ❯ withEnv src/server-utils.test.ts:3800:7
+ ❯ src/server-utils.test.ts:3831:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > uses a PAPERCLIP_API_URL override as the internal callback URL when no runtime URL is set
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3853:47
+    3851|         const env = buildPaperclipEnv({ id: "agent-1", companyId: "com…
+    3852|         expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    3853|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:31…
+       |                                               ^
+    3854|       },
+    3855|     );
+ ❯ withEnv src/server-utils.test.ts:3800:7
+ ❯ src/server-utils.test.ts:3848:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > keeps an empty PAPERCLIP_API_URL as the public URL
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3865:47
+    3863|         const env = buildPaperclipEnv({ id: "agent-1", companyId: "com…
+    3864|         expect(env.PAPERCLIP_API_URL).toBe("");
+    3865|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:31…
+       |                                               ^
+    3866|       },
+    3867|     );
+ ❯ withEnv src/server-utils.test.ts:3800:7
+ ❯ src/server-utils.test.ts:3860:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > falls back to the derived runtime URL when no explicit override is set
+AssertionError: expected undefined to be 'http://203.0.113.7:3100' // Object.is equality
+
+- Expected:
+"http://203.0.113.7:3100"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3874:45
+    3872|       const env = buildPaperclipEnv({ id: "agent-1", companyId: "compa…
+    3873|       expect(env.PAPERCLIP_API_URL).toBe("http://203.0.113.7:3100");
+    3874|       expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://203.0.113.7:3…
+       |                                             ^
+    3875|     });
+    3876|   });
+ ❯ withEnv src/server-utils.test.ts:3800:7
+ ❯ src/server-utils.test.ts:3871:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/20]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/server-utils.test.ts > buildPaperclipEnv > derives a listen-host URL when neither override is set
+AssertionError: expected undefined to be 'http://localhost:3200' // Object.is equality
+
+- Expected:
+"http://localhost:3200"
+
++ Received:
+undefined
+
+ ❯ src/server-utils.test.ts:3887:47
+    3885|         });
+    3886|         expect(env.PAPERCLIP_API_URL).toBe("http://localhost:3200");
+    3887|         expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://localhost:3…
+       |                                               ^
+    3888|       },
+    3889|     );
+ ❯ withEnv src/server-utils.test.ts:3800:7
+ ❯ src/server-utils.test.ts:3879:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/20]⎯
+
+ FAIL  |@paperclipai/adapter-claude-local| src/server/execute.acp-fallback.test.ts > claude_local ACP startup fallback > also trusts a pinned internal callback origin when network access is allowlisted
+AssertionError: expected "vi.fn()" to be called with arguments: [ Array(5) ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   Any<String>,
++   "run-1",
+    null,
+-   Any<String>,
+-   Any<Array>,
+-   ObjectContaining {
+-     "localProcessSandbox": ObjectContaining {
++   "claude",
++   [
++     "--print",
++     "--output-format",
++     "stream-json",
++     "--verbose",
++     "--dangerously-skip-permissions",
++     "--model",
++     "claude-opus-5",
++     "--append-system-prompt-file",
++     "/home/pc/.paperclip/instances/default/companies/company-1/claude-prompt-cache/0faff6a81e5eada76819c4e50d599eec65280b30bcfa5585880cef320b024282/agent-instructions.md",
++     "--add-dir",
++     "/home/pc/.paperclip/instances/default/companies/company-1/claude-prompt-cache/0faff6a81e5eada76819c4e50d599eec65280b30bcfa5585880cef320b024282",
++   ],
++   {
++     "cwd": "/home/pc/wt/w1",
++     "env": {
++       "PAPERCLIP_AGENT_ID": "agent-1",
++       "PAPERCLIP_API_URL": "https://dashboard.example.test",
++       "PAPERCLIP_COMPANY_ID": "company-1",
++       "PAPERCLIP_RUN_ID": "run-1",
++     },
++     "graceSec": 20,
++     "localProcessSandbox": {
++       "command": "bwrap",
++       "extraPaths": [],
++       "filesystemScope": null,
++       "homeDir": null,
++       "managedPaths": [
++         {
++           "access": "rw",
++           "path": "/home/pc/.claude",
++         },
++         {
++           "access": "rw",
++           "path": "/home/pc/.claude.json",
++         },
++         {
++           "access": "ro",
++           "path": "/home/pc/.paperclip/instances/default/companies/company-1/claude-prompt-cache/0faff6a81e5eada76819c4e50d599eec65280b30bcfa5585880cef320b024282",
++         },
++         {
++           "access": "ro",
++           "path": "/home/pc/.paperclip/instances/default/companies/company-1/agents/agent-1/claude-runtime/runs/run-1/mcp",
++         },
++       ],
++       "networkAllowlist": [],
++       "networkScope": "allowlist",
+        "networkTrustedUrls": [
+          "https://dashboard.example.test",
+-         "http://127.0.0.1:4310",
+        ],
++       "workspaceDir": "/home/pc/wt/w1",
++     },
++     "onLog": [Function Mock],
++     "onProcessStopped": [Function anonymous],
++     "onRuntimeProgress": undefined,
++     "onSpawn": undefined,
++     "runLogTail": undefined,
++     "settleRunDisposition": undefined,
++     "stdin": "You are agent agent-1 (Claude Coder). Continue your Paperclip work.
++
++ Execution contract:
++ - Start actionable work in this heartbeat; do not stop at a plan unless the issue asks for planning.
++ - Leave durable progress in comments, documents, or work products, then update the issue to a clear final disposition before ending the heartbeat.
++ - Comments, documents, screenshots, work products, and `Remaining` bullets are evidence, not valid liveness paths by themselves.
++ - Final disposition checklist: mark `done` when complete; use `in_review` only with a real reviewer, approval, interaction, or monitor path; use `blocked` only with first-class blockers or a named unblock owner/action; create delegated follow-up issues with blockers when another agent owns the next step; keep `in_progress` only when a live continuation path exists.
++ - Prefer the smallest verification that proves the change; do not default to full workspace typecheck/build/test on every heartbeat unless the task scope warrants it.
++ - After 2 consecutive failures of the same control-plane write, stop retrying that write for the rest of the heartbeat. Continue useful work, report the failure in the final response, and rely on the adapter/runtime status channel as the sanctioned fallback.
++ - Use child issues for parallel or long delegated work instead of polling agents, sessions, or processes.
++ - If woken by a human comment on a dependency-blocked issue, respond or triage the comment without treating the blocked deliverable work as unblocked.
++ - Create child issues directly when you know what needs to be done; use issue-thread interactions when the board/user must choose suggested tasks, answer structured questions, or confirm a proposal.
++ - Use `PAPERCLIP_SCRATCH_DIR` / `PAPERCLIP_RUN_SCRATCH_DIR` for temporary scratch files instead of ad hoc `/tmp` paths; Paperclip removes that run-owned directory after the run ends.
++ - To ask for that input, create an interaction on the current issue with POST /api/issues/$PAPERCLIP_TASK_ID/interactions using kind suggest_tasks, ask_user_questions, or request_confirmation. Use continuationPolicy wake_assignee when you need to resume after a response (it wakes on acceptance and rejection alike; only expiry does not wake); use wake_assignee_on_accept when you want to resume only after acceptance.
++ - Never create probe or throwaway issue-thread interactions to discover the interactions API shape or your permissions; schema discovery goes through the OpenAPI spec and explicit validation errors, not placeholder cards. Every ask_user_questions, suggest_tasks, or request_confirmation you post must carry a real, answerable prompt; withdraw one you no longer need instead of leaving it pending.
++ - When you intentionally restart follow-up work on a completed assigned issue, include structured `resume: true` with the POST /api/issues/$PAPERCLIP_TASK_ID/comments or PATCH /api/issues/$PAPERCLIP_TASK_ID comment payload (substitute that issue's real id when it is not the current task). Generic agent comments on closed issues are inert by default.
++ - For plan approval, update the plan document first, then create request_confirmation targeting the latest plan revision with idempotencyKey confirmation:{issueId}:plan:{revisionId}. Wait for acceptance before creating implementation subtasks, and create a fresh confirmation after superseding board/user comments if approval is still needed.
++ - If blocked, mark the issue blocked and name the unblock owner and action.
++ - Respect budget, pause/cancel, approval gates, and company boundaries.
++ - When the server-authenticated wake payload includes an External chat response contract, that narrower contract replaces the generic Paperclip comment, status, checkout, and final-disposition steps above for that turn. Follow the external-chat contract exactly; it does not relax any permission, approval, execution-policy, containment, budget, pause/cancel, or company boundary.
++
++ Connection tools:
++ - When the user asks to connect a service, call `connections_search` before any service tool, even if already installed. Also search when a task needs a service and usable access is uncertain. Search by its name or capability and follow the returned `instruction`.
++ - Use the returned service identifiers and connection tools for setup. Respect recorded user choices; never invent access or ask for credentials in comments.
++ - When waiting for user action, finish independent work, then yield without retrying or polling. On continuation, follow the recorded outcome and use the installed connection.
++ - Do not use connection tools for arbitrary MCP URLs or unrelated work.",
++     "terminalResultCleanup": {
++       "graceMs": 5000,
++       "hasTerminalResult": [Function hasTerminalResult],
+      },
++     "timeoutSec": 0,
+    },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/server/execute.acp-fallback.test.ts:132:46
+    130|     await execute(ctx as never);
+    131|
+    132|     expect(runAdapterExecutionTargetProcess).toHaveBeenCalledWith(
+       |                                              ^
+    133|       expect.any(String),
+    134|       null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/20]⎯
+
+ FAIL  |@paperclipai/adapter-codex-local| src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > points managed MCP gateways at the internal runtime origin, never the public dashboard origin
+AssertionError: expected '# BEGIN PAPERCLIP MANAGED MCP\n# Writ…' to contain 'url = "http://127.0.0.1:3199/mcp/gate…'
+
+- Expected
++ Received
+
+- url = "http://127.0.0.1:3199/mcp/gateways/gw-1"
++ # BEGIN PAPERCLIP MANAGED MCP
++ # Written by Paperclip for governed MCP gateway access. Do not edit this block by hand.
++
++ [mcp_servers."paperclip-assigned"]
++ url = "https://dashboard.paperclip.example.test/mcp/gateways/gw-1"
++ http_headers = { Authorization = "Bearer pcgw_fixture" }
++ # END PAPERCLIP MANAGED MCP
++
+
+ ❯ src/server/execute.runtime-callback.test.ts:143:24
+    141|     const { configToml } = await runCli();
+    142|
+    143|     expect(configToml).toContain(`url = "${RUNTIME_ORIGIN}/mcp/gateway…
+       |                        ^
+    144|     expect(configToml).not.toContain(PUBLIC_DASHBOARD_ORIGIN);
+    145|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/20]⎯
+
+ FAIL  |@paperclipai/adapter-codex-local| src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > exports the internal runtime origin and the public dashboard origin as distinct child env vars
+AssertionError: expected undefined to be 'http://127.0.0.1:3199' // Object.is equality
+
+- Expected:
+"http://127.0.0.1:3199"
+
++ Received:
+undefined
+
+ ❯ src/server/execute.runtime-callback.test.ts:153:43
+    151|     const { env } = await runCli();
+    152|
+    153|     expect(env.PAPERCLIP_RUNTIME_API_URL).toBe(RUNTIME_ORIGIN);
+       |                                           ^
+    154|     expect(env.PAPERCLIP_API_URL).toBe(PUBLIC_DASHBOARD_ORIGIN);
+    155|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/20]⎯
+
+ FAIL  |@paperclipai/adapter-codex-local| src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > trusts the internal runtime origin when network access is allowlisted
+AssertionError: expected [ Array(1) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   "http://127.0.0.1:3199",
++ [
++   "https://dashboard.paperclip.example.test",
+  ]
+
+ ❯ src/server/execute.runtime-callback.test.ts:163:50
+    161|     await runCli({ networkScope: "allowlist" });
+    162|
+    163|     expect(launched.sandbox?.networkTrustedUrls).toEqual(expect.arrayC…
+       |                                                  ^
+    164|   });
+    165|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/20]⎯
+
+ FAIL  |@paperclipai/adapter-codex-local| src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > keeps a PAPERCLIP_API_URL override when nothing is pinned, instead of a derived loopback origin
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server/execute.runtime-callback.test.ts:177:43
+    175|     const { configToml, env } = await runCli();
+    176|
+    177|     expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+       |                                           ^
+    178|     expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    179|     expect(configToml).toContain('url = "http://10.0.0.5:3100/mcp/gate…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/20]⎯
+
+ FAIL  |@paperclipai/adapter-codex-local| src/server/execute.runtime-callback.test.ts > codex execute — internal runtime callback endpoint > resolves both origins from PAPERCLIP_RUNTIME_API_URL alone in a sanitized inherited environment
+AssertionError: expected undefined to be 'http://10.0.0.5:3100' // Object.is equality
+
+- Expected:
+"http://10.0.0.5:3100"
+
++ Received:
+undefined
+
+ ❯ src/server/execute.runtime-callback.test.ts:196:43
+    194|     const { configToml, env } = await runCli();
+    195|
+    196|     expect(env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+       |                                           ^
+    197|     expect(env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    198|     expect(configToml).toContain('url = "http://10.0.0.5:3100/mcp/gate…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/20]⎯
+
+ FAIL  |paperclipai| src/__tests__/common.test.ts > resolveCommandContext > resolves api base by explicit, env, profile, then config/default precedence
+AssertionError: expected 'http://env:3' to be 'http://runtime:4' // Object.is equality
+
+Expected: "http://runtime:4"
+Received: "http://env:3"
+
+ ❯ src/__tests__/common.test.ts:117:85
+    115|     process.env.PAPERCLIP_RUNTIME_API_URL = "http://runtime:4/";
+    116|     process.env.PAPERCLIP_API_URL = "http://env:3/";
+    117|     expect(resolveApiBase({ config: configPath }, { apiBase: "http://p…
+       |                                                                                     ^
+    118|
+    119|     delete process.env.PAPERCLIP_RUNTIME_API_URL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/20]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/cloud-runtime-identity.test.ts > Cloud runtime identity > moves an unpinned runtime callback origin to the claimed origin
+AssertionError: expected 'https://pool-123.staging.paperclip.app' to be 'https://gonzo.staging.paperclip.app' // Object.is equality
+
+Expected: "https://gonzo.staging.paperclip.app"
+Received: "https://pool-123.staging.paperclip.app"
+
+ ❯ src/__tests__/cloud-runtime-identity.test.ts:169:51
+    167|     await applyCloudRuntimeIdentityAssertion({ db, compactJws: asserti…
+    168|
+    169|     expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe(CANONICAL_ORIGI…
+       |                                                   ^
+    170|   });
+    171|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/20]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/file-delivery-bridges.test.ts > durable file delivery (local processes) > uploads through PAPERCLIP_RUNTIME_API_URL when PAPERCLIP_API_URL is unreachable
+AssertionError: curl: (7) Failed to connect to 127.0.0.1 port 9 after 0 ms: Couldn't connect to server
+Request failed (000): http://127.0.0.1:9/api/issues/c86a6df7-b1e9-4b38-8622-6ee5e38f896c/attachments
+
+: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ Object.run src/__tests__/file-delivery-bridges.test.ts:58:46
+     56|     const run = async (command: string, args: string[], env: Record<st…
+     57|       const result = await runner.execute({ command, args, env, timeou…
+     58|       expect(result.exitCode, result.stderr).toBe(0);
+       |                                              ^
+     59|       return result.stdout;
+     60|     };
+ ❯ src/__tests__/file-delivery-bridges.test.ts:159:32
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/20]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-runtime-mcp-servers.test.ts > heartbeat runtime MCP servers > provisions one aggregate gateway and omits unavailable access without blocking any runtime
+AssertionError: expected { name: 'paperclip-assigned', …(3) } to match object { name: 'paperclip-assigned', …(3) }
+
+- Expected
++ Received
+
+  {
+    "connectionId": "assignment:d43f2d9e1e93ec6aae2d61ac0254f6eb7b4b3e313a9bf404f155b29f73dbc916",
+    "name": "paperclip-assigned",
+    "token": "pcgw_bb855f5f-8fc8-4651-bfee-656ee23b7a09.fm4zlyXg9Tbg9CMWGwIA6J_mumYAPxLBY1l68OUT_r0",
+-   "url": StringMatching /^https:\/\/paperclip\.example\.test\/mcp\/gateways\/gw_[a-f0-9]{32}$/,
++   "url": "https://dashboard.example.test/mcp/gateways/gw_f9dd13c9475145bcbfb4d629598f3661",
+  }
+
+ ❯ src/__tests__/heartbeat-runtime-mcp-servers.test.ts:150:22
+    148|
+    149|     expect(first).toHaveLength(1);
+    150|     expect(first[0]).toMatchObject({
+       |                      ^
+    151|       name: "paperclip-assigned",
+    152|       connectionId: expect.stringMatching(/^assignment:[a-f0-9]{64}$/),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/20]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/server-startup-feedback-export.test.ts > startServer PAPERCLIP_API_URL handling > leads the runtime candidates with a pre-set PAPERCLIP_RUNTIME_API_URL
+AssertionError: expected 'http://127.0.0.1:3210' to be 'http://127.0.0.1:9999' // Object.is equality
+
+Expected: "http://127.0.0.1:9999"
+Received: "http://127.0.0.1:3210"
+
+ ❯ src/__tests__/server-startup-feedback-export.test.ts:850:51
+    848|
+    849|     // The pinned runtime URL is honored as the primary env var ...
+    850|     expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0…
+       |                                                   ^
+    851|     // ... and it leads the candidate list, so an agent that iterates …
+    852|     // candidates tries the pinned internal origin first ...
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/20]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/server-startup-feedback-export.test.ts > startServer PAPERCLIP_API_URL handling > keeps a PAPERCLIP_API_URL override as the runtime URL when a public base URL is configured and nothing is pinned
+AssertionError: expected 'https://pc.tailnet.test' to be 'http://10.0.0.5:3100' // Object.is equality
+
+Expected: "http://10.0.0.5:3100"
+Received: "https://pc.tailnet.test"
+
+ ❯ src/__tests__/server-startup-feedback-export.test.ts:873:51
+    871|     await startServer();
+    872|
+    873|     expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.…
+       |                                                   ^
+    874|     expect(process.env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    875|     // The public origin is still offered as a later candidate, never …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/20]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: write EPIPE
+ ❯ afterWriteDispatched node:internal/stream_base_commons:159:15
+ ❯ writeGeneric node:internal/stream_base_commons:150:3
+ ❯ Socket._writeGeneric node:net:1262:11
+ ❯ Socket._write node:net:1274:8
+ ❯ writeOrBuffer node:internal/streams/writable:574:12
+ ❯ _write node:internal/streams/writable:503:10
+ ❯ Socket.Writable.write node:internal/streams/writable:512:10
+ ❯ packages/adapter-utils/src/server-utils.ts:4903:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -32, code: 'EPIPE', syscall: 'write' }
+This error originated in "packages/adapter-utils/src/execution-target-sandbox.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "PTY replay: fails closed on a pre-READY noise flood". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  10 failed (10)
+      Tests  20 failed | 332 passed (352)
+     Errors  1 error
+   Start at  15:29:46
+   Duration  154.10s (transform 28.82s, setup 285ms, import 51.12s, tests 121.02s, environment 1ms)
+

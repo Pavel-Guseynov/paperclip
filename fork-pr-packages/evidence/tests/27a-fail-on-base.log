@@ -1,0 +1,67 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/heartbeat-run-status-transition-authority.test.ts (7 tests | 1 failed) 9158ms
+     × go only through transitionHeartbeatRunStatus 239ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-run-status-transition-authority.test.ts > heartbeat run status writes > go only through transitionHeartbeatRunStatus
+AssertionError: expected [ …(33) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "modules/active-run-watchdog/adapters/postgres.ts:311 sets status",
++   "modules/run-dispatch/adapters/postgres.ts:641 sets status",
++   "modules/run-dispatch/adapters/postgres.ts:677 sets status",
++   "modules/run-dispatch/adapters/postgres.ts:871 sets status",
++   "modules/wake-queue/adapters/queued-comment-postgres.ts:100 sets status",
++   "services/execution-control-reconciliation.ts:177 sets status",
++   "services/heartbeat.ts:12841 sets status",
++   "services/heartbeat.ts:12928 sets status",
++   "services/heartbeat.ts:17149 sets status",
++   "services/heartbeat.ts:17555 sets status",
++   "services/heartbeat.ts:17632 sets status",
++   "services/heartbeat.ts:17673 sets status",
++   "services/heartbeat.ts:17731 sets status",
++   "services/heartbeat.ts:17816 sets status",
++   "services/heartbeat.ts:17914 sets status",
++   "services/heartbeat.ts:27758 sets status",
++   "services/heartbeat.ts:27894 sets status",
++   "services/legacy-execution-recovery.ts:84 sets status",
++   "services/native-runtime/native-finalization-reconciler.ts:455 sets status",
++   "services/native-runtime/native-finalization-reconciler.ts:514 sets status",
++   "services/native-runtime/native-restart-recovery.ts:827 sets status",
++   "services/native-runtime/native-restart-recovery.ts:967 sets status",
++   "services/native-runtime/native-review-dispatch.ts:41 sets status",
++   "services/native-runtime/native-run-finalizer.ts:447 sets status inside a spread",
++   "services/native-runtime/native-run-finalizer.ts:647 sets status",
++   "services/native-runtime/native-run-finalizer.ts:1395 sets status inside a spread",
++   "services/native-runtime/native-session-executor.ts:7019 sets status",
++   "services/native-runtime/native-session-executor.ts:8922 sets status inside a spread",
++   "services/native-runtime/native-workspace-export-recovery.ts:91 sets status",
++   "services/native-runtime/native-workspace-export-retry.ts:137 sets status",
++   "services/native-runtime/status-decision-committer.ts:953 sets status",
++   "services/native-runtime/status-decision-committer.ts:1040 sets status",
++   "services/recovery/service.ts:5939 sets status",
++ ]
+
+ ❯ src/__tests__/heartbeat-run-status-transition-authority.test.ts:143:50
+    141| describe("heartbeat run status writes", () => {
+    142|   it("go only through transitionHeartbeatRunStatus", async () => {
+    143|     expect(await statusWritesOutsideAuthority()).toEqual([]);
+       |                                                  ^
+    144|   });
+    145| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  12:08:06
+   Duration  13.83s (transform 1.19s, setup 115ms, import 4.35s, tests 9.16s, environment 0ms)
+

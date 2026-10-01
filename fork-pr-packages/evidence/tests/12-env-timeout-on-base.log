@@ -1,0 +1,27 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/workspace-runtime.test.ts (162 tests | 1 failed | 161 skipped) 25033ms
+     × does not accept an occupied allocated port when listener ownership is unavailable 20267ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/workspace-runtime.test.ts > workspace runtime service control persistence > does not accept an occupied allocated port when listener ownership is unavailable
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/__tests__/workspace-runtime.test.ts:7373:3
+    7371|   }, 20_000);
+    7372|
+    7373|   it("does not accept an occupied allocated port when listener ownersh…
+       |   ^
+    7374|     const fixture = await createRuntimeFixture();
+    7375|     const cleanupRuntimeHome = await createRuntimeHome();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 161 skipped (162)
+   Start at  09:51:19
+   Duration  36.57s (transform 7.27s, setup 97ms, import 11.28s, tests 25.03s, environment 0ms)
+

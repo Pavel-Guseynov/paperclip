@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts (16 tests | 1 failed) 13136ms
+     × reconciles every in_review dependent of a cleared blocker even when one fails 85ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > reconciles every in_review dependent of a cleared blocker even when one fails
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:1114:26
+    1112|     // carries the receipt that records its consumed attempt.
+    1113|     const healthyWakes = wakes.filter((wake) => wake.agentId === healt…
+    1114|     expect(healthyWakes).toHaveLength(1);
+       |                          ^
+    1115|     expect(healthyWakes[0].status).toBe("queued");
+    1116|     expect(healthyWakes[0].idempotencyKey).toContain(`review-handoff:$…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)
+   Start at  09:38:00
+   Duration  32.74s (transform 13.39s, setup 134ms, import 19.30s, tests 13.14s, environment 0ms)
+

@@ -1,0 +1,100 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (84 tests | 5 failed) 27487ms
+     × preserves provider tool errors in MCP responses and failed invocation audits 242ms
+     × exposes a named gateway with scoped bearer-token auth and revocation 193ms
+     × rate limits public named gateway session setup, discovery, and calls with redacted audits 164ms
+     × uses virtual on-demand run_tool while applying target tool policy and audit metadata 192ms
+     × matches a tool_name profile entry against the catalog tool name on every surface 93ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > preserves provider tool errors in MCP responses and failed invocation audits
+Error: expected 200 "OK", got 403 "Forbidden"
+ ❯ src/__tests__/tool-gateway.test.ts:642:10
+    640|         .set("authorization", `Bearer ${token.token}`)
+    641|         .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {…
+    642|         .expect(200);
+       |          ^
+    643|       expect(response.body.result).toEqual({
+    644|         content: [{ type: "text", text: "Search denied: outside consen…
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > exposes a named gateway with scoped bearer-token auth and revocation
+AssertionError: expected [ 'paperclip_list_resources', …(3) ] to include 'mcp.named-gateway-app-b8ea8a84:read-n…'
+ ❯ src/__tests__/tool-gateway.test.ts:736:32
+    734|         .expect(200);
+    735|       const visibleToolNames = listed.body.result.tools.map((tool: { n…
+    736|       expect(visibleToolNames).toContain(gatewayToolName);
+       |                                ^
+    737|       expect(visibleToolNames).not.toContain("mcp-remote-fixture:updat…
+    738|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > rate limits public named gateway session setup, discovery, and calls with redacted audits
+Error: expected 200 "OK", got 403 "Forbidden"
+ ❯ src/__tests__/tool-gateway.test.ts:1320:10
+    1318|           params: { name: gatewayToolName, arguments: { key: "a", valu…
+    1319|         })
+    1320|         .expect(200);
+       |          ^
+    1321|       const callLimited = await request(app)
+    1322|         .post(endpoint)
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > uses virtual on-demand run_tool while applying target tool policy and audit metadata
+AssertionError: expected [] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   "search_tools",
+-   "run_tool",
+- ]
++ []
+
+ ❯ src/__tests__/tool-gateway.test.ts:2981:53
+    2979|       const session = await gateway.createSession({ companyId: company…
+    2980|       const visibleTools = await gateway.listToolsForSession(session.t…
+    2981|       expect(visibleTools.map((tool) => tool.name)).toEqual(expect.arr…
+       |                                                     ^
+    2982|       expect(visibleTools.map((tool) => tool.name)).not.toContain(targ…
+    2983|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > matches a tool_name profile entry against the catalog tool name on every surface
+AssertionError: expected [] to include 'mcp.catalog-identity-bd8435a5:echo'
+ ❯ src/__tests__/tool-gateway.test.ts:5755:46
+    5753|     });
+    5754|     const visible = await gateway.listToolsForSession(session.token);
+    5755|     expect(visible.map((tool) => tool.name)).toContain(gatewayToolName…
+       |                                              ^
+    5756|     const called = await gateway.executeTool({
+    5757|       sessionToken: session.token,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 79 passed (84)
+   Start at  10:02:10
+   Duration  45.05s (transform 12.39s, setup 109ms, import 17.27s, tests 27.49s, environment 0ms)
+

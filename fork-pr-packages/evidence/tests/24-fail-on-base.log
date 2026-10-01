@@ -1,0 +1,107 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-runtime-mcp-servers.test.ts (5 tests | 2 failed) 6807ms
+     × provisions one aggregate gateway and omits unavailable access without blocking any runtime 295ms
+     × injects only managed gateways whose profile connections are installed for the agent 116ms
+ ❯ |@paperclipai/server| src/__tests__/run-gateway-token-lifetime.test.ts (4 tests | 2 failed) 5329ms
+     × issues a heartbeat-run token without a time expiry 177ms
+     × keeps a heartbeat-run token valid while its run is running, also after an hour 99ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-runtime-mcp-servers.test.ts > heartbeat runtime MCP servers > provisions one aggregate gateway and omits unavailable access without blocking any runtime
+AssertionError: expected 2026-10-01T17:07:37.062Z to be null
+
+- Expected:
+null
+
++ Received:
+2026-10-01T17:07:37.062Z
+
+ ❯ src/__tests__/heartbeat-runtime-mcp-servers.test.ts:163:31
+    161|       expect(token.subjectId).toMatch(/^[0-9a-f-]{36}$/);
+    162|       // The run state, not a clock, ends a heartbeat-run token.
+    163|       expect(token.expiresAt).toBeNull();
+       |                               ^
+    164|     }
+    165|     expect(JSON.stringify(tokens)).not.toContain(first[0]!.token);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-runtime-mcp-servers.test.ts > heartbeat runtime MCP servers > injects only managed gateways whose profile connections are installed for the agent
+AssertionError: expected { …(22) } to match object { subjectType: 'heartbeat_run', …(1) }
+(20 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "expiresAt": null,
++   "expiresAt": 2026-10-01T17:07:38.817Z,
+    "subjectType": "heartbeat_run",
+  }
+
+ ❯ src/__tests__/heartbeat-runtime-mcp-servers.test.ts:577:26
+    575|       .from(toolMcpGatewayTokens)
+    576|       .where(eq(toolMcpGatewayTokens.gatewayId, gateways[0]!.id));
+    577|     expect(managedToken).toMatchObject({ subjectType: "heartbeat_run",…
+       |                          ^
+    578|   });
+    579| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/run-gateway-token-lifetime.test.ts > heartbeat-run gateway token lifetime > issues a heartbeat-run token without a time expiry
+AssertionError: expected { …(22) } to match object { subjectType: 'heartbeat_run', …(1) }
+(20 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "expiresAt": null,
++   "expiresAt": 2026-10-01T17:07:49.002Z,
+    "subjectType": "heartbeat_run",
+  }
+
+ ❯ src/__tests__/run-gateway-token-lifetime.test.ts:148:19
+    146|       .from(toolMcpGatewayTokens)
+    147|       .where(eq(toolMcpGatewayTokens.subjectId, seed.runId));
+    148|     expect(token).toMatchObject({ subjectType: "heartbeat_run", expire…
+       |                   ^
+    149|     expect(token!.ownerNote).toContain("Valid while the run is running…
+    150|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/run-gateway-token-lifetime.test.ts > heartbeat-run gateway token lifetime > keeps a heartbeat-run token valid while its run is running, also after an hour
+AssertionError: promise rejected "Error: Gateway bearer token is expired or… { …(3) }" instead of resolving
+ ❯ src/__tests__/run-gateway-token-lifetime.test.ts:158:30
+    156|     twoHoursLater();
+    157|
+    158|     await expect(listTools()).resolves.toEqual(expect.any(Array));
+       |                              ^
+    159|   });
+    160|
+
+Caused by: Error: Gateway bearer token is expired or invalid
+ ❯ recordNamedGatewayAuthFailure src/services/tool-gateway.ts:6811:11
+ ❯ namedGatewaySessionFromBearer src/services/tool-gateway.ts:6873:7
+ ❯ Object.listToolsForNamedGateway src/services/tool-gateway.ts:8700:23
+ ❯ src/__tests__/run-gateway-token-lifetime.test.ts:158:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { status: 401, reasonCode: 'gateway_token_expired', details: {} }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 5 passed (9)
+   Start at  16:07:15
+   Duration  34.69s (transform 12.32s, setup 205ms, import 22.03s, tests 12.14s, environment 0ms)
+

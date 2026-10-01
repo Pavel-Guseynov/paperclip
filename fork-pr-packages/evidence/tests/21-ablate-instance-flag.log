@@ -1,0 +1,32 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+[14:30:00] WARN: runtime connection tools could not be delivered {"companyId":"be79a84e-faba-4002-83ab-ab76dbb303d7","agentId":"c510bd96-3970-48f8-9d6b-ac152e9b5b9b","runId":"56463c76-53c2-494f-8688-1b3841b887d3"}
+[14:30:01] WARN: runtime connection tools could not be delivered {"companyId":"4825815b-55c2-467f-837b-95f52c478d1a","agentId":"8b32dd6e-8b90-45a4-9257-721afab5650e","runId":"e0729cfa-728a-4310-8c4c-5b4e773fc749"}
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts (6 tests | 1 failed) 7231ms
+     × keeps a run woken through any heartbeat service queued after shutdown began 537ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > queued run dispatch during graceful shutdown > keeps a run woken through any heartbeat service queued after shutdown began
+AssertionError: expected 'succeeded' to be 'queued' // Object.is equality
+
+Expected: "queued"
+Received: "succeeded"
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:168:37
+    166|     const sameInstanceRun = await wakeAndSettle(shuttingDown, await se…
+    167|
+    168|     expect(routeInstanceRun.status).toBe("queued");
+       |                                     ^
+    169|     expect(sameInstanceRun.status).toBe("queued");
+    170|     expect(execute).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  14:29:36
+   Duration  26.06s (transform 12.90s, setup 153ms, import 18.44s, tests 7.23s, environment 0ms)
+

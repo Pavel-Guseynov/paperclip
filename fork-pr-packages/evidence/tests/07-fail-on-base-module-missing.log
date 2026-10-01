@@ -1,0 +1,42 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts (0 test)
+ ❯ |@paperclipai/server| src/services/recovery/review-handoff-retry.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts [ server/src/__tests__/heartbeat-review-handoff-retry.test.ts ]
+Error: Cannot find module '/src/services/recovery/review-handoff-retry.js' imported from /home/pc/wt/w1/server/src/__tests__/heartbeat-review-handoff-retry.test.ts
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:73:1
+     71| import { getExecutionBlocker } from "../services/execution-blocker.js";
+     72| import { recoveryService } from "../services/recovery/service.js";
+     73| import {
+       | ^
+     74|   REVIEW_HANDOFF_COALESCED_REASON,
+     75|   REVIEW_HANDOFF_NO_RECEIPT_REASON,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |@paperclipai/server| src/services/recovery/review-handoff-retry.test.ts [ server/src/services/recovery/review-handoff-retry.test.ts ]
+Error: Cannot find module './review-handoff-retry.js' imported from /home/pc/wt/w1/server/src/services/recovery/review-handoff-retry.test.ts
+ ❯ src/services/recovery/review-handoff-retry.test.ts:3:1
+      1| import { randomUUID } from "node:crypto";
+      2| import { describe, expect, it } from "vitest";
+      3| import {
+       | ^
+      4|   DEFAULT_MAX_REVIEW_HANDOFF_ATTEMPTS,
+      5|   EXECUTION_APPROVAL_REQUESTED_REASON,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  no tests
+   Start at  15:51:06
+   Duration  16.87s (transform 12.38s, setup 162ms, import 0ms, tests 0ms, environment 0ms)
+

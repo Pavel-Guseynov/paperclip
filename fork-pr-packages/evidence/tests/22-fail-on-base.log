@@ -1,0 +1,70 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+[16:19:23] WARN: terminalized orphaned running heartbeat run in stale-lock sweep {"runId":"f5e4aefa-7fad-4d3d-986c-62ba94ed7737","authority":"process_gone","previousStatus":"running","terminalStatus":"interrupted","issueId":"804927b4-c72e-49fc-8245-f45ceb2657d5","processGroupId":null}
+[16:19:23] WARN: swept stale issue lock columns {"cleared":1,"issueIds":["804927b4-c72e-49fc-8245-f45ceb2657d5"],"terminalizedRunIds":["f5e4aefa-7fad-4d3d-986c-62ba94ed7737"]}
+ ❯ |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts (3 tests | 3 failed) 4990ms
+     × releases the lease of a run cancelled by the control plane 139ms
+     × releases the lease of a run cancelled because its agent paused 41ms
+     × releases the lease of a run the stale-lock sweep interrupts after its process died 36ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > leases of runs that end without an executor > releases the lease of a run cancelled by the control plane
+AssertionError: expected 'active' to be 'expired' // Object.is equality
+
+Expected: "expired"
+Received: "active"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:115:26
+    113|     expect(cancelled?.status).toBe("cancelled");
+    114|     const lease = await readLease(leaseId);
+    115|     expect(lease.status).toBe("expired");
+       |                          ^
+    116|     expect(lease.releasedAt).toBeInstanceOf(Date);
+    117|     expect(await getConversationOwnershipBlocker(db, companyId, issueI…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > leases of runs that end without an executor > releases the lease of a run cancelled because its agent paused
+AssertionError: expected 'active' to be 'expired' // Object.is equality
+
+Expected: "expired"
+Received: "active"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:127:47
+    125|     const [run] = await db.select().from(heartbeatRuns).where(eq(heart…
+    126|     expect(run!.status).toBe("cancelled");
+    127|     expect((await readLease(leaseId)).status).toBe("expired");
+       |                                               ^
+    128|     expect(await getConversationOwnershipBlocker(db, companyId, issueI…
+    129|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > leases of runs that end without an executor > releases the lease of a run the stale-lock sweep interrupts after its process died
+AssertionError: expected 'active' to be 'released' // Object.is equality
+
+Expected: "released"
+Received: "active"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:139:47
+    137|     const [run] = await db.select().from(heartbeatRuns).where(eq(heart…
+    138|     expect(run!.status).toBe("interrupted");
+    139|     expect((await readLease(leaseId)).status).toBe("released");
+       |                                               ^
+    140|     expect(await getConversationOwnershipBlocker(db, companyId, issueI…
+    141|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  16:19:01
+   Duration  21.97s (transform 11.79s, setup 103ms, import 16.72s, tests 4.99s, environment 0ms)
+

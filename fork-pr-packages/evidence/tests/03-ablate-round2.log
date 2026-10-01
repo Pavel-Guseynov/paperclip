@@ -1,0 +1,159 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/adapter-claude-local| src/server/execute.acp-fallback.test.ts (4 tests | 1 failed) 47ms
+     × also trusts a pinned internal callback origin when network access is allowlisted 16ms
+ ❯ |@paperclipai/server| src/__tests__/cloud-runtime-identity.test.ts (13 tests | 1 failed) 4382ms
+     × moves an unpinned runtime callback origin to the claimed origin 15ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/adapter-claude-local| src/server/execute.acp-fallback.test.ts > claude_local ACP startup fallback > also trusts a pinned internal callback origin when network access is allowlisted
+AssertionError: expected "vi.fn()" to be called with arguments: [ Array(5) ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   Any<String>,
++   "run-1",
+    null,
+-   Any<String>,
+-   Any<Array>,
+-   ObjectContaining {
+-     "localProcessSandbox": ObjectContaining {
++   "claude",
++   [
++     "--print",
++     "--output-format",
++     "stream-json",
++     "--verbose",
++     "--dangerously-skip-permissions",
++     "--model",
++     "claude-opus-5",
++     "--append-system-prompt-file",
++     "/home/pc/.paperclip/instances/default/companies/company-1/claude-prompt-cache/bee22cf7c833ed3b9a89b65c7d8ebe85683b91a28d99bc552108377c481a0be5/agent-instructions.md",
++     "--add-dir",
++     "/home/pc/.paperclip/instances/default/companies/company-1/claude-prompt-cache/bee22cf7c833ed3b9a89b65c7d8ebe85683b91a28d99bc552108377c481a0be5",
++   ],
++   {
++     "cwd": "/home/pc/wt/w1",
++     "env": {
++       "PAPERCLIP_AGENT_ID": "agent-1",
++       "PAPERCLIP_API_URL": "https://dashboard.example.test",
++       "PAPERCLIP_COMPANY_ID": "company-1",
++       "PAPERCLIP_RUNTIME_API_URL": "http://127.0.0.1:4310",
++       "PAPERCLIP_RUN_ID": "run-1",
++     },
++     "graceSec": 20,
++     "localProcessSandbox": {
++       "command": "bwrap",
++       "extraPaths": [],
++       "filesystemScope": null,
++       "homeDir": null,
++       "managedPaths": [
++         {
++           "access": "rw",
++           "path": "/home/pc/.claude",
++         },
++         {
++           "access": "rw",
++           "path": "/home/pc/.claude.json",
++         },
++         {
++           "access": "ro",
++           "path": "/home/pc/.paperclip/instances/default/companies/company-1/claude-prompt-cache/bee22cf7c833ed3b9a89b65c7d8ebe85683b91a28d99bc552108377c481a0be5",
++         },
++         {
++           "access": "ro",
++           "path": "/home/pc/.paperclip/instances/default/companies/company-1/agents/agent-1/claude-runtime/runs/run-1/mcp",
++         },
++       ],
++       "networkAllowlist": [],
++       "networkScope": "allowlist",
+        "networkTrustedUrls": [
+          "https://dashboard.example.test",
+-         "http://127.0.0.1:4310",
+        ],
++       "workspaceDir": "/home/pc/wt/w1",
++     },
++     "onLog": [Function Mock],
++     "onProcessStopped": [Function anonymous],
++     "onRuntimeProgress": undefined,
++     "onSpawn": undefined,
++     "runLogTail": undefined,
++     "settleRunDisposition": undefined,
++     "stdin": "You are agent agent-1 (Claude Coder). Continue your Paperclip work.
++
++ Execution contract:
++ - Start actionable work in this heartbeat; do not stop at a plan unless the issue asks for planning.
++ - Leave durable progress in comments, documents, or work products, then update the issue to a clear final disposition before ending the heartbeat.
++ - Comments, documents, screenshots, work products, and `Remaining` bullets are evidence, not valid liveness paths by themselves.
++ - Final disposition checklist: mark `done` when complete; use `in_review` only with a real reviewer, approval, interaction, or monitor path; use `blocked` only with first-class blockers or a named unblock owner/action; create delegated follow-up issues with blockers when another agent owns the next step; keep `in_progress` only when a live continuation path exists.
++ - Prefer the smallest verification that proves the change; do not default to full workspace typecheck/build/test on every heartbeat unless the task scope warrants it.
++ - After 2 consecutive failures of the same control-plane write, stop retrying that write for the rest of the heartbeat. Continue useful work, report the failure in the final response, and rely on the adapter/runtime status channel as the sanctioned fallback.
++ - Use child issues for parallel or long delegated work instead of polling agents, sessions, or processes.
++ - If woken by a human comment on a dependency-blocked issue, respond or triage the comment without treating the blocked deliverable work as unblocked.
++ - Create child issues directly when you know what needs to be done; use issue-thread interactions when the board/user must choose suggested tasks, answer structured questions, or confirm a proposal.
++ - Use `PAPERCLIP_SCRATCH_DIR` / `PAPERCLIP_RUN_SCRATCH_DIR` for temporary scratch files instead of ad hoc `/tmp` paths; Paperclip removes that run-owned directory after the run ends.
++ - To ask for that input, create an interaction on the current issue with POST /api/issues/$PAPERCLIP_TASK_ID/interactions using kind suggest_tasks, ask_user_questions, or request_confirmation. Use continuationPolicy wake_assignee when you need to resume after a response (it wakes on acceptance and rejection alike; only expiry does not wake); use wake_assignee_on_accept when you want to resume only after acceptance.
++ - Never create probe or throwaway issue-thread interactions to discover the interactions API shape or your permissions; schema discovery goes through the OpenAPI spec and explicit validation errors, not placeholder cards. Every ask_user_questions, suggest_tasks, or request_confirmation you post must carry a real, answerable prompt; withdraw one you no longer need instead of leaving it pending.
++ - When you intentionally restart follow-up work on a completed assigned issue, include structured `resume: true` with the POST /api/issues/$PAPERCLIP_TASK_ID/comments or PATCH /api/issues/$PAPERCLIP_TASK_ID comment payload (substitute that issue's real id when it is not the current task). Generic agent comments on closed issues are inert by default.
++ - For plan approval, update the plan document first, then create request_confirmation targeting the latest plan revision with idempotencyKey confirmation:{issueId}:plan:{revisionId}. Wait for acceptance before creating implementation subtasks, and create a fresh confirmation after superseding board/user comments if approval is still needed.
++ - If blocked, mark the issue blocked and name the unblock owner and action.
++ - Respect budget, pause/cancel, approval gates, and company boundaries.
++ - When the server-authenticated wake payload includes an External chat response contract, that narrower contract replaces the generic Paperclip comment, status, checkout, and final-disposition steps above for that turn. Follow the external-chat contract exactly; it does not relax any permission, approval, execution-policy, containment, budget, pause/cancel, or company boundary.
++
++ Connection tools:
++ - When the user asks to connect a service, call `connections_search` before any service tool, even if already installed. Also search when a task needs a service and usable access is uncertain. Search by its name or capability and follow the returned `instruction`.
++ - Use the returned service identifiers and connection tools for setup. Respect recorded user choices; never invent access or ask for credentials in comments.
++ - When waiting for user action, finish independent work, then yield without retrying or polling. On continuation, follow the recorded outcome and use the installed connection.
++ - Do not use connection tools for arbitrary MCP URLs or unrelated work.",
++     "terminalResultCleanup": {
++       "graceMs": 5000,
++       "hasTerminalResult": [Function hasTerminalResult],
+      },
++     "timeoutSec": 0,
+    },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/server/execute.acp-fallback.test.ts:132:46
+    130|     await execute(ctx as never);
+    131|
+    132|     expect(runAdapterExecutionTargetProcess).toHaveBeenCalledWith(
+       |                                              ^
+    133|       expect.any(String),
+    134|       null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/cloud-runtime-identity.test.ts > Cloud runtime identity > moves an unpinned runtime callback origin to the claimed origin
+AssertionError: expected 'https://pool-123.staging.paperclip.app' to be 'https://gonzo.staging.paperclip.app' // Object.is equality
+
+Expected: "https://gonzo.staging.paperclip.app"
+Received: "https://pool-123.staging.paperclip.app"
+
+ ❯ src/__tests__/cloud-runtime-identity.test.ts:169:51
+    167|     await applyCloudRuntimeIdentityAssertion({ db, compactJws: asserti…
+    168|
+    169|     expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe(CANONICAL_ORIGI…
+       |                                                   ^
+    170|   });
+    171|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 15 passed (17)
+   Start at  15:35:09
+   Duration  22.16s (transform 11.89s, setup 76ms, import 17.36s, tests 4.43s, environment 0ms)
+

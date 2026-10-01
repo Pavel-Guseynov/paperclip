@@ -1,0 +1,51 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts (21 tests | 2 failed | 1 skipped) 11512ms
+     × registers deliverables that lsof reports escaped, whatever locale the server runs under 36ms
+     × fails closed when lsof reports an escape run that is not valid UTF-8 27ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/native-runtime/native-runner-file-handoff.test.ts > native runner file handoff > registers deliverables that lsof reports escaped, whatever locale the server runs under
+Error: ENOENT: no such file or directory, realpath '/tmp/paperclip-native-file-handoff-Tvaxe7/workspace/lsof/\xe7\x8c\xab picture.txt'
+ ❯ readVerifiedWorkspaceFile src/services/native-runtime/native-runner-file-handoff.ts:377:28
+    375|       throw new Error("paperclip_runner_file_handoff_file_changed");
+    376|     }
+    377|     const descriptorPath = await openedFilePath(handle.fd);
+       |                            ^
+    378|     if (!isWithin(workspaceRoot, descriptorPath)) {
+    379|       throw new Error("paperclip_runner_file_handoff_path_denied");
+ ❯ prepareNativeRunnerFileHandoff src/services/native-runtime/native-runner-file-handoff.ts:1139:20
+ ❯ result.#withMutationReceipt.onDefinitePreCommitFailure.rollback src/services/native-runtime/paperclip-runner-tool-authority.ts:1310:26
+ ❯ src/services/native-runtime/paperclip-runner-tool-authority.ts:1724:28
+ ❯ scope ../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:279:18
+ ❯ sql.begin ../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:257:14
+ ❯ PaperclipRunnerToolAuthority.#registerDeliverable src/services/native-runtime/paperclip-runner-tool-authority.ts:1305:20
+ ❯ asDarwin src/services/native-runtime/native-runner-file-handoff.test.ts:93:12
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts:1381:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/services/native-runtime/native-runner-file-handoff.test.ts > native runner file handoff > fails closed when lsof reports an escape run that is not valid UTF-8
+AssertionError: expected [Function] to throw error including 'paperclip_runner_file_handoff_descrip…' but got 'ENOENT: no such file or directory, re…'
+
+Expected: "paperclip_runner_file_handoff_descriptor_unverifiable"
+Received: "ENOENT: no such file or directory, realpath '/tmp/paperclip-native-file-handoff-Tvaxe7/workspace/lsof/caf\xc3.txt'"
+
+ ❯ src/services/native-runtime/native-runner-file-handoff.test.ts:1413:8
+    1411|       await expect(
+    1412|         asDarwin(() => authority().execute(callFor("lsof/café.txt", bo…
+    1413|       ).rejects.toThrow("paperclip_runner_file_handoff_descriptor_unve…
+       |        ^
+    1414|     } finally {
+    1415|       lsof.nameField = null;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 18 passed | 1 skipped (21)
+   Start at  13:42:44
+   Duration  25.00s (transform 9.62s, setup 117ms, import 13.19s, tests 11.51s, environment 0ms)
+

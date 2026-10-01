@@ -1,0 +1,175 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts (12 tests | 9 failed) 7452ms
+     × keeps an abandoned call's connection in the catalog and records the ambiguous outcome 492ms
+     × restores ok health when a later exchange succeeds 289ms
+     × fails closed and withdraws the catalog when the transport never answers 246ms
+     × fails closed and withdraws the catalog on every protocol failure 223ms
+       × keeps a newer successful health check 211ms
+       × keeps a newer healthy health check 226ms
+       × keeps a newer state written without an observation time 193ms
+       × records the timeout over an older state that has no observation time 237ms
+       × does not return a newly failed connection to the catalog 304ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > keeps an abandoned call's connection in the catalog and records the ambiguous outcome
+AssertionError: expected undefined to be 'invocation_timeout' // Object.is equality
+
+- Expected:
+"invocation_timeout"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:264:46
+    262|     expect(gatewayError.status).toBe(504);
+    263|     expect(gatewayError.reasonCode).toBe("tool_timeout");
+    264|     expect(gatewayError.details.failureKind).toBe("invocation_timeout"…
+       |                                              ^
+    265|     expect(gatewayError.details.execution).toMatchObject({ failureKind…
+    266|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > restores ok health when a later exchange succeeds
+AssertionError: expected 'error' to be 'degraded' // Object.is equality
+
+Expected: "degraded"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:330:63
+    328|       gateway.executeTool({ sessionToken: session.token, tool: targetT…
+    329|     ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" …
+    330|     expect((await connectionRow(connection.id)).healthStatus).toBe("de…
+       |                                                               ^
+    331|
+    332|     answer = true;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > fails closed and withdraws the catalog when the transport never answers
+AssertionError: expected undefined to be 'transport_failure' // Object.is equality
+
+- Expected:
+"transport_failure"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:378:46
+    376|     expect(gatewayError.status).toBe(502);
+    377|     expect(gatewayError.reasonCode).toBe("mcp_remote_fetch_failed");
+    378|     expect(gatewayError.details.failureKind).toBe("transport_failure");
+       |                                              ^
+    379|
+    380|     expect((await connectionRow(connection.id)).healthStatus).toBe("er…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > fails closed and withdraws the catalog on every protocol failure
+AssertionError: HTTP error status: expected undefined to be 'protocol_failure' // Object.is equality
+
+- Expected:
+"protocol_failure"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:459:56
+    457|       expect(error.status, testCase.name).toBe(502);
+    458|       expect(error.reasonCode, testCase.name).toBe(testCase.reasonCode…
+    459|       expect(error.details.failureKind, testCase.name).toBe("protocol_…
+       |                                                        ^
+    460|       expect(error.details.execution, testCase.name).toMatchObject({ f…
+    461|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a newer successful health check
+AssertionError: expected 'error' to be 'ok' // Object.is equality
+
+Expected: "ok"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:612:35
+    610|       });
+    611|       const stored = await connectionRow(connection.id);
+    612|       expect(stored.healthStatus).toBe("ok");
+       |                                   ^
+    613|       expect(stored.healthMessage).toBe("Tool catalog refreshed concur…
+    614|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a newer healthy health check
+AssertionError: expected 'error' to be 'healthy' // Object.is equality
+
+Expected: "healthy"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:622:35
+    620|       });
+    621|       const stored = await connectionRow(connection.id);
+    622|       expect(stored.healthStatus).toBe("healthy");
+       |                                   ^
+    623|       expect(stored.healthMessage).toBe("Connection probe succeeded.");
+    624|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a newer state written without an observation time
+AssertionError: expected 'Remote MCP tool call timed out.' to be 'OAuth authorization expired. Reconnec…' // Object.is equality
+
+Expected: "OAuth authorization expired. Reconnect this app to continue."
+Received: "Remote MCP tool call timed out."
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:636:36
+    634|       const stored = await connectionRow(connection.id);
+    635|       expect(stored.healthStatus).toBe("error");
+    636|       expect(stored.healthMessage).toBe("OAuth authorization expired. …
+       |                                    ^
+    637|     });
+    638|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > records the timeout over an older state that has no observation time
+AssertionError: expected 'error' to be 'degraded' // Object.is equality
+
+Expected: "degraded"
+Received: "error"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:665:35
+    663|
+    664|       const stored = await connectionRow(connection.id);
+    665|       expect(stored.healthStatus).toBe("degraded");
+       |                                   ^
+    666|       expect(stored.healthMessage).toBe("Remote MCP tool call timed ou…
+    667|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/9]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > does not return a newly failed connection to the catalog
+AssertionError: expected 'Remote MCP tool call timed out.' to be 'Connection probe failed.' // Object.is equality
+
+Expected: "Connection probe failed."
+Received: "Remote MCP tool call timed out."
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:676:36
+    674|       const stored = await connectionRow(connection.id);
+    675|       expect(stored.healthStatus).toBe("error");
+    676|       expect(stored.healthMessage).toBe("Connection probe failed.");
+       |                                    ^
+    677|       const remaining = await gateway.listToolsForSession(session.toke…
+    678|       expect(remaining.some((tool) => tool.name === targetTool.name)).…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 3 passed (12)
+   Start at  15:17:23
+   Duration  18.56s (transform 7.17s, setup 104ms, import 10.85s, tests 7.45s, environment 0ms)
+

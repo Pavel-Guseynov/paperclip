@@ -1,0 +1,36 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/heartbeat-run-status-transition-authority.test.ts (7 tests | 1 failed | 6 skipped) 331ms
+     × go only through transitionHeartbeatRunStatus 329ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-run-status-transition-authority.test.ts > heartbeat run status writes > go only through transitionHeartbeatRunStatus
+AssertionError: expected [ …(2) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "services/native-runtime/native-session-executor.ts:7019 sets status",
++   "services/native-runtime/native-session-executor.ts:8922 sets status inside a spread",
++ ]
+
+ ❯ src/__tests__/heartbeat-run-status-transition-authority.test.ts:143:50
+    141| describe("heartbeat run status writes", () => {
+    142|   it("go only through transitionHeartbeatRunStatus", async () => {
+    143|     expect(await statusWritesOutsideAuthority()).toEqual([]);
+       |                                                  ^
+    144|   });
+    145| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  12:07:51
+   Duration  6.15s (transform 1.36s, setup 126ms, import 5.51s, tests 331ms, environment 0ms)
+

@@ -1,0 +1,35 @@
+PASS @paperclipai/server src/__tests__/chat-channels.integration.test.ts
+FAIL @paperclipai/server src/__tests__/railway-ssh.test.ts
+    FAIL  |@paperclipai/server| src/__tests__/railway-ssh.test.ts > Railway isolated container command runner > generates a fresh real key without retaining files
+PASS @paperclipai/server src/services/workspace-git-snapshot-streaming.test.ts
+FAIL @paperclipai/server src/__tests__/workspace-runtime.test.ts
+    FAIL  |@paperclipai/server| src/__tests__/workspace-runtime.test.ts > workspace runtime service control persistence > does not accept an occupied allocated port when listener ownership is unavailable
+FAIL @paperclipai/server src/__tests__/railway-connection.test.ts
+    FAIL  |@paperclipai/server| src/__tests__/railway-connection.test.ts > Railway connection lifecycle and gateway > preserves the dedicated SSH grant key on reconnect and removes it while disconnected
+FAIL @paperclipai/server src/__tests__/agent-live-run-routes.test.ts
+    FAIL  |@paperclipai/server| src/__tests__/agent-live-run-routes.test.ts > agent live run routes > heartbeat run ID validation > rejects malformed run ID "undefined" before any run lookup
+PASS @paperclipai/server src/__tests__/document-annotation-routes.test.ts
+PASS @paperclipai/server src/__tests__/invite-rate-limit-route.test.ts
+PASS @paperclipai/server src/__tests__/invite-test-resolution-route.test.ts
+PASS @paperclipai/server src/__tests__/issue-activity-events-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-attachment-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-comment-reopen-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-execution-policy-routes.test.ts
+PASS @paperclipai/server src/__tests__/routines-e2e.test.ts
+PASS paperclipai src/__tests__/company-import-export-e2e.test.ts
+PASS paperclipai src/__tests__/company-import-transfer.test.ts
+PASS @paperclipai/server src/__tests__/adapter-auth-signal-routes.test.ts
+PASS @paperclipai/server src/__tests__/agent-adapter-validation-routes.test.ts
+PASS @paperclipai/server src/__tests__/agent-cross-tenant-authz-routes.test.ts
+PASS @paperclipai/server src/__tests__/agent-instructions-routes.test.ts
+PASS @paperclipai/server src/__tests__/artifact-review-document-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-document-restore-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-feedback-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-update-comment-wakeup-routes.test.ts
+PASS @paperclipai/server src/__tests__/issue-workspace-command-authz.test.ts
+PASS @paperclipai/adapter-utils src/execution-target-stdin-race.test.ts
+PASS @paperclipai/adapter-utils src/github-launcher.test.ts
+FAIL @paperclipai/adapter-utils src/acpx-engine/execute.test.ts
+    FAIL  |@paperclipai/adapter-utils| src/acpx-engine/execute.test.ts > ACPX engine remote session-lifecycle re-staging (PR 3: stage once / reuse on compatible resume) > test_idle_staged_runtime_cleanup_waits_for_active_turn_release
+    FAIL  |@paperclipai/adapter-utils| src/acpx-engine/execute.test.ts > ACPX engine run lifecycle corrections (F1: settle every failure after buildRuntime) > test_sandbox_startup_span_ends_exactly_once_on_every_exit_path
+PASS @paperclipai/adapter-codex-local src/server/output-inactivity-monitor.integration.test.ts

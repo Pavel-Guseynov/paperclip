@@ -1,0 +1,50 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts (12 tests | 2 failed) 9357ms
+     × keeps hiding a connection degraded for another reason than a timeout 250ms
+       × keeps a newer state written without an observation time 180ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > keeps hiding a connection degraded for another reason than a timeout
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:308:75
+    306|     const session = await gateway.createSession({ companyId: company.i…
+    307|     const tools = await gateway.listToolsForSession(session.token);
+    308|     expect(tools.some((tool) => tool.providerType === "mcp_remote_http…
+       |                                                                           ^
+    309|   });
+    310|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/remote-mcp-timeout-health.test.ts > remote MCP timeout and health resilience > a stale timeout never overwrites a newer settled health state > keeps a newer state written without an observation time
+AssertionError: expected 'degraded' to be 'error' // Object.is equality
+
+Expected: "error"
+Received: "degraded"
+
+ ❯ src/__tests__/remote-mcp-timeout-health.test.ts:635:35
+    633|       });
+    634|       const stored = await connectionRow(connection.id);
+    635|       expect(stored.healthStatus).toBe("error");
+       |                                   ^
+    636|       expect(stored.healthMessage).toBe("OAuth authorization expired. …
+    637|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 passed (12)
+   Start at  15:17:43
+   Duration  20.42s (transform 6.89s, setup 96ms, import 10.82s, tests 9.36s, environment 0ms)
+

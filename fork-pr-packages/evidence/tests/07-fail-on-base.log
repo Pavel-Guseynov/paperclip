@@ -1,0 +1,157 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts (18 tests | 7 failed) 7906ms
+     × starts or schedules exactly one handoff after a stale dependency blocker clears 300ms
+     × continues the durable retry ledger on a restarted instance 106ms
+     × escalates to board with one actionable blocker upon exhausting the review handoff budget 90ms
+     × retries the handoff once the previous run releases its environment lease 93ms
+     × reconciles the owed handoff before the recovery-action resolve response returns 149ms
+     × contains one issue's handoff failure and finishes the stranded sweep 111ms
+     × reconciles every in_review dependent of a cleared blocker even when one fails 56ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > starts or schedules exactly one handoff after a stale dependency blocker clears
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:272:46
+    270|     // Reconcile: stale blocker cleared, handoff scheduled atomically
+    271|     const result = await heartbeat.reconcileStrandedAssignedIssues();
+    272|     expect(result.reviewParticipantRequeued).toBe(1);
+       |                                              ^
+    273|     expect(result.issueIds).toContain(issueId);
+    274|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > continues the durable retry ledger on a restarted instance
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:494:47
+    492|
+    493|     const resumed = await restarted.reconcileStrandedAssignedIssues();
+    494|     expect(resumed.reviewParticipantRequeued).toBe(1);
+       |                                               ^
+    495|     expect(resumed.issueIds).toContain(issueId);
+    496|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > escalates to board with one actionable blocker upon exhausting the review handoff budget
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:550:30
+    548|
+    549|     const result = await heartbeat.reconcileStrandedAssignedIssues();
+    550|     expect(result.escalated).toBe(1);
+       |                              ^
+    551|     expect(result.issueIds).toContain(issueId);
+    552|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > retries the handoff once the previous run releases its environment lease
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:702:48
+    700|
+    701|     const released = await heartbeat.reconcileStrandedAssignedIssues();
+    702|     expect(released.reviewParticipantRequeued).toBe(1);
+       |                                                ^
+    703|     const wakes = await db
+    704|       .select()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > reconciles the owed handoff before the recovery-action resolve response returns
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:772:19
+    770|         ),
+    771|       );
+    772|     expect(wakes).toHaveLength(1);
+       |                   ^
+    773|     expect(wakes[0].idempotencyKey).toBe(
+    774|       buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attemp…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > contains one issue's handoff failure and finishes the stranded sweep
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:1015:46
+    1013|     const result = await recovery.reconcileStrandedAssignedIssues();
+    1014|
+    1015|     expect(result.reviewParticipantRequeued).toBe(1);
+       |                                              ^
+    1016|     expect(result.issueIds).toContain(healthy.issueId);
+    1017|     expect(result.issueIds).not.toContain(failing.issueId);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > reconciles every in_review dependent of a cleared blocker even when one fails
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:1231:26
+    1229|     // carries the receipt that records its consumed attempt.
+    1230|     const healthyWakes = wakes.filter((wake) => wake.agentId === healt…
+    1231|     expect(healthyWakes).toHaveLength(1);
+       |                          ^
+    1232|     expect(healthyWakes[0].status).toBe("queued");
+    1233|     expect(healthyWakes[0].idempotencyKey).toContain(`review-handoff:$…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 11 passed (18)
+   Start at  15:51:32
+   Duration  26.22s (transform 13.16s, setup 108ms, import 18.06s, tests 7.91s, environment 0ms)
+

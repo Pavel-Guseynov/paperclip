@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/issue-runless-agent-key-routes.test.ts (3 tests | 1 failed | 2 skipped) 23599ms
+     × edits its own in-progress issue only while no run holds it 236ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/issue-runless-agent-key-routes.test.ts > issue updates from an agent API key without a heartbeat run > edits its own in-progress issue only while no run holds it
+AssertionError: {"id":"de3aa2fc-cee5-47d3-86c7-abea5459fd12","companyId":"0a9fbba1-89fb-4266-b4a2-034e3d21426b","conversationAgentId":null,"conversationUserId":null,"conversationState":null,"conversationSessionGeneration":0,"conversationBoundaryCommentId":null,"projectId":null,"projectWorkspaceId":null,"goalId":null,"parentId":null,"title":"Edited while running","titleNeedsGeneration":false,"description":null,"status":"in_progress","statusVersion":0,"lastStatusDecisionId":null,"workMode":"standard","harnessKind":null,"priority":"medium","reviewPolicy":null,"assigneeAgentId":"ed1669da-86a4-48c5-b46d-7eb2396d4461","assigneeUserId":null,"checkoutRunId":null,"executionRunId":"53ac679f-56ef-4622-9280-375ad44d90b9","executionAgentNameKey":null,"executionLockedAt":null,"createdByAgentId":null,"createdByUserId":null,"responsibleUserId":"responsible-6f9ba7f0-d1d8-4cd1-b274-d05106a2dbee","issueNumber":1,"identifier":"EX308960-1","originKind":"manual","originId":null,"originRunId":null,"originIdentityContextId":null,"continuationIdentityContextId":null,"originFingerprint":"default","requestDepth":0,"billingCode":null,"assigneeAdapterOverrides":null,"executionPolicy":null,"executionState":null,"monitorNextCheckAt":null,"monitorWakeRequestedAt":null,"monitorLastTriggeredAt":null,"monitorAttemptCount":0,"monitorNotes":null,"monitorScheduledBy":null,"executionWorkspaceId":null,"executionWorkspacePreference":null,"executionWorkspaceSettings":null,"sourceTrust":null,"unblockDescriptor":null,"blockedTransitionAt":null,"blockedOwnerNotifiedAt":null,"startedAt":null,"completedAt":null,"cancelledAt":null,"hiddenAt":null,"createdAt":"2026-10-01T11:42:28.675Z","updatedAt":"2026-10-01T11:42:28.832Z","labels":[],"labelIds":[],"watchdog":null,"changes":{"title":{"from":"Assigned issue","to":"Edited while running"}},"relatedWork":{"outbound":[],"inbound":[]},"referencedIssueIdentifiers":[],"comment":null}: expected 200 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 200
+
+ ❯ src/__tests__/issue-runless-agent-key-routes.test.ts:158:52
+    156|     const held = await request(app).patch(`/api/issues/${issue.id}`).s…
+    157|
+    158|     expect(held.status, JSON.stringify(held.body)).toBe(409);
+       |                                                    ^
+    159|     expect((await readIssue(issue.id)).title).toBe("Assigned issue");
+    160|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  11:42:02
+   Duration  28.07s (transform 14.76s, setup 132ms, import 4.17s, tests 23.60s, environment 0ms)
+

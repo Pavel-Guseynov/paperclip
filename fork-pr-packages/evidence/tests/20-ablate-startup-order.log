@@ -1,0 +1,36 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/server-startup-feedback-export.test.ts (22 tests | 1 failed | 21 skipped) 61ms
+     × reaps orphaned runs only after external adapters are registered 59ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/server-startup-feedback-export.test.ts > startServer feedback export wiring > reaps orphaned runs only after external adapters are registered
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array []
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/server-startup-feedback-export.test.ts:693:57
+    691|       const started = startServer();
+    692|       await new Promise((resolve) => setTimeout(resolve, 50));
+    693|       expect(heartbeatServiceMock.reapOrphanedRuns).not.toHaveBeenCall…
+       |                                                         ^
+    694|
+    695|       markAdaptersReady();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 skipped (22)
+   Start at  14:36:27
+   Duration  8.52s (transform 5.94s, setup 140ms, import 8.11s, tests 61ms, environment 0ms)
+

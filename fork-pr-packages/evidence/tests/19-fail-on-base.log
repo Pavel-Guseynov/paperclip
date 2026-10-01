@@ -1,0 +1,167 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts (24 tests | 4 failed) 25609ms
+     × keeps the calling run when its agent records an approval stage decision, and wakes the next participant 549ms
+     × keeps the calling run when its agent requests changes, and wakes the return assignee 514ms
+     × keeps the calling run but stops a different active run on the issue 547ms
+     × keeps the calling run named by the agent token when X-Paperclip-Run-Id is omitted 518ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > keeps the calling run when its agent records an approval stage decision, and wakes the next participant
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "55555555-5555-4555-8555-555555555555",
+      "Cancelled before issue reassignment",
+      Object {
+        "errorCode": "issue_reassigned",
+        "eventMessage": "run cancelled before issue reassignment",
+        "eventPayload": Object {
+          "issueId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+        "resultJson": Object {
+          "issueMutationStopId": "c9cdee73-74a2-4695-b0d8-97a71ec24f71",
+          "reassignmentStopConfirmed": true,
+        },
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1284:48
+    1282|
+    1283|     expect(res.status).toBe(200);
+    1284|     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+       |                                                ^
+    1285|     expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+    1286|       nextParticipantAgentId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > keeps the calling run when its agent requests changes, and wakes the return assignee
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "55555555-5555-4555-8555-555555555555",
+      "Cancelled before issue reassignment",
+      Object {
+        "errorCode": "issue_reassigned",
+        "eventMessage": "run cancelled before issue reassignment",
+        "eventPayload": Object {
+          "issueId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+        "resultJson": Object {
+          "issueMutationStopId": "20ba7541-818a-45d2-9098-a20d80d49f9b",
+          "reassignmentStopConfirmed": true,
+        },
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1439:48
+    1437|
+    1438|     expect(res.status).toBe(200);
+    1439|     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+       |                                                ^
+    1440|     expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+    1441|       authorAgentId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > keeps the calling run but stops a different active run on the issue
+AssertionError: expected "vi.fn()" to be called with arguments: [ …(3) ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   "66666666-6666-4666-8666-666666666666",
++   "55555555-5555-4555-8555-555555555555",
+    "Cancelled before issue reassignment",
+-   ObjectContaining {
++   {
+      "errorCode": "issue_reassigned",
++     "eventMessage": "run cancelled before issue reassignment",
++     "eventPayload": {
++       "issueId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
++     },
++     "resultJson": {
++       "issueMutationStopId": "2e39bf19-88b7-4ce1-8966-9b4909414984",
++       "reassignmentStopConfirmed": true,
++     },
+    },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1521:44
+    1519|     expect(res.status).toBe(200);
+    1520|     expect(mockHeartbeatService.cancelRun).toHaveBeenCalledTimes(1);
+    1521|     expect(mockHeartbeatService.cancelRun).toHaveBeenCalledWith(
+       |                                            ^
+    1522|       differentRunId,
+    1523|       "Cancelled before issue reassignment",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > keeps the calling run named by the agent token when X-Paperclip-Run-Id is omitted
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "55555555-5555-4555-8555-555555555555",
+      "Cancelled before issue reassignment",
+      Object {
+        "errorCode": "issue_reassigned",
+        "eventMessage": "run cancelled before issue reassignment",
+        "eventPayload": Object {
+          "issueId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+        "resultJson": Object {
+          "issueMutationStopId": "ae7dca51-fb57-4be9-863e-5bb3379351d0",
+          "reassignmentStopConfirmed": true,
+        },
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1605:48
+    1603|
+    1604|     expect(res.status).toBe(200);
+    1605|     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+       |                                                ^
+    1606|     expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+    1607|       nextParticipantAgentId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 20 passed (24)
+   Start at  16:14:24
+   Duration  28.32s (transform 11.20s, setup 114ms, import 2.42s, tests 25.61s, environment 0ms)
+

@@ -1,0 +1,142 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/http-log-redaction.test.ts (108 tests | 6 failed) 322ms
+     × keeps safe diagnostic prose unchanged: 'the ordinary word digest' 3ms
+     × keeps safe diagnostic prose unchanged: 'the ordinary word basic' 1ms
+     × redacts credential header names from a captured request body 7ms
+     × redacts credential-named fields without renaming ordinary diagnostic keys 2ms
+     × strips credential text from string fields of a structured record 2ms
+     × writes the record when a logged error has a throwing property 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'the ordinary word digest'
+AssertionError: expected 'checksum digest [REDACTED] for artifa…' to be 'checksum digest mismatch for artifact…' // Object.is equality
+
+Expected: "checksum digest mismatch for artifact report.pdf"
+Received: "checksum digest [REDACTED] for artifact report.pdf"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1287:43
+    1285|     },
+    1286|   ])("keeps safe diagnostic prose unchanged: $label", ({ input }) => {
+    1287|     expect(sanitizeCredentialText(input)).toBe(input);
+       |                                           ^
+    1288|   });
+    1289|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > keeps safe diagnostic prose unchanged: 'the ordinary word basic'
+AssertionError: expected 'basic [REDACTED] failed for field name' to be 'basic validation failed for field name' // Object.is equality
+
+Expected: "basic validation failed for field name"
+Received: "basic [REDACTED] failed for field name"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1287:43
+    1285|     },
+    1286|   ])("keeps safe diagnostic prose unchanged: $label", ({ input }) => {
+    1287|     expect(sanitizeCredentialText(input)).toBe(input);
+       |                                           ^
+    1288|   });
+    1289|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential header names from a captured request body
+AssertionError: expected { cookie: '[REDACTED]', …(8) } to deeply equal { cookie: '[Redacted]', …(8) }
+
+- Expected
++ Received
+
+  {
+    "connectorId": "acme-crm",
+-   "cookie": "[Redacted]",
+-   "gatewayToken": "[Redacted]",
+-   "proxy-authorization": "[Redacted]",
+-   "toolGatewayToken": "[Redacted]",
+-   "x-api-key": "[Redacted]",
+-   "x-csrf-token": "[Redacted]",
+-   "x-paperclip-tool-gateway-token": "[Redacted]",
+-   "x-telegram-bot-api-secret-token": "[Redacted]",
++   "cookie": "[REDACTED]",
++   "gatewayToken": "[REDACTED]",
++   "proxy-authorization": "[REDACTED]",
++   "toolGatewayToken": "[REDACTED]",
++   "x-api-key": "[REDACTED]",
++   "x-csrf-token": "[REDACTED]",
++   "x-paperclip-tool-gateway-token": "[REDACTED]",
++   "x-telegram-bot-api-secret-token": "[REDACTED]",
+  }
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1433:25
+    1431|
+    1432|     const [log] = logRecords(chunks);
+    1433|     expect(log.reqBody).toEqual({
+       |                         ^
+    1434|       cookie: "[Redacted]",
+    1435|       "proxy-authorization": "[Redacted]",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > redacts credential-named fields without renaming ordinary diagnostic keys
+AssertionError: expected '{"session":{"gatewayToken":"[Redacted…' not to contain 'pcgw_66666666-7777-8888-9999-00000000…'
+
+Expected: "pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28"
+Received: "{"session":{"gatewayToken":"[Redacted]","metadata":{"toolGatewayToken":"[Redacted]"}},"signature":"sha256=8c1f","capability":"issues:read","note":"raw pcgw_66666666-7777-8888-9999-000000000000.Z2F0ZXdheS1zZW50aW5lbC10d28 echoed by a provider"}"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1727:42
+    1725|     }) as any;
+    1726|
+    1727|     expect(JSON.stringify(redacted)).not.toContain(GATEWAY_TOKEN);
+       |                                          ^
+    1728|     expect(JSON.stringify(redacted)).not.toContain(SESSION_TOKEN);
+    1729|     expect(redacted.session.gatewayToken).toBe("[Redacted]");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > strips credential text from string fields of a structured record
+AssertionError: expected '{"level":40,"time":1790869198846,"pid…' not to contain 'bearer-sentinel-3f9c17ab'
+
+- Expected
++ Received
+
+- bearer-sentinel-3f9c17ab
++ {"level":40,"time":1790869198846,"pid":24572,"hostname":"vm","detail":"provider replied 401 to Authorization: Bearer bearer-sentinel-3f9c17ab","attempts":["retry with pcgt_11111111-2222-3333-4444-555555555555.c2Vzc2lvbi1zZW50aW5lbC1vbmU"],"connectorId":"acme-crm","msg":"gateway call rejected"}
++
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1750:24
+    1748|
+    1749|     const output = chunks.join("");
+    1750|     expect(output).not.toContain(BEARER_SENTINEL);
+       |                        ^
+    1751|     expect(output).not.toContain(SESSION_TOKEN);
+    1752|     const [written] = logRecords(chunks);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/__tests__/http-log-redaction.test.ts > HTTP logger redaction > writes the record when a logged error has a throwing property
+AssertionError: expected [Function] to not throw an error but 'Error: getter exploded' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"Error: getter exploded"
+
+ ❯ src/__tests__/http-log-redaction.test.ts:1769:87
+    1767|     });
+    1768|
+    1769|     expect(() => log.error({ err: error, stage: "connect" }, "provider…
+       |                                                                                       ^
+    1770|
+    1771|     expect(chunks.join("")).not.toContain(GATEWAY_TOKEN);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 102 passed (108)
+   Start at  15:39:54
+   Duration  4.57s (transform 2.48s, setup 94ms, import 3.98s, tests 322ms, environment 0ms)
+

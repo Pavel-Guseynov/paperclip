@@ -1,0 +1,369 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (154 tests | 59 failed) 33588ms
+     × exposes a named gateway with scoped bearer-token auth and revocation 71ms
+       × initializes a managed gateway through actor middleware with a run-bound bearer 103ms
+       × initializes a real managed gateway whose UUID has no version nibble 96ms
+       × returns an empty server error when notification verification loses its database client 103ms
+         × rejects a tampered bearer with an empty unauthorized response 94ms
+         × accepts a valid notification without changing token usage, run identity, or protocol counters 108ms
+         × does not charge a successful notification against the initialization budget 73ms
+         × rejects 'a revoked token' without a JSON-RPC response body 115ms
+         × rejects 'an expired token' without a JSON-RPC response body 89ms
+         × rejects 'a disabled gateway' without a JSON-RPC response body 59ms
+         × rejects 'a malformed run binding' without a JSON-RPC response body 85ms
+         × rejects 'a missing run' without a JSON-RPC response body 91ms
+         × rejects 'an inactive run' without a JSON-RPC response body 100ms
+         × rejects 'a run from another company' without a JSON-RPC response body 113ms
+         × rejects 'a mismatched agent binding' without a JSON-RPC response body 80ms
+         × rejects 'a mismatched issue binding' without a JSON-RPC response body 196ms
+         × rejects a valid token presented to another gateway 99ms
+         × throttles failed notification authentication and records a redacted rejection audit 70ms
+         × rejects a tampered bearer with an empty unauthorized response 66ms
+         × rejects 'a revoked token' without a JSON-RPC response body 50ms
+         × rejects 'an expired token' without a JSON-RPC response body 65ms
+         × rejects 'a disabled gateway' without a JSON-RPC response body 73ms
+         × rejects 'a malformed run binding' without a JSON-RPC response body 45ms
+         × rejects 'a missing run' without a JSON-RPC response body 71ms
+         × rejects 'an inactive run' without a JSON-RPC response body 75ms
+         × rejects 'a run from another company' without a JSON-RPC response body 92ms
+         × rejects 'a mismatched agent binding' without a JSON-RPC response body 67ms
+         × rejects 'a mismatched issue binding' without a JSON-RPC response body 78ms
+         × rejects a valid token presented to another gateway 64ms
+         × throttles failed notification authentication and records a redacted rejection audit 46ms
+       × initializes a managed gateway through actor middleware with a run-bound bearer 45ms
+       × initializes a real managed gateway whose UUID has no version nibble 75ms
+       × returns an empty server error when notification verification loses its database client 93ms
+         × rejects a tampered bearer with an empty unauthorized response 87ms
+         × accepts a valid notification without changing token usage, run identity, or protocol counters 102ms
+         × does not charge a successful notification against the initialization budget 94ms
+         × rejects 'a revoked token' without a JSON-RPC response body 56ms
+         × rejects 'an expired token' without a JSON-RPC response body 84ms
+         × rejects 'a disabled gateway' without a JSON-RPC response body 64ms
+         × rejects 'a malformed run binding' without a JSON-RPC response body 50ms
+         × rejects 'a missing run' without a JSON-RPC response body 51ms
+         × rejects 'an inactive run' without a JSON-RPC response body 74ms
+         × rejects 'a run from another company' without a JSON-RPC response body 64ms
+         × rejects 'a mismatched agent binding' without a JSON-RPC response body 80ms
+         × rejects 'a mismatched issue binding' without a JSON-RPC response body 61ms
+         × rejects a valid token presented to another gateway 70ms
+         × throttles failed notification authentication and records a redacted rejection audit 45ms
+         × rejects a tampered bearer with an empty unauthorized response 50ms
+         × rejects 'a revoked token' without a JSON-RPC response body 49ms
+         × rejects 'an expired token' without a JSON-RPC response body 51ms
+         × rejects 'a disabled gateway' without a JSON-RPC response body 53ms
+         × rejects 'a malformed run binding' without a JSON-RPC response body 53ms
+         × rejects 'a missing run' without a JSON-RPC response body 52ms
+         × rejects 'an inactive run' without a JSON-RPC response body 47ms
+         × rejects 'a run from another company' without a JSON-RPC response body 56ms
+         × rejects 'a mismatched agent binding' without a JSON-RPC response body 59ms
+         × rejects 'a mismatched issue binding' without a JSON-RPC response body 57ms
+         × rejects a valid token presented to another gateway 57ms
+         × throttles failed notification authentication and records a redacted rejection audit 46ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 59 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > exposes a named gateway with scoped bearer-token auth and revocation
+AssertionError: expected '{"error":"Agent token did not verify;…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ {"error":"Agent token did not verify; obtain fresh credentials and retry"}
+
+ ❯ src/__tests__/tool-gateway.test.ts:802:41
+    800|         .send({ jsonrpc: "2.0", method: "notifications/initialized" })
+    801|         .expect(401);
+    802|       expect(rejectedNotification.text).toBe("");
+       |                                         ^
+    803|
+    804|       const initialized = await request(app)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > initializes a managed gateway through actor middleware with a run-bound bearer
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > initializes a managed gateway through actor middleware with a run-bound bearer
+Error: expected 200 "OK", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1460:10
+    1458|         .set("x-paperclip-run-id", run.id)
+    1459|         .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    1460|         .expect(200);
+       |          ^
+    1461|       expect(initialized.body).toMatchObject({
+    1462|         jsonrpc: "2.0",
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > initializes a real managed gateway whose UUID has no version nibble
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > initializes a real managed gateway whose UUID has no version nibble
+Error: expected 200 "OK", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1512:10
+    1510|         .set("authorization", `Bearer ${token.token}`)
+    1511|         .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    1512|         .expect(200);
+       |          ^
+    1513|       expect(initialized.body).toMatchObject({
+    1514|         jsonrpc: "2.0",
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > returns an empty server error when notification verification loses its database client
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > returns an empty server error when notification verification loses its database client
+Error: expected 500 "Internal Server Error", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1537:12
+    1535|           .set("authorization", `Bearer ${token.token}`)
+    1536|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1537|           .expect(500);
+       |            ^
+    1538|         expect(failed.text).toBe("");
+    1539|
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects a tampered bearer with an empty unauthorized response
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects a tampered bearer with an empty unauthorized response
+AssertionError: expected '{"error":"Agent token did not verify;…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ {"error":"Agent token did not verify; obtain fresh credentials and retry"}
+
+ ❯ src/__tests__/tool-gateway.test.ts:1559:31
+    1557|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1558|           .expect(401);
+    1559|         expect(rejected.text).toBe("");
+       |                               ^
+    1560|       });
+    1561|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > accepts a valid notification without changing token usage, run identity, or protocol counters
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > accepts a valid notification without changing token usage, run identity, or protocol counters
+Error: expected 200 "OK", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1575:12
+    1573|           .set("authorization", `Bearer ${token.token}`)
+    1574|           .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    1575|           .expect(200);
+       |            ^
+    1576|
+    1577|         const [comment] = await db.insert(issueComments).values({
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > does not charge a successful notification against the initialization budget
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > does not charge a successful notification against the initialization budget
+Error: expected 200 "OK", got 401 "Unauthorized"
+ ❯ src/__tests__/tool-gateway.test.ts:1642:12
+    1640|           .set("authorization", `Bearer ${token.token}`)
+    1641|           .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    1642|           .expect(200);
+       |            ^
+    1643|         await request(app)
+    1644|           .post(endpoints[locator])
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a revoked token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'an expired token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a disabled gateway' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a malformed run binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a missing run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'an inactive run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a run from another company' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a mismatched agent binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects 'a mismatched issue binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a revoked token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'an expired token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a disabled gateway' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a malformed run binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a missing run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'an inactive run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a run from another company' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a mismatched agent binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects 'a mismatched issue binding' without a JSON-RPC response body
+AssertionError: expected '{"error":"Agent token did not verify;…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ {"error":"Agent token did not verify; obtain fresh credentials and retry"}
+
+ ❯ src/__tests__/tool-gateway.test.ts:1731:31
+    1729|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1730|           .expect(401);
+    1731|         expect(rejected.text).toBe("");
+       |                               ^
+    1732|       });
+    1733|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > rejects a valid token presented to another gateway
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > rejects a valid token presented to another gateway
+AssertionError: expected '{"error":"Agent token did not verify;…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ {"error":"Agent token did not verify; obtain fresh credentials and retry"}
+
+ ❯ src/__tests__/tool-gateway.test.ts:1748:31
+    1746|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1747|           .expect(401);
+    1748|         expect(rejected.text).toBe("");
+       |                               ^
+    1749|       });
+    1750|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > managed initialized notifications > throttles failed notification authentication and records a redacted rejection audit
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > managed initialized notifications > throttles failed notification authentication and records a redacted rejection audit
+AssertionError: expected '{"error":"Agent token did not verify;…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ {"error":"Agent token did not verify; obtain fresh credentials and retry"}
+
+ ❯ src/__tests__/tool-gateway.test.ts:1761:31
+    1759|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1760|           .expect(401);
+    1761|         expect(rejected.text).toBe("");
+       |                               ^
+    1762|         const throttled = await request(app)
+    1763|           .post(endpoints[locator])
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects a tampered bearer with an empty unauthorized response
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects a tampered bearer with an empty unauthorized response
+Error: expected 401 "Unauthorized", got 202 "Accepted"
+ ❯ src/__tests__/tool-gateway.test.ts:1558:12
+    1556|           .set("authorization", `Bearer ${tamperToken(token.token)}`)
+    1557|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1558|           .expect(401);
+       |            ^
+    1559|         expect(rejected.text).toBe("");
+    1560|       });
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a revoked token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'an expired token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a disabled gateway' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a malformed run binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a missing run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'an inactive run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a run from another company' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a mismatched agent binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects 'a mismatched issue binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a revoked token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'an expired token' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a disabled gateway' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a malformed run binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a missing run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'an inactive run' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a run from another company' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a mismatched agent binding' without a JSON-RPC response body
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects 'a mismatched issue binding' without a JSON-RPC response body
+Error: expected 401 "Unauthorized", got 202 "Accepted"
+ ❯ src/__tests__/tool-gateway.test.ts:1730:12
+    1728|           .set("authorization", `Bearer ${fixture.token.token}`)
+    1729|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1730|           .expect(401);
+       |            ^
+    1731|         expect(rejected.text).toBe("");
+    1732|       });
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > rejects a valid token presented to another gateway
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > rejects a valid token presented to another gateway
+Error: expected 401 "Unauthorized", got 202 "Accepted"
+ ❯ src/__tests__/tool-gateway.test.ts:1747:12
+    1745|           .set("authorization", `Bearer ${token.token}`)
+    1746|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1747|           .expect(401);
+       |            ^
+    1748|         expect(rejected.text).toBe("");
+    1749|       });
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/59]⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in authenticated mode > public initialized notifications > throttles failed notification authentication and records a redacted rejection audit
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gateway protocol in local_trusted mode > public initialized notifications > throttles failed notification authentication and records a redacted rejection audit
+Error: expected 401 "Unauthorized", got 202 "Accepted"
+ ❯ src/__tests__/tool-gateway.test.ts:1760:12
+    1758|           .set("authorization", `Bearer ${badToken}`)
+    1759|           .send({ jsonrpc: "2.0", method: "notifications/initialized" …
+    1760|           .expect(401);
+       |            ^
+    1761|         expect(rejected.text).toBe("");
+    1762|         const throttled = await request(app)
+ ❯ Test._assertStatus ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> ../node_modules/.pnpm/supertest@7.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/59]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  59 failed | 95 passed (154)
+   Start at  09:08:24
+   Duration  50.80s (transform 11.99s, setup 103ms, import 16.97s, tests 33.59s, environment 0ms)
+

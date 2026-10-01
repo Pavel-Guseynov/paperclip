@@ -1,0 +1,130 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+[14:29:32] WARN: runtime connection tools could not be delivered {"companyId":"07023491-a97a-4cc4-9489-7d6efd132faa","agentId":"e1f86057-ade3-4265-aea1-5f67f0fd8b42","runId":"73e35aef-9d4d-40dd-bf61-1ff69f6aede7"}
+[14:29:32] WARN: runtime connection tools could not be delivered {"companyId":"287a7686-4de9-44a1-8368-17c1c4236d76","agentId":"9c151e1c-0ea9-49f9-8f5d-ed5e3656eaf6","runId":"9e387187-853e-434a-bd8e-a052caad1649"}
+[14:29:33] WARN: runtime connection tools could not be delivered {"companyId":"67c22ca8-2086-4158-9be3-f4d3804e691f","agentId":"de0b3db7-92f7-4887-8265-2dd0a07d468e","runId":"25b0866b-76d6-4022-9791-75a2febdb414"}
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts (6 tests | 5 failed) 6891ms
+     × waits 60 seconds by default 14ms
+     × reads a positive whole number of milliseconds from the environment 11ms
+     × uses the default for a zero, negative, fractional, too large, or non-numeric value 6ms
+     × reads server.shutdownDrainTimeoutMs from the config file, and the environment wins over it 11ms
+     × keeps a run woken through any heartbeat service queued after shutdown began 1006ms
+ ❯ src/shutdown.test.ts (18 tests | 1 failed) 159ms
+     × returns after the bounded timeout and logs the runs that remain active 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/shutdown.test.ts > drainRunExecutionFinalizersForShutdown > returns after the bounded timeout and logs the runs that remain active
+AssertionError: expected "vi.fn()" to be called with arguments: [ ObjectContaining{…}, …(1) ]
+
+Number of calls: 0
+
+ ❯ src/shutdown.test.ts:336:25
+    334|       await vi.advanceTimersByTimeAsync(250);
+    335|       await expect(pending).resolves.toBe("timed_out");
+    336|       expect(log.error).toHaveBeenCalledWith(
+       |                         ^
+    337|         expect.objectContaining({ timeoutMs: 250, pendingRunIds: ["run…
+    338|         expect.stringContaining("timed out"),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown drain timeout config > waits 60 seconds by default
+AssertionError: expected undefined to be 60000 // Object.is equality
+
+- Expected:
+60000
+
++ Received:
+undefined
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:52:49
+     50|   it("waits 60 seconds by default", () => {
+     51|     vi.stubEnv("PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS", undefined);
+     52|     expect(loadConfig().shutdownDrainTimeoutMs).toBe(60_000);
+       |                                                 ^
+     53|   });
+     54|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown drain timeout config > reads a positive whole number of milliseconds from the environment
+AssertionError: expected undefined to be 120000 // Object.is equality
+
+- Expected:
+120000
+
++ Received:
+undefined
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:57:49
+     55|   it("reads a positive whole number of milliseconds from the environme…
+     56|     vi.stubEnv("PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS", " 120000 ");
+     57|     expect(loadConfig().shutdownDrainTimeoutMs).toBe(120_000);
+       |                                                 ^
+     58|   });
+     59|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown drain timeout config > uses the default for a zero, negative, fractional, too large, or non-numeric value
+AssertionError: expected undefined to be 60000 // Object.is equality
+
+- Expected:
+60000
+
++ Received:
+undefined
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:63:51
+     61|     for (const value of ["", "0", "-1", "1.5", "2147483648", "soon"]) {
+     62|       vi.stubEnv("PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS", value);
+     63|       expect(loadConfig().shutdownDrainTimeoutMs).toBe(60_000);
+       |                                                   ^
+     64|     }
+     65|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > shutdown drain timeout config > reads server.shutdownDrainTimeoutMs from the config file, and the environment wins over it
+AssertionError: expected undefined to be 15000 // Object.is equality
+
+- Expected:
+15000
+
++ Received:
+undefined
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:70:49
+     68|     await writeConfigFile({ shutdownDrainTimeoutMs: 15_000 });
+     69|     vi.stubEnv("PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS", undefined);
+     70|     expect(loadConfig().shutdownDrainTimeoutMs).toBe(15_000);
+       |                                                 ^
+     71|
+     72|     vi.stubEnv("PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS", "90000");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts > queued run dispatch during graceful shutdown > keeps a run woken through any heartbeat service queued after shutdown began
+AssertionError: expected 'succeeded' to be 'queued' // Object.is equality
+
+Expected: "queued"
+Received: "succeeded"
+
+ ❯ src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts:168:37
+    166|     const sameInstanceRun = await wakeAndSettle(shuttingDown, await se…
+    167|
+    168|     expect(routeInstanceRun.status).toBe("queued");
+       |                                     ^
+    169|     expect(sameInstanceRun.status).toBe("queued");
+    170|     expect(execute).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 18 passed (24)
+   Start at  14:29:08
+   Duration  26.38s (transform 13.07s, setup 230ms, import 18.70s, tests 7.05s, environment 0ms)
+

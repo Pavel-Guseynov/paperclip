@@ -1,0 +1,15 @@
+
+ RUN  v4.1.11 /home/pc/wt/w2/server
+
+[12:36:09] INFO: heartbeat run status changed {"lifecycleEvent":{"eventType":"run_transition","eventId":"run:c2d782e5-79b6-429d-b399-4750d19ca704:1790858169959316:running","runId":"c2d782e5-79b6-429d-b399-4750d19ca704","companyId":"76e34cd2-6395-408d-a198-6893f20e313e","agentId":"3ad90633-1ff5-4a08-97c0-9079ff9d5e6a","issueId":null,"fromStatus":"queued","toStatus":"running","terminal":false,"transitionedAtEpochUs":"1790858169959316"}}
+[12:36:10] INFO: task status changed {"lifecycleEvent":{"eventType":"task_transition","eventId":"task:0c922357-174e-4c69-aa4b-260ebb9eae2c:1790858170009240:in_review","issueId":"0c922357-174e-4c69-aa4b-260ebb9eae2c","identifier":null,"companyId":"76e34cd2-6395-408d-a198-6893f20e313e","projectId":null,"fromStatus":"in_progress","toStatus":"in_review","terminal":false,"assignee":{"type":"agent","id":"3ad90633-1ff5-4a08-97c0-9079ff9d5e6a"},"actingRunId":null,"transitionedAtEpochUs":"1790858170009240"}}
+[12:36:10] INFO: task status changed {"lifecycleEvent":{"eventType":"task_transition","eventId":"task:d85c0914-57ff-4d32-9de7-63f504488ce4:1790858170086320:in_progress","issueId":"d85c0914-57ff-4d32-9de7-63f504488ce4","identifier":null,"companyId":"76e34cd2-6395-408d-a198-6893f20e313e","projectId":null,"fromStatus":"todo","toStatus":"in_progress","terminal":false,"assignee":{"type":"agent","id":"3ad90633-1ff5-4a08-97c0-9079ff9d5e6a"},"actingRunId":null,"transitionedAtEpochUs":"1790858170086320"}}
+[12:36:10] INFO: task status changed {"lifecycleEvent":{"eventType":"task_transition","eventId":"task:d85c0914-57ff-4d32-9de7-63f504488ce4:1790858170100763:todo","issueId":"d85c0914-57ff-4d32-9de7-63f504488ce4","identifier":null,"companyId":"76e34cd2-6395-408d-a198-6893f20e313e","projectId":null,"fromStatus":"in_progress","toStatus":"todo","terminal":false,"assignee":{"type":"agent","id":"3ad90633-1ff5-4a08-97c0-9079ff9d5e6a"},"actingRunId":null,"transitionedAtEpochUs":"1790858170100763"}}
+[12:36:10] INFO: task status changed {"lifecycleEvent":{"eventType":"task_transition","eventId":"task:d85c0914-57ff-4d32-9de7-63f504488ce4:1790858170115653:in_progress","issueId":"d85c0914-57ff-4d32-9de7-63f504488ce4","identifier":null,"companyId":"76e34cd2-6395-408d-a198-6893f20e313e","projectId":null,"fromStatus":"todo","toStatus":"in_progress","terminal":false,"assignee":{"type":"agent","id":"3ad90633-1ff5-4a08-97c0-9079ff9d5e6a"},"actingRunId":null,"transitionedAtEpochUs":"1790858170115653"}}
+[12:36:12] INFO: task status changed {"lifecycleEvent":{"eventType":"task_transition","eventId":"task:d85c0914-57ff-4d32-9de7-63f504488ce4:1790858170127753:done","issueId":"d85c0914-57ff-4d32-9de7-63f504488ce4","identifier":null,"companyId":"76e34cd2-6395-408d-a198-6893f20e313e","projectId":null,"fromStatus":"in_progress","toStatus":"done","terminal":true,"assignee":{"type":"agent","id":"3ad90633-1ff5-4a08-97c0-9079ff9d5e6a"},"actingRunId":null,"transitionedAtEpochUs":"1790858170127753"}}
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  12:35:55
+   Duration  17.17s (transform 8.14s, setup 106ms, import 9.98s, tests 6.94s, environment 0ms)
+

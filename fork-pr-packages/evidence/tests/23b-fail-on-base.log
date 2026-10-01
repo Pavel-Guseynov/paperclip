@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-policy-read-cache.test.ts (1 test | 1 failed) 4992ms
+     × reads the policy context once per tools/list, whatever the number of tools 358ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-policy-read-cache.test.ts > tool policy reads during tool discovery > reads the policy context once per tools/list, whatever the number of tools
+AssertionError: expected 189 to be 69 // Object.is equality
+
+- Expected
++ Received
+
+- 69
++ 189
+
+ ❯ src/__tests__/tool-policy-read-cache.test.ts:108:39
+    106|
+    107|   it("reads the policy context once per tools/list, whatever the numbe…
+    108|     expect(await selectsForTools(20)).toBe(await selectsForTools(5));
+       |                                       ^
+    109|   });
+    110| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  13:51:21
+   Duration  15.35s (transform 6.48s, setup 98ms, import 10.11s, tests 4.99s, environment 0ms)
+

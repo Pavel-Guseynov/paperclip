@@ -1,0 +1,12 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+(node:7663) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:7663) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGTERM listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+
+ Test Files  2 passed (2)
+      Tests  105 passed (105)
+   Start at  14:46:53
+   Duration  47.87s (transform 12.69s, setup 158ms, import 19.58s, tests 27.83s, environment 0ms)
+

@@ -1,0 +1,260 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts (11 tests | 8 failed) 4747ms
+     × rejects a proxy that is not socks5h or carries credentials 16ms
+     × denies a proxy in a private network when private networks are not allowed, before opening a socket 5ms
+     × leaves a target hostname that does not resolve here to the proxy 2ms
+     × rejects a target hostname longer than SOCKS5 can carry, before opening a socket 1ms
+     × refreshes the catalog and calls a tool through the proxy, which resolves the target hostname 105ms
+     × discovers OAuth, registers a client and exchanges the code through the proxy 195ms
+     × fails without a direct request when the proxy cannot be reached 28ms
+     × rejects an invalid proxy, or a private proxy in a public deployment, when the connection is saved 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > SOCKS5 proxy guard > rejects a proxy that is not socks5h or carries credentials
+AssertionError: expected Error: Remote MCP connection hostname cou… { code: '…' } to match object { code: 'mcp_remote_proxy_invalid' }
+
+- Expected
++ Received
+
+- {
+-   "code": "mcp_remote_proxy_invalid",
++ Error {
++   "code": "remote_http_dns_failed",
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:241:8
+    239|       await expect(
+    240|         guardedRemoteHttpFetch("https://mcp.example.test/mcp", {}, { e…
+    241|       ).rejects.toMatchObject({ code: "mcp_remote_proxy_invalid" });
+       |        ^
+    242|     }
+    243|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > SOCKS5 proxy guard > denies a proxy in a private network when private networks are not allowed, before opening a socket
+AssertionError: expected Error: Remote MCP connection hostname cou… { code: '…' } to match object { Object (code) }
+
+- Expected
++ Received
+
+- {
+-   "code": "remote_http_private_endpoint",
++ Error {
++   "code": "remote_http_dns_failed",
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:254:6
+    252|         socketFactory,
+    253|       }),
+    254|     ).rejects.toMatchObject({ code: "remote_http_private_endpoint" });
+       |      ^
+    255|     expect(socketFactory).not.toHaveBeenCalled();
+    256|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > SOCKS5 proxy guard > leaves a target hostname that does not resolve here to the proxy
+AssertionError: expected "vi.fn()" to be called at least once
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:287:27
+    285|       }),
+    286|     ).rejects.toThrow();
+    287|     expect(socketFactory).toHaveBeenCalled();
+       |                           ^
+    288|   });
+    289|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > SOCKS5 proxy guard > rejects a target hostname longer than SOCKS5 can carry, before opening a socket
+AssertionError: expected Error: Remote MCP connection hostname cou… { code: '…' } to match object { code: 'mcp_remote_url_invalid' }
+
+- Expected
++ Received
+
+- {
+-   "code": "mcp_remote_url_invalid",
++ Error {
++   "code": "remote_http_dns_failed",
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:301:6
+    299|         socketFactory,
+    300|       }),
+    301|     ).rejects.toMatchObject({ code: "mcp_remote_url_invalid" });
+       |      ^
+    302|     expect(socketFactory).not.toHaveBeenCalled();
+    303|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > remote MCP connection through a SOCKS5 proxy > refreshes the catalog and calls a tool through the proxy, which resolves the target hostname
+Error: Remote MCP connection hostname could not be resolved
+ ❯ badRequest src/errors.ts:13:10
+     11|
+     12| export function badRequest(message: string, details?: unknown) {
+     13|   return new HttpError(400, message, details);
+       |          ^
+     14| }
+     15|
+ ❯ src/services/tool-access.ts:3280:26
+ ❯ resolveApprovedRemoteHttpAddresses src/services/remote-http-endpoint-guard.ts:87:11
+ ❯ assertPublicRemoteHttpEndpoint src/services/remote-http-endpoint-guard.ts:42:3
+ ❯ assertRemoteHttpUrlAllowed src/services/tool-access.ts:3274:5
+ ❯ assertRemoteConnectionEndpointsAllowed src/services/tool-access.ts:3437:22
+ ❯ Object.createConnection src/services/tool-access.ts:17206:9
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:356:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > remote MCP connection through a SOCKS5 proxy > discovers OAuth, registers a client and exchanges the code through the proxy
+AssertionError: expected +0 to be 5 // Object.is equality
+
+- Expected
++ Received
+
+- 5
++ 0
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:428:38
+    426|     expect(mcpServer.requests.some((entry) => entry.url === "/mcp" && …
+    427|     // Every request reached the server through the proxy: one SOCKS5 …
+    428|     expect(proxy.connections.length).toBe(mcpServer.requests.length);
+       |                                      ^
+    429|     expect(proxy.connections.every((entry) => entry.targetHost === "12…
+    430|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > remote MCP connection through a SOCKS5 proxy > fails without a direct request when the proxy cannot be reached
+AssertionError: promise resolved "{ connection: { …(29) }, …(3) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "catalog": [
++     {
++       "addedAt": 2026-10-01T15:12:34.381Z,
++       "annotations": {},
++       "applicationId": "55c98fd1-4337-4fa7-b428-8e34995b73fb",
++       "companyId": "ddf88c0a-d546-496a-8494-ccd3276f3748",
++       "connectionId": "c3fc6098-442c-42f2-93a6-5e23dda1740c",
++       "createdAt": 2026-10-01T15:12:34.386Z,
++       "description": "Echo test tool",
++       "entryKind": "tool",
++       "firstSeenAt": 2026-10-01T15:12:34.381Z,
++       "id": "9868f341-7112-4199-8d21-7d0f390d946c",
++       "inputSchema": {
++         "properties": {
++           "text": {
++             "type": "string",
++           },
++         },
++         "type": "object",
++       },
++       "isDestructive": false,
++       "isReadOnly": true,
++       "isWrite": false,
++       "lastSeenAt": 2026-10-01T15:12:34.381Z,
++       "name": "echo_tool",
++       "outputSchema": null,
++       "quarantineReason": null,
++       "quarantinedAt": null,
++       "reviewedAt": null,
++       "reviewedByAgentId": null,
++       "reviewedByUserId": null,
++       "riskLevel": "read",
++       "schemaHash": "d95b00b27ca2bbbe11efb4ebcf3e4ee4d61036c801831bccac81b321af6737e5",
++       "status": "active",
++       "title": null,
++       "toolName": "echo_tool",
++       "updatedAt": 2026-10-01T15:12:34.386Z,
++       "version": null,
++       "versionHash": "023383905ae9bf4f37ab0b5ef8545ecb3cd40f914ae1f3f04b4b89ef643792c6",
++     },
++   ],
++   "connection": {
++     "applicationId": "55c98fd1-4337-4fa7-b428-8e34995b73fb",
++     "authKind": "none",
++     "companyId": "ddf88c0a-d546-496a-8494-ccd3276f3748",
++     "config": {
++       "proxy": "socks5h://127.0.0.1:39727",
++       "url": "http://127.0.0.1:40449/mcp",
++     },
++     "connectionKind": "managed",
++     "connectionPurpose": "tool",
++     "createdAt": 2026-10-01T15:12:34.372Z,
++     "createdByAgentId": null,
++     "createdByUserId": null,
++     "credentialPolicy": "shared",
++     "credentialRefs": [],
++     "credentialSecretRefs": [],
++     "credentialSource": "paperclip_vault",
++     "enabled": false,
++     "externalCredential": null,
++     "healthCheckedAt": 2026-10-01T15:12:34.381Z,
++     "healthMessage": "Tool catalog refreshed.",
++     "healthStatus": "ok",
++     "id": "c3fc6098-442c-42f2-93a6-5e23dda1740c",
++     "lastCatalogRefreshAt": 2026-10-01T15:12:34.381Z,
++     "lastError": null,
++     "lastHealthAt": 2026-10-01T15:12:34.381Z,
++     "name": "Unreachable proxy",
++     "ownership": "customer",
++     "status": "draft",
++     "transport": "mcp_remote",
++     "transportConfig": {},
++     "uid": "unreachable-proxy/unreachable-proxy-c3fc6098",
++     "updatedAt": 2026-10-01T15:12:34.381Z,
++   },
++   "discoveredCount": 1,
++   "quarantinedCount": 0,
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:475:58
+    473|     });
+    474|
+    475|     await expect(accessSvc.refreshCatalog(connection.id)).rejects.toTh…
+       |                                                          ^
+    476|     expect(mcpServer.requests).toEqual([]);
+    477|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > remote MCP connection through a SOCKS5 proxy > rejects an invalid proxy, or a private proxy in a public deployment, when the connection is saved
+AssertionError: expected Error: Remote MCP connection hostname cou… { …(2) } to match object { details: ObjectContaining{…} }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+- {
++ HttpError {
+    "details": {
+-     "code": "mcp_remote_proxy_invalid",
++     "code": "remote_http_dns_failed",
+    },
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:493:82
+    491|     });
+    492|
+    493|     await expect(save(toolAccessService(db), "socks5://proxy.example.t…
+       |                                                                                  ^
+    494|       details: expect.objectContaining({ code: "mcp_remote_proxy_inval…
+    495|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 3 passed (11)
+   Start at  15:12:18
+   Duration  16.16s (transform 7.12s, setup 131ms, import 11.08s, tests 4.75s, environment 0ms)
+

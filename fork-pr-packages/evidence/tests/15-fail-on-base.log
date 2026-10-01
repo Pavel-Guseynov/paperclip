@@ -1,0 +1,36 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/tool-gateway.test.ts (83 tests | 1 failed | 82 skipped) 5075ms
+     × gates gateway context tools and capabilities by token allowedActions 274ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/tool-gateway.test.ts > tool gateway acceptance > gates gateway context tools and capabilities by token allowedActions
+AssertionError: expected { tools: {}, resources: {}, …(1) } to deeply equal { tools: {} }
+
+- Expected
++ Received
+
+  {
++   "prompts": {},
++   "resources": {},
+    "tools": {},
+  }
+
+ ❯ src/__tests__/tool-gateway.test.ts:5806:48
+    5804|         .send({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    5805|         .expect(200);
+    5806|       expect(initRun.body.result.capabilities).toEqual({ tools: {} });
+       |                                                ^
+    5807|       expect(initRun.body.result.capabilities.resources).toBeUndefined…
+    5808|       expect(initRun.body.result.capabilities.prompts).toBeUndefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 82 skipped (83)
+   Start at  10:13:25
+   Duration  22.30s (transform 11.90s, setup 110ms, import 16.98s, tests 5.07s, environment 0ms)
+

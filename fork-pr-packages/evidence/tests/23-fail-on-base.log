@@ -1,0 +1,167 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts (12 tests | 11 failed) 5981ms
+     × evaluates only the tools a gateway_only profile includes when nothing else can allow a tool 238ms
+     × evaluates only the tools of an application the profile includes 157ms
+     × evaluates every company tool for a gateway that adds context profiles 90ms
+       × scopes to the included connection when nothing else can 51ms
+       × for an allow-by-default gateway profile 47ms
+       × for an enabled allow policy 43ms
+       × for an enabled trust_rule policy 46ms
+       × for an enabled require_approval policy 45ms
+       × but not for the approval policy of the app wizard 43ms
+       × for an actor with a tools:use grant 49ms
+       × for an include entry that selects by tool name 48ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > evaluates only the tools a gateway_only profile includes when nothing else can allow a tool
+AssertionError: expected [ 'beta_read', 'beta_write', …(2) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "beta_read",
++   "beta_write",
++   "gamma_read",
++   "gamma_write",
++ ]
+
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:146:74
+    144|     expect(tools).toEqual(expect.arrayContaining(["alpha_read", "alpha…
+    145|     expect(tools.some((name) => /^(beta|gamma)_/.test(name))).toBe(fal…
+    146|     expect(evaluatedTools.filter((name) => /^(beta|gamma)_/.test(name)…
+       |                                                                          ^
+    147|   });
+    148|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > evaluates only the tools of an application the profile includes
+AssertionError: expected [ 'gamma_read', 'gamma_write' ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "gamma_read",
++   "gamma_write",
++ ]
+
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:163:72
+    161|     expect(tools).toEqual(expect.arrayContaining(["alpha_read", "alpha…
+    162|     expect(tools.some((name) => name.startsWith("gamma_"))).toBe(false…
+    163|     expect(evaluatedTools.filter((name) => name.startsWith("gamma_")))…
+       |                                                                        ^
+    164|   });
+    165|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > evaluates every company tool for a gateway that adds context profiles
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:189:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > scopes to the included connection when nothing else can
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:195:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > for an allow-by-default gateway profile
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:201:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > for an enabled allow policy
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > for an enabled trust_rule policy
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > for an enabled require_approval policy
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:207:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > but not for the approval policy of the app wizard
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:220:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > for an actor with a tools:use grant
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:233:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/scope-named-gateway-tool-discovery.test.ts > named gateway tool discovery scope > falls back to every company tool when something else can allow a tool > for an include entry that selects by tool name
+TypeError: toolAccessPolicyService(...).namedGatewayDiscoveryScope is not a function
+ ❯ scope src/__tests__/scope-named-gateway-tool-discovery.test.ts:135:35
+    133|     })).map((tool) => tool.upstreamToolName ?? tool.name);
+    134|     const scope = (actor: ToolAccessDecisionInput["actor"] = { actorTy…
+    135|       toolAccessPolicyService(db).namedGatewayDiscoveryScope({ company…
+       |                                   ^
+    136|     return { companyId, alpha, beta, profileId: profile.id, listTools,…
+    137|   }
+ ❯ src/__tests__/scope-named-gateway-tool-discovery.test.ts:252:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  11 failed | 1 passed (12)
+   Start at  16:10:16
+   Duration  17.03s (transform 6.77s, setup 98ms, import 10.80s, tests 5.98s, environment 0ms)
+

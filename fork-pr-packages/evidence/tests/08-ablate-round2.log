@@ -1,0 +1,76 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+[15:57:43] WARN: runtime connection tools could not be delivered {"companyId":"d3b67199-189f-4393-8018-7c15cbd83cc5","agentId":"2f62ff86-68c8-497c-af10-50e48d8e09a9","runId":"f77ac7b5-2655-4f0d-830b-8702e6360aa3"}
+[15:57:43] ERROR: heartbeat execution failed {"runId":"f77ac7b5-2655-4f0d-830b-8702e6360aa3"}
+    err: {
+      "type": "Error",
+      "message": "adapter setup failed: Execution workspace git worktree branch is incoherent",
+      "stack":
+          Error: adapter setup failed
+              at /home/pc/wt/w1/server/src/__tests__/workspace-validation-recovery-precedence.test.ts:607:11
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+          caused by: WorkspaceValidationFailure: Execution workspace git worktree branch is incoherent
+              at /home/pc/wt/w1/server/src/__tests__/workspace-validation-recovery-precedence.test.ts:608:20
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+ ❯ |@paperclipai/server| src/__tests__/workspace-validation-recovery-precedence.test.ts (13 tests | 2 failed) 6720ms
+       × holds the typed diagnosis when a later generic failure sweeps the same issue 209ms
+       × updates an active workspace_validation action for a sweep that observed a specific cause 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > holds the typed diagnosis when a later generic failure sweeps the same issue
+AssertionError: expected { …(18) } to match object { …(2) }
+(20 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "recoveryCause": "workspace_validation_failed",
+-   "source": "recovery.reconcile_workspace_validation_failed",
++   "source": "recovery.reconcile_stranded_assigned_issue",
+  }
+
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:536:38
+    534|           .orderBy(desc(activityLog.createdAt))
+    535|           .limit(1);
+    536|         expect(latestEvent?.details).toMatchObject({
+       |                                      ^
+    537|           source: "recovery.reconcile_workspace_validation_failed",
+    538|           recoveryCause: "workspace_validation_failed",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/workspace-validation-recovery-precedence.test.ts > workspace validation recovery precedence > recovery precedence, review startup, and deduplication in database > updates an active workspace_validation action for a sweep that observed a specific cause
+AssertionError: expected undefined to be 'process_lost' // Object.is equality
+
+- Expected:
+"process_lost"
+
++ Received:
+undefined
+
+ ❯ src/__tests__/workspace-validation-recovery-precedence.test.ts:589:45
+    587|           latestRunErrorCode?: string;
+    588|         };
+    589|         expect(evidence.latestRunErrorCode).toBe("process_lost");
+       |                                             ^
+    590|         expect(evidence.workspaceValidation?.actualHeadSha).toBe(ACTUA…
+    591|       });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  15:57:20
+   Duration  24.01s (transform 11.87s, setup 115ms, import 17.01s, tests 6.72s, environment 0ms)
+

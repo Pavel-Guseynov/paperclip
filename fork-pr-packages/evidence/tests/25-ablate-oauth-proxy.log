@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts (11 tests | 1 failed | 10 skipped) 4381ms
+     × discovers OAuth, registers a client and exchanges the code through the proxy 272ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > remote MCP connection through a SOCKS5 proxy > discovers OAuth, registers a client and exchanges the code through the proxy
+AssertionError: expected 1 to be 5 // Object.is equality
+
+- Expected
++ Received
+
+- 5
++ 1
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:428:38
+    426|     expect(mcpServer.requests.some((entry) => entry.url === "/mcp" && …
+    427|     // Every request reached the server through the proxy: one SOCKS5 …
+    428|     expect(proxy.connections.length).toBe(mcpServer.requests.length);
+       |                                      ^
+    429|     expect(proxy.connections.every((entry) => entry.targetHost === "12…
+    430|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 skipped (11)
+   Start at  15:11:48
+   Duration  15.16s (transform 6.72s, setup 118ms, import 10.51s, tests 4.38s, environment 0ms)
+

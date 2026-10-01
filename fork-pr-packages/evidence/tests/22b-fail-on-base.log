@@ -1,0 +1,53 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+[16:18:29] WARN: terminalized orphaned running heartbeat run in stale-lock sweep {"runId":"91a896e2-c361-474d-a0bb-4302c82c6a9d","authority":"process_gone","previousStatus":"running","terminalStatus":"interrupted","issueId":"778323a4-4b8a-49c9-a48d-d29586df04d3","processGroupId":null}
+[16:18:29] WARN: swept stale issue lock columns {"cleared":1,"issueIds":["778323a4-4b8a-49c9-a48d-d29586df04d3"],"terminalizedRunIds":["91a896e2-c361-474d-a0bb-4302c82c6a9d"]}
+ ❯ |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts (5 tests | 2 failed) 4868ms
+     × keeps the lease of a cancelled run while its detached local process still runs 72ms
+     × recovers the lease of a terminal run in the orphaned-lease sweep only after its local process exits 69ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > leases of runs that end without an executor > keeps the lease of a cancelled run while its detached local process still runs
+AssertionError: expected 'expired' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "expired"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:163:49
+    161|
+    162|       expect(cancelled?.status).toBe("cancelled");
+    163|       expect((await readLease(leaseId)).status).toBe("active");
+       |                                                 ^
+    164|     } finally {
+    165|       await stopProcess(child);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/release-cancelled-interrupted-run-leases.test.ts > leases of runs that end without an executor > recovers the lease of a terminal run in the orphaned-lease sweep only after its local process exits
+AssertionError: expected 'expired' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "expired"
+
+ ❯ src/__tests__/release-cancelled-interrupted-run-leases.test.ts:177:49
+    175|
+    176|       await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 0 });
+    177|       expect((await readLease(leaseId)).status).toBe("active");
+       |                                                 ^
+    178|
+    179|       await stopProcess(child);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  16:18:08
+   Duration  21.96s (transform 11.99s, setup 130ms, import 16.82s, tests 4.87s, environment 0ms)
+

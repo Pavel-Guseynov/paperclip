@@ -1,0 +1,14 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+[14:42:05] WARN: reaped orphaned heartbeat runs {"reapedCount":1,"runIds":["2a64c4b8-0d78-4f0c-bc60-8803d911e6e9"]}
+[14:42:05] WARN: reaped orphaned heartbeat runs {"reapedCount":1,"runIds":["410f6aca-324c-40f0-9b6a-9e33e6b2663f"]}
+(node:3004) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3004) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGTERM listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  14:41:42
+   Duration  27.52s (transform 13.41s, setup 202ms, import 20.73s, tests 6.24s, environment 0ms)
+

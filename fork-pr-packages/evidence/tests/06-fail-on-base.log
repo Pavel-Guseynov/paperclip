@@ -1,0 +1,122 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/issue-execution-policy.test.ts (81 tests | 4 failed) 60ms
+       × selects the returnAssignee when review approval advances to an approval stage (#4912) 12ms
+       × auto-skips an intermediate self-review stage and selects the returnAssignee for approval 1ms
+       × auto-skips consecutive self-review stages to complete the workflow 1ms
+       × selects the returnAssignee on initial entry into an approval stage 1ms
+ ❯ |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts (21 tests | 2 failed) 24583ms
+     × honors approval-stage returnAssignee participant selection via PATCH /api/issues/:id (#4912) 553ms
+     × auto-skips intermediate self-review stage and advances to approval stage via PATCH 529ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > honors approval-stage returnAssignee participant selection via PATCH /api/issues/:id (#4912)
+AssertionError: expected 422 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 422
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1287:24
+    1285|       .send({ status: "done", comment: "LGTM approved by reviewer" });
+    1286|
+    1287|     expect(res.status).toBe(200);
+       |                        ^
+    1288|     expect(mockIssueService.update).toHaveBeenCalledWith(
+    1289|       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy-routes.test.ts > issue execution policy routes > auto-skips intermediate self-review stage and advances to approval stage via PATCH
+AssertionError: expected 422 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 422
+
+ ❯ src/__tests__/issue-execution-policy-routes.test.ts:1385:24
+    1383|       .send({ status: "done", comment: "First review approved" });
+    1384|
+    1385|     expect(res.status).toBe(200);
+       |                        ^
+    1386|     expect(mockIssueService.update).toHaveBeenCalledWith(
+    1387|       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > selects the returnAssignee when review approval advances to an approval stage (#4912)
+Error: No eligible approval participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:817:17
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1266:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > auto-skips an intermediate self-review stage and selects the returnAssignee for approval
+Error: No eligible review participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:817:17
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1370:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > auto-skips consecutive self-review stages to complete the workflow
+Error: No eligible review participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:817:17
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1425:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/issue-execution-policy.test.ts > issue execution policy transitions > approval-stage returnAssignee selection and auto-skip traversal (#4912) > selects the returnAssignee on initial entry into an approval stage
+Error: No eligible approval participant is configured for this issue
+ ❯ unprocessable src/errors.ts:41:10
+     39|
+     40| export function unprocessable(message: string, details?: unknown) {
+     41|   return new HttpError(422, message, details);
+       |          ^
+     42| }
+     43|
+ ❯ applyIssueExecutionStageTransition src/services/issue-execution-policy.ts:1022:11
+ ❯ applyIssueExecutionPolicyTransition src/services/issue-execution-policy.ts:1218:23
+ ❯ src/__tests__/issue-execution-policy.test.ts:1536:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 96 passed (102)
+   Start at  15:43:13
+   Duration  28.40s (transform 11.82s, setup 189ms, import 3.25s, tests 24.64s, environment 0ms)
+

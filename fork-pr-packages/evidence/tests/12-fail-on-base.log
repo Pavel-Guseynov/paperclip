@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/workspace-runtime-start-terminality.test.ts (11 tests | 1 failed) 3519ms
+     × clears in-flight port reservations when runtime services are reset for tests 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/workspace-runtime-start-terminality.test.ts > managed runtime start terminality > clears in-flight port reservations when runtime services are reset for tests
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/__tests__/workspace-runtime-start-terminality.test.ts:205:54
+    203|     expect(claimRuntimeServiceBindPort(25100, null)).toBe(false);
+    204|     await resetRuntimeServicesForTests();
+    205|     expect(claimRuntimeServiceBindPort(25100, null)).toBe(true);
+       |                                                      ^
+    206|   });
+    207| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 passed (11)
+   Start at  09:52:03
+   Duration  13.79s (transform 6.96s, setup 179ms, import 9.87s, tests 3.52s, environment 0ms)
+

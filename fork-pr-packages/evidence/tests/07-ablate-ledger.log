@@ -1,0 +1,34 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts (18 tests | 1 failed) 12252ms
+     × starts a fresh retry budget after the board closes the exhaustion escalation 79ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > starts a fresh retry budget after the board closes the exhaustion escalation
+AssertionError: expected 'exhausted' to be 'enqueued' // Object.is equality
+
+Expected: "enqueued"
+Received: "exhausted"
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:646:28
+    644|
+    645|     const retried = await reconcile();
+    646|     expect(retried.action).toBe("enqueued");
+       |                            ^
+    647|     expect(enqueued).toEqual([buildReviewHandoffRetryIdempotencyKey({ …
+    648|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 17 passed (18)
+   Start at  15:50:29
+   Duration  29.18s (transform 11.95s, setup 108ms, import 16.67s, tests 12.25s, environment 0ms)
+

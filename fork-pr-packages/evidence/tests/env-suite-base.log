@@ -1,0 +1,123 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+stderr | src/acpx-engine/execute.test.ts > ACPX engine run lifecycle corrections (F1: settle every failure after buildRuntime) > test_sandbox_startup_span_ends_exactly_once_on_every_exit_path
+[paperclip] Sandbox callback bridge worker failed: Failed to start command "sh" in "/tmp/paperclip-acpx-skills-9IwFsT/remote-workspace". Verify adapter command, working directory, and PATH (/home/pc/wt/w1/node_modules/.bin:/home/pc/wt/w1/node_modules/.bin:/home/pc/wt/node_modules/.bin:/home/pc/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/opt/nvm/versions/node/v24.21.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/opt/nvm/versions/node/v24.21.0/bin:/usr/lib/postgresql/16/bin:/root/.cargo/bin:/nix/var/nix/profiles/default/bin:/root/.local/bin:/root/.cargo/bin:/usr/local/go/bin:/opt/node22/bin:/opt/maven/bin:/opt/gradle/bin:/opt/rbenv/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin). (transient poll failure 1; retrying)
+
+stderr | src/acpx-engine/execute.test.ts > ACPX engine run lifecycle corrections (F1: settle every failure after buildRuntime) > test_sandbox_startup_span_ends_exactly_once_on_every_exit_path
+[paperclip] Sandbox callback bridge worker failed: Failed to start command "sh" in "/tmp/paperclip-acpx-skills-9IwFsT/remote-workspace". Verify adapter command, working directory, and PATH (/home/pc/wt/w1/node_modules/.bin:/home/pc/wt/w1/node_modules/.bin:/home/pc/wt/node_modules/.bin:/home/pc/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/opt/nvm/versions/node/v24.21.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/opt/nvm/versions/node/v24.21.0/bin:/usr/lib/postgresql/16/bin:/root/.cargo/bin:/nix/var/nix/profiles/default/bin:/root/.local/bin:/root/.cargo/bin:/usr/local/go/bin:/opt/node22/bin:/opt/maven/bin:/opt/gradle/bin:/opt/rbenv/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin). (transient poll failure 2; retrying)
+
+stderr | src/acpx-engine/execute.test.ts > ACPX engine run lifecycle corrections (F1: settle every failure after buildRuntime) > test_sandbox_startup_span_ends_exactly_once_on_every_exit_path
+[paperclip] Sandbox callback bridge worker failed: Failed to start command "sh" in "/tmp/paperclip-acpx-skills-9IwFsT/remote-workspace". Verify adapter command, working directory, and PATH (/home/pc/wt/w1/node_modules/.bin:/home/pc/wt/w1/node_modules/.bin:/home/pc/wt/node_modules/.bin:/home/pc/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/opt/nvm/versions/node/v24.21.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/opt/nvm/versions/node/v24.21.0/bin:/usr/lib/postgresql/16/bin:/root/.cargo/bin:/nix/var/nix/profiles/default/bin:/root/.local/bin:/root/.cargo/bin:/usr/local/go/bin:/opt/node22/bin:/opt/maven/bin:/opt/gradle/bin:/opt/rbenv/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin). (transient poll failure 3; retrying)
+
+ ❯ |@paperclipai/adapter-utils| src/acpx-engine/execute.test.ts (200 tests | 2 failed | 198 skipped) 10059ms
+     × test_idle_staged_runtime_cleanup_waits_for_active_turn_release 5042ms
+     × test_sandbox_startup_span_ends_exactly_once_on_every_exit_path 5013ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/acpx-engine/execute.test.ts > ACPX engine remote session-lifecycle re-staging (PR 3: stage once / reuse on compatible resume) > test_idle_staged_runtime_cleanup_waits_for_active_turn_release
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/acpx-engine/execute.test.ts:4370:3
+    4368|   });
+    4369|
+    4370|   it("test_idle_staged_runtime_cleanup_waits_for_active_turn_release",…
+       |   ^
+    4371|     const { stateDir, localCwd, executionTarget } = await setupRemoteS…
+    4372|     const events: string[] = [];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |@paperclipai/adapter-utils| src/acpx-engine/execute.test.ts > ACPX engine run lifecycle corrections (F1: settle every failure after buildRuntime) > test_sandbox_startup_span_ends_exactly_once_on_every_exit_path
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/acpx-engine/execute.test.ts:6130:3
+    6128|   });
+    6129|
+    6130|   it("test_sandbox_startup_span_ends_exactly_once_on_every_exit_path",…
+       |   ^
+    6131|     // Each scenario runs a fresh remote bring-up with a recording tra…
+    6132|     // the one sandbox.startup span ends exactly once, whatever the ex…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 198 skipped (200)
+   Start at  16:27:40
+   Duration  14.45s (transform 3.16s, setup 0ms, import 4.20s, tests 10.06s, environment 0ms)
+
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+ ❯ |@paperclipai/server| src/__tests__/workspace-runtime.test.ts (162 tests | 1 failed | 161 skipped) 25480ms
+     × does not accept an occupied allocated port when listener ownership is unavailable 20318ms
+[16:28:42] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[16:28:43] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[16:28:43] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[16:28:44] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+ ❯ |@paperclipai/server| src/__tests__/railway-connection.test.ts (5 tests | 1 failed | 4 skipped) 4487ms
+     × preserves the dedicated SSH grant key on reconnect and removes it while disconnected 343ms
+ ❯ |@paperclipai/server| src/__tests__/railway-ssh.test.ts (6 tests | 1 failed | 5 skipped) 14ms
+     × generates a fresh real key without retaining files 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/railway-connection.test.ts > Railway connection lifecycle and gateway > preserves the dedicated SSH grant key on reconnect and removes it while disconnected
+RailwayError: Generating a Railway key requires system OpenSSH (ssh-keygen) on the Paperclip runtime.
+ ❯ generateRailwaySshKey src/services/railway-ssh.ts:28:11
+     26|     return { publicKey: (await readFile(`${keyPath}.pub`, "utf8")).tri…
+     27|   } catch {
+     28|     throw new RailwayError("railway_ssh_unavailable", "Generating a Ra…
+       |           ^
+     29|   } finally { await rm(directory, { recursive: true, force: true }); }
+     30| }
+ ❯ src/services/tool-access.ts:18189:23
+ ❯ scope ../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:279:18
+ ❯ sql.begin ../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:257:14
+ ❯ Object.configureRailwaySsh src/services/tool-access.ts:18173:21
+ ❯ src/__tests__/railway-connection.test.ts:138:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/railway-ssh.test.ts > Railway isolated container command runner > generates a fresh real key without retaining files
+RailwayError: Generating a Railway key requires system OpenSSH (ssh-keygen) on the Paperclip runtime.
+ ❯ Module.generateRailwaySshKey src/services/railway-ssh.ts:28:11
+     26|     return { publicKey: (await readFile(`${keyPath}.pub`, "utf8")).tri…
+     27|   } catch {
+     28|     throw new RailwayError("railway_ssh_unavailable", "Generating a Ra…
+       |           ^
+     29|   } finally { await rm(directory, { recursive: true, force: true }); }
+     30| }
+ ❯ src/__tests__/railway-ssh.test.ts:26:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/workspace-runtime.test.ts > workspace runtime service control persistence > does not accept an occupied allocated port when listener ownership is unavailable
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/__tests__/workspace-runtime.test.ts:7373:3
+    7371|   }, 20_000);
+    7372|
+    7373|   it("does not accept an occupied allocated port when listener ownersh…
+       |   ^
+    7374|     const fixture = await createRuntimeFixture();
+    7375|     const cleanupRuntimeHome = await createRuntimeHome();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  3 failed | 4 passed | 240 skipped (247)
+   Start at  16:27:56
+   Duration  57.62s (transform 12.86s, setup 329ms, import 15.57s, tests 41.10s, environment 0ms)
+

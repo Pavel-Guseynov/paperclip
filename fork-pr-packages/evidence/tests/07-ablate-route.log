@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts (16 tests | 1 failed) 12293ms
+     × reconciles the owed handoff before the recovery-action resolve response returns 162ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-review-handoff-retry.test.ts > review handoff retry after stale blocker clears > reconciles the owed handoff before the recovery-action resolve response returns
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/__tests__/heartbeat-review-handoff-retry.test.ts:655:19
+    653|         ),
+    654|       );
+    655|     expect(wakes).toHaveLength(1);
+       |                   ^
+    656|     expect(wakes[0].idempotencyKey).toBe(
+    657|       buildReviewHandoffRetryIdempotencyKey({ issueId, stageId, attemp…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)
+   Start at  09:38:49
+   Duration  31.96s (transform 13.66s, setup 152ms, import 19.34s, tests 12.29s, environment 0ms)
+

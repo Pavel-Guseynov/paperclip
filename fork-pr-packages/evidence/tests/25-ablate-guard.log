@@ -1,0 +1,59 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts (10 tests | 2 failed) 5619ms
+     × denies a target hostname that resolves here to a link-local address, before opening a socket 8ms
+     × rejects a target hostname longer than SOCKS5 can carry, before opening a socket 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > SOCKS5 proxy guard > denies a target hostname that resolves here to a link-local address, before opening a socket
+AssertionError: expected TypeError: Cannot read properties of unde… to match object { Object (code) }
+
+- Expected
++ Received
+
+- {
+-   "code": "remote_http_private_endpoint",
++ TypeError {
++   "message": "Cannot read properties of undefined (reading 'destroy')",
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:226:6
+    224|         socketFactory,
+    225|       }),
+    226|     ).rejects.toMatchObject({ code: "remote_http_private_endpoint" });
+       |      ^
+    227|     expect(socketFactory).not.toHaveBeenCalled();
+    228|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/remote-mcp-socks-proxy.test.ts > SOCKS5 proxy guard > rejects a target hostname longer than SOCKS5 can carry, before opening a socket
+AssertionError: expected TypeError: Cannot read properties of unde… to match object { code: 'mcp_remote_url_invalid' }
+
+- Expected
++ Received
+
+- {
+-   "code": "mcp_remote_url_invalid",
++ TypeError {
++   "message": "Cannot read properties of undefined (reading 'destroy')",
+  }
+
+ ❯ src/__tests__/remote-mcp-socks-proxy.test.ts:258:6
+    256|         socketFactory,
+    257|       }),
+    258|     ).rejects.toMatchObject({ code: "mcp_remote_url_invalid" });
+       |      ^
+    259|     expect(socketFactory).not.toHaveBeenCalled();
+    260|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 8 passed (10)
+   Start at  15:08:07
+   Duration  16.66s (transform 6.92s, setup 131ms, import 10.75s, tests 5.62s, environment 0ms)
+

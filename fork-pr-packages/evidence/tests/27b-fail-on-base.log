@@ -1,0 +1,93 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/packages/db
+
+ ❯ src/post-commit-hooks.test.ts (5 tests | 5 failed) 6167ms
+     × runs a hook once its transaction committed 8ms
+     × drops the hook when the transaction rolls back 7ms
+     × drops the hooks of a savepoint that rolls back and runs the others after the outer commit 2ms
+     × keeps the committed result when a hook fails and still runs the later hooks 2ms
+     × does not register a hook outside a transaction 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/post-commit-hooks.test.ts > post-commit hooks on a createDb database > runs a hook once its transaction committed
+TypeError: registerPostCommitHook is not a function
+ ❯ src/post-commit-hooks.test.ts:40:14
+     38|     await db.transaction(async (tx) => {
+     39|       await tx.execute(sql`insert into post_commit_probe (id) values (…
+     40|       expect(registerPostCommitHook(tx, async () => {
+       |              ^
+     41|         seenByHook.push(await committed(id));
+     42|       })).toBe(true);
+ ❯ scope ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:279:18
+ ❯ sql.begin ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:257:14
+ ❯ src/post-commit-hooks.test.ts:38:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/post-commit-hooks.test.ts > post-commit hooks on a createDb database > drops the hook when the transaction rolls back
+AssertionError: expected [Function] to throw error including 'abort' but got '(0 , __vite_ssr_import_3__.registerPo…'
+
+Expected: "abort"
+Received: "(0 , __vite_ssr_import_3__.registerPostCommitHook) is not a function"
+
+ ❯ src/post-commit-hooks.test.ts:57:8
+     55|       registerPostCommitHook(tx, hook);
+     56|       throw new Error("abort");
+     57|     })).rejects.toThrow("abort");
+       |        ^
+     58|
+     59|     expect(hook).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/post-commit-hooks.test.ts > post-commit hooks on a createDb database > drops the hooks of a savepoint that rolls back and runs the others after the outer commit
+TypeError: registerPostCommitHook is not a function
+ ❯ src/post-commit-hooks.test.ts:71:9
+     69|       await tx.transaction(async (savepoint) => {
+     70|         await savepoint.execute(sql`insert into post_commit_probe (id)…
+     71|         registerPostCommitHook(savepoint, () => { ran.push(kept); });
+       |         ^
+     72|       });
+     73|       await expect(tx.transaction(async (savepoint) => {
+ ❯ scope ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:279:18
+ ❯ src/post-commit-hooks.test.ts:69:7
+ ❯ scope ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:279:18
+ ❯ sql.begin ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:257:14
+ ❯ src/post-commit-hooks.test.ts:68:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/post-commit-hooks.test.ts > post-commit hooks on a createDb database > keeps the committed result when a hook fails and still runs the later hooks
+TypeError: registerPostCommitHook is not a function
+ ❯ src/post-commit-hooks.test.ts:93:7
+     91|     const result = await db.transaction(async (tx) => {
+     92|       await tx.execute(sql`insert into post_commit_probe (id) values (…
+     93|       registerPostCommitHook(tx, () => { throw new Error("hook failure…
+       |       ^
+     94|       registerPostCommitHook(tx, later);
+     95|       return "committed";
+ ❯ scope ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:279:18
+ ❯ sql.begin ../../node_modules/.pnpm/postgres@3.4.9_patch_hash=ff4264722dcd40c9da222d7eae410139aee10aa549b1cf4685eeeaf7c21d7d18/node_modules/postgres/src/index.js:257:14
+ ❯ src/post-commit-hooks.test.ts:91:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/post-commit-hooks.test.ts > post-commit hooks on a createDb database > does not register a hook outside a transaction
+TypeError: registerPostCommitHook is not a function
+ ❯ src/post-commit-hooks.test.ts:106:12
+    104|
+    105|   it("does not register a hook outside a transaction", () => {
+    106|     expect(registerPostCommitHook(db, vi.fn())).toBe(false);
+       |            ^
+    107|   });
+    108| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  11:46:54
+   Duration  10.22s (transform 1.46s, setup 0ms, import 3.80s, tests 6.17s, environment 0ms)
+

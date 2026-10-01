@@ -1,0 +1,12 @@
+
+ RUN  v4.1.11 /home/pc/wt/w2/server
+
+[12:39:52] INFO: Setup-token login confidential transport startup assessment {"proxyForwardingEnabled":false,"reason":"no_proxy_allowlist_local_trusted_loopback_only","deploymentMode":"local_trusted"}
+[12:39:52] INFO: heartbeat run status changed {"lifecycleEvent":{"eventType":"run_transition","eventId":"run:8f3f620d-3ab9-4836-aff3-dd28f26ab392:1790858392189409:cancelled","runId":"8f3f620d-3ab9-4836-aff3-dd28f26ab392","companyId":"02b36f72-2706-4035-8616-00b16843d667","agentId":"994e554b-0bfe-4e77-a73d-8f6940fe4dc1","issueId":null,"fromStatus":"running","toStatus":"cancelled","terminal":true,"cancellation":{"code":"cancelled","reason":"Cancelled by a board operator","requestedBy":{"type":"user","id":"board-user"}},"transitionedAtEpochUs":"1790858392189409"}}
+[12:39:52] INFO: heartbeat run status changed {"lifecycleEvent":{"eventType":"run_transition","eventId":"run:390edd0d-d38b-4861-9a6f-5122cbb3cff6:1790858392262633:cancelled","runId":"390edd0d-d38b-4861-9a6f-5122cbb3cff6","companyId":"4ebf200b-a0a9-48e1-893c-9d7118807400","agentId":"961e3051-5481-4e32-8af3-6304be06b023","issueId":null,"fromStatus":"running","toStatus":"cancelled","terminal":true,"cancellation":{"code":"agent_paused","reason":"Cancelled due to agent pause","requestedBy":null},"transitionedAtEpochUs":"1790858392262633"}}
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  12:39:30
+   Duration  22.80s (transform 12.40s, setup 101ms, import 16.39s, tests 6.13s, environment 0ms)
+

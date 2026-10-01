@@ -1,0 +1,28 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/pc/wt/w1
+
+[15:59:42] WARN: runtime connection tools could not be delivered {"companyId":"882174cd-7ed7-4112-93fc-51b49f65412e","agentId":"cd69c2f7-2418-4a57-917f-e20e82ec4d26","runId":"564fc68d-400b-4afc-8df3-6a0b527c9d16"}
+[15:59:42] ERROR: heartbeat execution failed {"runId":"564fc68d-400b-4afc-8df3-6a0b527c9d16"}
+    err: {
+      "type": "Error",
+      "message": "adapter setup failed: Execution workspace git worktree branch is incoherent",
+      "stack":
+          Error: adapter setup failed
+              at /home/pc/wt/w1/server/src/__tests__/workspace-validation-recovery-precedence.test.ts:607:11
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+          caused by: WorkspaceValidationFailure: Execution workspace git worktree branch is incoherent
+              at /home/pc/wt/w1/server/src/__tests__/workspace-validation-recovery-precedence.test.ts:608:20
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///home/pc/wt/w1/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+
+ Test Files  2 passed (2)
+      Tests  36 passed (36)
+   Start at  15:59:20
+   Duration  25.04s (transform 11.75s, setup 171ms, import 17.90s, tests 6.68s, environment 0ms)
+

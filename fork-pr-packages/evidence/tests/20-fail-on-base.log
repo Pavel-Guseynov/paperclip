@@ -1,0 +1,42 @@
+
+ RUN  v4.1.11 /home/pc/wt/w1/server
+
+[10:23:14] WARN: reaped orphaned heartbeat runs {"reapedCount":1,"runIds":["fd49f977-8e0b-4924-ac10-d7c9a415d173"]}
+[10:23:14] WARN: reaped orphaned heartbeat runs {"reapedCount":1,"runIds":["e458ef31-b744-4648-a678-4db6a7242dfa"]}
+ ❯ src/__tests__/conversation-continuation.test.ts (2 tests | 1 failed) 5373ms
+     × stamps a lost run of an adapter that declares continuation and continues it 307ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/conversation-continuation.test.ts > declared adapter conversation continuation > stamps a lost run of an adapter that declares continuation and continues it
+AssertionError: expected { stopReason: 'process_lost', …(4) } to match object { Object (conversationContinuation) }
+(5 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "conversationContinuation": "continue_conversation_v1",
++   "effectiveTimeoutSec": 0,
++   "stopReason": "process_lost",
++   "timeoutConfigured": false,
++   "timeoutFired": false,
++   "timeoutSource": "default",
+  }
+
+ ❯ src/__tests__/conversation-continuation.test.ts:139:32
+    137|
+    138|     const [source] = await db.select().from(heartbeatRuns).where(eq(he…
+    139|     expect(source!.resultJson).toMatchObject({ conversationContinuatio…
+       |                                ^
+    140|     expect(await getExecutionBlocker(db, companyId, issueId)).toBeNull…
+    141|     const runs = await db.select().from(heartbeatRuns).where(eq(heartb…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  10:22:52
+   Duration  22.86s (transform 12.14s, setup 105ms, import 17.24s, tests 5.37s, environment 0ms)
+
