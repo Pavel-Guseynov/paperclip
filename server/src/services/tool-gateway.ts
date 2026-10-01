@@ -26,6 +26,7 @@ import {
   gt,
   inArray,
   isNull,
+  lt,
   lte,
   ne,
   or,
@@ -418,7 +419,25 @@ type RemoteHttpExecutionAudit = {
     bodySizeBytes: number;
     upstreamRequestId: string | null;
   };
+  failureKind?: RemoteHttpFailureKind;
 };
+
+/**
+ * How a remote MCP tool call failed. `invocation_timeout` means this call was
+ * abandoned with an unknown outcome and says nothing about the connection;
+ * `transport_failure` means no complete response ever arrived; and
+ * `protocol_failure` means the server answered but broke the MCP contract.
+ */
+type RemoteHttpFailureKind =
+  | "invocation_timeout"
+  | "transport_failure"
+  | "protocol_failure";
+
+/**
+ * Health message of a connection whose last tool call was abandoned at its
+ * deadline. Gateway discovery keeps serving a connection in this state.
+ */
+const REMOTE_CALL_TIMEOUT_HEALTH_MESSAGE = "Remote MCP tool call timed out.";
 
 type LocalStdioRuntimeTemplate = {
   templateId: string;
@@ -1249,8 +1268,17 @@ export function createToolGatewayService(
           // while the responsible user's grant is valid. Keep its cached active
           // catalog discoverable; execution resolves and validates that user's
           // grant, and a successful call restores the shared health indicator.
+          //
+          // A connection degraded only because a tool call timed out is also
+          // served: the timeout proved nothing about the connection. The next
+          // call either succeeds and clears the warning, or fails and marks the
+          // connection "error". Every other "degraded" cause stays hidden.
           or(
             inArray(toolConnections.healthStatus, ["ok", "healthy"]),
+            and(
+              eq(toolConnections.healthStatus, "degraded"),
+              eq(toolConnections.healthMessage, REMOTE_CALL_TIMEOUT_HEALTH_MESSAGE),
+            ),
             eq(toolConnections.credentialPolicy, "per_user"),
           ),
           eq(toolApplications.companyId, companyId),
@@ -3511,8 +3539,16 @@ export function createToolGatewayService(
     connection: typeof toolConnections.$inferSelect,
     status: "ok" | "error" | "missing_secret" | "degraded",
     message: string | null,
+    options?: { observedAt?: Date },
   ) {
     const now = new Date();
+    // `observedAt` marks an ambiguous observation: the call was abandoned, so
+    // it applies only while the connection row is unchanged since the call
+    // started. Any later write is better evidence and stays. A conclusive
+    // outcome passes no `observedAt` and always records, so a real failure
+    // still fails closed. The check is part of the update statement, so no
+    // concurrent write can come between the check and the write.
+    const observedAt = options?.observedAt;
     await db
       .update(toolConnections)
       .set({
@@ -3523,7 +3559,11 @@ export function createToolGatewayService(
         lastError: status === "ok" ? null : message,
         updatedAt: now,
       })
-      .where(eq(toolConnections.id, connection.id));
+      .where(
+        observedAt
+          ? and(eq(toolConnections.id, connection.id), lt(toolConnections.updatedAt, observedAt))
+          : eq(toolConnections.id, connection.id),
+      );
   }
 
   function grantRefForCredential(
@@ -5495,6 +5535,43 @@ export function createToolGatewayService(
     };
   }
 
+  /**
+   * Single classification point for a remote MCP call that failed with a
+   * complete answer in hand. The reason code already names the exact failure,
+   * so the audit kind is derived from it instead of being restated at every
+   * throw site. Session expiry is deliberately unclassified: it is recoverable
+   * by retrying, not a fault of the remote server.
+   *
+   * `mcp_remote_status` covers every non-2xx answer, a credential rejection as
+   * much as an upstream fault: the kind records that the exchange failed
+   * conclusively rather than being abandoned or never delivered, and the exact
+   * status stays in the audit's `response.httpStatus` for anyone separating a
+   * 401 from a 502. Both must fail closed, so they need no separate kind here.
+   */
+  function remoteFailureKind(
+    error: ToolGatewayHttpError,
+  ): RemoteHttpFailureKind | undefined {
+    if (error.details.sessionExpired === true) return undefined;
+    switch (error.reasonCode) {
+      case "mcp_remote_status":
+      case "mcp_remote_invalid_json":
+      case "mcp_remote_response_too_large":
+      case "remote_mcp_error":
+      case "remote_mcp_malformed_response":
+        return "protocol_failure";
+      default:
+        return undefined;
+    }
+  }
+
+  function withFailureKind(
+    audit: RemoteHttpExecutionAudit,
+    failureKind: RemoteHttpFailureKind | undefined,
+  ): RemoteHttpExecutionAudit {
+    if (!failureKind || audit.failureKind) return audit;
+    return { ...audit, failureKind };
+  }
+
   function responseTooLargeError() {
     return new ToolGatewayHttpError(
       502,
@@ -5783,6 +5860,7 @@ export function createToolGatewayService(
     invocationId: string,
     callerHeaders?: ExecuteGatewayToolInput["callerHeaders"],
     useDefaultTimeout = false,
+    startedAt?: Date,
   ): Promise<RemoteHttpExecutionResult> {
     const { entry, connection } = await resolveConnectedRemoteTool(
       session,
@@ -5828,6 +5906,7 @@ export function createToolGatewayService(
         dispatched: true,
       },
     };
+    const invocationStartedAt = startedAt ?? new Date();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     timer.unref?.();
@@ -6169,30 +6248,42 @@ export function createToolGatewayService(
         const failure = error.reason === "too_large" ? responseTooLargeError()
           : error.reason === "malformed_response" ? malformedRemoteMcpResponse()
           : new ToolGatewayHttpError(502, "Remote MCP server returned invalid JSON", "mcp_remote_invalid_json");
+        const failureKind = remoteFailureKind(failure);
         await markRemoteConnectionHealth(connection, "error", failure.message);
         throw new ToolGatewayHttpError(failure.status, failure.message, failure.reasonCode, {
-          connectionId: connection.id, catalogEntryId: entry.id, execution,
+          connectionId: connection.id, catalogEntryId: entry.id,
+          execution: withFailureKind(execution, failureKind),
+          ...(failureKind ? { failureKind } : {}),
         });
       }
       if (error instanceof RailwayError) {
         throw new ToolGatewayHttpError(error.status, error.message, error.code, { connectionId: connection.id, catalogEntryId: entry.id, execution });
       }
       if (error instanceof ToolGatewayHttpError) {
+        // Every failure raised inside the try above lands here, so this is the
+        // one place that stamps the audit kind onto an already-shaped error.
+        const failureKind = remoteFailureKind(error);
+        const audit = (error.details.execution as RemoteHttpExecutionAudit | undefined) ?? execution;
         throw new ToolGatewayHttpError(
           error.status,
           error.message,
           error.reasonCode,
           {
             ...error.details,
-            execution: error.details.execution ?? execution,
+            execution: withFailureKind(audit, failureKind),
+            ...(failureKind ? { failureKind } : {}),
           },
         );
       }
       if (error instanceof Error && error.name === "AbortError") {
+        // The call was abandoned, so its outcome is unknown. That is a fact
+        // about this invocation, not about the connection: keep the connection
+        // serving its catalog and let the next call settle its health.
         await markRemoteConnectionHealth(
           connection,
-          "error",
-          "Remote MCP tool call timed out.",
+          "degraded",
+          REMOTE_CALL_TIMEOUT_HEALTH_MESSAGE,
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           504,
@@ -6201,10 +6292,16 @@ export function createToolGatewayService(
           {
             connectionId: connection.id,
             catalogEntryId: entry.id,
-            execution,
+            execution: withFailureKind(execution, "invocation_timeout"),
+            failureKind: "invocation_timeout",
           },
         );
       }
+      // Only a call that never received a complete upstream response carries
+      // evidence about the transport. Anything that escapes after the response
+      // was read (gateway-side bookkeeping, an unrepresentable payload) stays
+      // unclassified rather than blaming a transport that demonstrably worked.
+      const failureKind = execution.response ? undefined : "transport_failure";
       await markRemoteConnectionHealth(
         connection,
         "error",
@@ -6217,7 +6314,8 @@ export function createToolGatewayService(
         {
           connectionId: connection.id,
           catalogEntryId: entry.id,
-          execution,
+          execution: withFailureKind(execution, failureKind),
+          ...(failureKind ? { failureKind } : {}),
         },
       );
     } finally {
@@ -10402,6 +10500,7 @@ export function createToolGatewayService(
                 invocationId,
                 input.callerHeaders,
                 input.timeoutMs === undefined,
+                new Date(startedAt),
               )
             : tool.providerType === "mcp_local_stdio"
               ? await executeLocalStdioTool(
