@@ -131,6 +131,7 @@ import {
   sandboxProviderPluginRemedy,
   buildExecutionReviewParticipantRecoveryNoticeSeed,
   buildExecutionReviewParticipantUnavailableNoticeSeed,
+  buildExecutionReviewParticipantWorkspaceValidationNoticeSeed,
   buildStrandedRecoveryEscalationNotice,
   type StrandedRecoveryNoticeSeed,
 } from "./stranded-notice.js";
@@ -392,6 +393,24 @@ function resolveStrandedRecoveryCause(
   latestRun: LatestIssueRun,
   explicitCause?: StrandedRecoveryCause,
 ): StrandedRecoveryCause {
+  // A sweep that found the issue stranded passes a generic cause: it names no
+  // cause of its own. When the failed run carries a typed workspace-validation
+  // diagnosis, that diagnosis is the cause, and it decides the recovery kind,
+  // the operator guidance and the escalation comment. Any other explicit cause
+  // names a real, observed failure and keeps precedence.
+  if (
+    explicitCause &&
+    explicitCause !== "stranded_assigned_issue" &&
+    explicitCause !== EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON
+  ) {
+    return explicitCause;
+  }
+  if (
+    latestRun?.errorCode === "workspace_validation_failed" ||
+    readWorkspaceValidationPayload(latestRun) !== null
+  ) {
+    return "workspace_validation_failed";
+  }
   if (explicitCause) return explicitCause;
   if (isProviderQuotaRecovery(latestRun)) return "provider_quota";
   if (latestRun?.errorCode === "process_lost") return "process_lost";
@@ -4032,8 +4051,8 @@ export function recoveryService(
 
     const shouldPostEscalationComment =
       recoveryAction.attemptCount === 1 ||
-      input.recoveryCause === "workspace_validation_failed" ||
-      input.recoveryCause === "configuration_incomplete";
+      recoveryCause === "workspace_validation_failed" ||
+      recoveryCause === "configuration_incomplete";
     if (shouldPostEscalationComment) {
       const escalationCommentMarker = `Recovery action: \`${recoveryAction.id}\``;
 
@@ -4105,18 +4124,21 @@ export function recoveryService(
         identifier: input.issue.identifier,
         status: "blocked",
         previousStatus: input.previousStatus,
+        // The action this event points at is the authority for the cause and
+        // the source. A sweep whose generic write was held against a diagnosed
+        // action must not label that action with the sweep's own generic cause.
         source:
-          input.recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON
+          recoveryAction.cause === SUCCESSFUL_RUN_MISSING_STATE_REASON
             ? "recovery.reconcile_successful_run_handoff_missing_state"
-            : input.recoveryCause === "workspace_validation_failed"
+            : recoveryAction.cause === "workspace_validation_failed"
               ? "recovery.reconcile_workspace_validation_failed"
-              : input.recoveryCause === "configuration_incomplete"
+              : recoveryAction.cause === "configuration_incomplete"
                 ? "recovery.reconcile_configuration_incomplete"
-                : input.recoveryCause ===
+                : recoveryAction.cause ===
                     "execution_review_participant_recovery"
                   ? "recovery.reconcile_execution_review_participant"
                   : "recovery.reconcile_stranded_assigned_issue",
-        recoveryCause: input.recoveryCause ?? "stranded_assigned_issue",
+        recoveryCause: recoveryAction.cause,
         latestRunId: input.latestRun?.id ?? null,
         latestRunStatus: input.latestRun?.status ?? null,
         latestRunErrorCode: input.latestRun?.errorCode ?? null,
@@ -4986,6 +5008,37 @@ export function recoveryService(
               participantLatestRun,
               participantAdapterFailureClassification,
             );
+            result.escalated += 1;
+            result.issueIds.push(issue.id);
+          } else {
+            result.skipped += 1;
+          }
+          continue;
+        }
+        const participantWorkspaceValidation = readWorkspaceValidationPayload(
+          participantLatestRun,
+        );
+        if (
+          isUnsuccessfulTerminalIssueRun(participantLatestRun) &&
+          (participantLatestRun?.errorCode === "workspace_validation_failed" ||
+            participantWorkspaceValidation !== null)
+        ) {
+          // A failed workspace is a physical blocker that outranks the generic
+          // requeue path below. The notice still reports an unavailable
+          // participant, so neither blocker is lost when both hold.
+          const updated = await escalateStrandedAssignedIssue({
+            issue,
+            previousStatus: "in_review",
+            latestRun: participantLatestRun,
+            recoveryCause: "workspace_validation_failed",
+            notice: buildExecutionReviewParticipantWorkspaceValidationNoticeSeed({
+              participantInvokable: agentInvokable,
+              workspaceValidationReason: readNonEmptyString(
+                participantWorkspaceValidation?.reason,
+              ),
+            }),
+          });
+          if (updated) {
             result.escalated += 1;
             result.issueIds.push(issue.id);
           } else {
