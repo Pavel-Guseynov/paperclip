@@ -109,6 +109,13 @@ export function collectReachableInterfaceHosts(input: {
 }
 
 export function buildRuntimeApiCandidateUrls(input: {
+  /**
+   * An operator-pinned internal runtime callback origin
+   * (`PAPERCLIP_RUNTIME_API_URL`). It leads the list so an agent that iterates
+   * the candidates tries the pinned internal origin before the public
+   * dashboard origin, while the public origin stays in the list as a fallback.
+   */
+  pinnedRuntimeApiUrl?: string | null;
   preferredApiUrl?: string | null;
   authPublicBaseUrl?: string | null;
   allowedHostnames: string[];
@@ -129,6 +136,7 @@ export function buildRuntimeApiCandidateUrls(input: {
   })();
   const protocol = explicitOrigin ? new URL(explicitOrigin).protocol : "http:";
 
+  pushCandidate(candidates, seen, input.pinnedRuntimeApiUrl);
   pushCandidate(candidates, seen, input.preferredApiUrl);
   pushCandidate(candidates, seen, explicitOrigin);
 
