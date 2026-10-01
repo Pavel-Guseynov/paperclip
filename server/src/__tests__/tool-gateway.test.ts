@@ -5732,4 +5732,75 @@ rl.on("line", (line) => {
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
   });
+
+  it("rejects a named gateway token on the run-scoped session endpoints", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    const localTool = await createLocalStdioMcpTool(db, company.id, {
+      applicationKey: "local-demo",
+      connectionName: "Local Demo",
+      toolName: "echo",
+      title: "Local echo",
+    });
+    const toolName = expectedConnectedToolName({
+      applicationKey: "local-demo",
+      connectionId: localTool.connection.id,
+      toolName: "echo",
+    });
+    const profile = await allowToolsForAgent(db, company.id, agent.id, []);
+    await db.insert(toolProfileEntries).values({
+      companyId: company.id,
+      profileId: profile.id,
+      selectorType: "catalog_entry",
+      effect: "include",
+      catalogEntryId: localTool.catalogEntry.id,
+    });
+    const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+    const app = createGatewayRouteApp(db, gateway);
+    const namedGateway = await gateway.createNamedGateway({
+      companyId: company.id,
+      body: { name: `GW ${randomUUID()}`, profileId: profile.id, defaultProfileMode: "gateway_only" },
+    });
+    // The token may call tools but not list them. The session tool list does
+    // not consult allowedActions, so the session endpoints must not accept
+    // this credential at all.
+    const gatewayToken = await gateway.createNamedGatewayToken({
+      companyId: company.id,
+      gatewayId: namedGateway.id,
+      body: {
+        name: "call-only",
+        clientLabel: "call-only",
+        subjectType: "heartbeat_run",
+        subjectId: run.id,
+        allowedActions: ["tools/call"],
+      },
+    });
+
+    const listed = await request(app)
+      .get("/api/tool-gateway/tools")
+      .set("x-paperclip-tool-gateway-token", gatewayToken.token);
+    expect(listed.status).toBe(401);
+    expect(listed.body).toMatchObject({ reasonCode: "session_invalid" });
+
+    const called = await request(app)
+      .post("/api/tool-gateway/tools/call")
+      .set("x-paperclip-tool-gateway-token", gatewayToken.token)
+      .send({ tool: toolName, parameters: { message: "hi" } });
+    expect(called.status).toBe(401);
+    expect(called.body).toMatchObject({ reasonCode: "session_invalid" });
+
+    // The same token still works on the gateway endpoint it belongs to.
+    const gatewayCall = await request(app)
+      .post(`/mcp/gateways/${namedGateway.gatewayPublicId}`)
+      .set("authorization", `Bearer ${gatewayToken.token}`)
+      .send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: toolName, arguments: { message: "hi" } },
+      });
+    expect(gatewayCall.status).toBe(200);
+    expect(gatewayCall.body.result).toBeDefined();
+  });
 });

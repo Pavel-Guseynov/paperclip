@@ -1824,6 +1824,18 @@ export function createToolGatewayService(
       );
     }
     if (namedGatewayTokenId(token)) {
+      // A pcgw_* gateway token is a credential for a named gateway endpoint,
+      // which supplies the gateway locator. The run-scoped session endpoints
+      // supply none, and their tool list does not consult the token's
+      // allowedActions, so a token whose actions exclude tools/list could
+      // enumerate the gateway's tools there.
+      if (!namedGatewayProtocol?.gatewayId && !namedGatewayProtocol?.gatewayPublicId) {
+        throw new ToolGatewayHttpError(
+          401,
+          "Tool gateway session is expired or invalid",
+          "session_invalid",
+        );
+      }
       return namedGatewaySessionFromBearer({
         gatewayId: namedGatewayProtocol?.gatewayId ?? null,
         gatewayPublicId: namedGatewayProtocol?.gatewayPublicId ?? null,
