@@ -217,6 +217,8 @@ interface ActorMiddlewareOptions {
 const publicRoutineWebhookPath = /^\/api\/routine-triggers\/public\/[a-f0-9]{24}\/fire\/?$/i;
 
 const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
+const sessionToolListPath = /^\/api\/tool-gateway\/tools\/?$/i;
+const sessionToolCallPath = /^\/api\/tool-gateway\/tools\/call\/?$/i;
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
   const boardAuth = boardAuthService(db);
@@ -245,6 +247,7 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
 
     const authHeader = req.header("authorization");
     const hasBearerCredentials = /^bearer(?:\s|$)/i.test(authHeader ?? "");
+    const hasSessionTokenBearer = /^bearer\s+pcgt_/i.test(authHeader ?? "");
 
     // Public MCP gateway protocol requests carry a pcgw_* bearer that is
     // validated by the gateway service itself. Do not interpret that bearer as
@@ -253,6 +256,25 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     // restricted to the unguessable public gateway path; all /api routes retain
     // the normal actor authentication path below.
     if (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path)) {
+      if (runIdHeader) req.actor.runId = runIdHeader;
+      next();
+      return;
+    }
+
+    // The run-scoped session endpoints authenticate a pcgt_* session token in
+    // the gateway service. Hand that one credential to the service with no
+    // implicit board authority: interpreting it as an agent JWT rejects the
+    // call before the service can verify it. Every other credential on these
+    // paths (a browser session, a board key, an agent JWT, or none at all)
+    // keeps normal actor authentication below, so the JWT run-id-mismatch
+    // audit and the terminated/pending-agent rejections still run. So does
+    // every other /api request.
+    if (
+      hasSessionTokenBearer
+      && ((req.method === "GET" && sessionToolListPath.test(req.path))
+        || (req.method === "POST" && sessionToolCallPath.test(req.path)))
+    ) {
+      req.actor = { type: "none", source: "none" };
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();
       return;

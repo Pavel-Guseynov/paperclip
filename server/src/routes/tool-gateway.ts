@@ -36,8 +36,18 @@ const TOOL_GATEWAY_WINDOWS: Record<string, number | null> = {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Prefix of a run-scoped gateway session token. */
+const sessionTokenBearerPattern = /^pcgt_/i;
+
 function gatewayToken(req: { header(name: string): string | undefined }) {
-  return req.header("x-paperclip-tool-gateway-token")?.trim() || null;
+  const header = req.header("x-paperclip-tool-gateway-token")?.trim();
+  if (header) return header;
+  // Only the session credential itself is read out of Authorization, matching
+  // the one credential the actor middleware hands past authentication for
+  // these endpoints. Any other bearer belongs to a different authority and
+  // must not be mistaken for a session token here.
+  const bearer = bearerToken(req);
+  return bearer && sessionTokenBearerPattern.test(bearer) ? bearer : null;
 }
 
 function bearerToken(req: { header(name: string): string | undefined }) {
