@@ -691,9 +691,20 @@ function walk(dir) {
 }
 
 walk(root);
-// pnpm-workspace.yaml is the pnpm 11 patch manifest for this repository. Hash
-// the declared paths, including non-.patch filenames and patches outside patches/.
-// Same reader as readWorkspacePatchedDependencies in scripts/prepare-bundled-package.mjs.
+// Hash declared patches from pnpm-workspace.yaml (pnpm 11) and package.json#pnpm
+// (pre-migration branches), including non-.patch filenames and patches outside patches/.
+const manifestPath = path.join(root, "package.json");
+if (fs.existsSync(manifestPath)) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    for (const patch of Object.values(manifest.pnpm?.patchedDependencies ?? {})) {
+      if (typeof patch === "string") {
+        const file = path.resolve(root, patch);
+        if (!files.includes(file)) files.push(file);
+      }
+    }
+  } catch {}
+}
 const workspaceManifestPath = path.join(root, "pnpm-workspace.yaml");
 const workspaceManifest = fs.existsSync(workspaceManifestPath) ? fs.readFileSync(workspaceManifestPath, "utf8") : "";
 let inPatchedDependencies = false;
