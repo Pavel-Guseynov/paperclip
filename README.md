@@ -400,7 +400,7 @@ pnpm dev
 
 This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically — no setup required. If database initialization fails, the startup error includes PostgreSQL's `initdb` diagnostic output and the temporary password file is removed.
 
-> **Requirements:** Node.js 24.11+, pnpm 11.21+
+> **Requirements:** Node.js 24.11+, pnpm 11.27+
 
 <br/>
 

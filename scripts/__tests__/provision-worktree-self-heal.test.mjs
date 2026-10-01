@@ -558,7 +558,10 @@ test("patch content changes invalidate an otherwise matching install fingerprint
   fs.writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\ncase "$1" in install) echo install >> pnpm-calls; mkdir -p node_modules cli/node_modules ;; esac\n', { mode: 0o700 });
   const first = runProvision(baseCwd, { pathPrefix: bin, setupWorktree(root) {
     fs.writeFileSync(path.join(root, "package.json"), "{}\n");
-    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  'dependency@1': patches/dependency.diff\n");
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "patchedDependencies: # patch manifest\n  # declared patch\n  'dependency@1': patches/dependency.diff # applied on install\n",
+    );
     fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     fs.mkdirSync(path.join(root, "patches"));
     fs.writeFileSync(path.join(root, "patches/dependency.diff"), "first patch");
@@ -575,3 +578,27 @@ test("patch content changes invalidate an otherwise matching install fingerprint
   assert.equal(runProvision(baseCwd, options).result.status, 0);
   assert.equal(fs.readFileSync(callsPath, "utf8"), "install\ninstall\n");
 });
+
+test("pre-migration branch package.json patch content changes invalidate install fingerprint", () => {
+  const baseCwd = makeBaseWorkspace({ helpExit: 0, initExit: 0 });
+  const bin = makeTempDir("paperclip-legacy-patch-pnpm-");
+  fs.writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\ncase "$1" in install) echo install >> pnpm-calls; mkdir -p node_modules cli/node_modules ;; esac\n', { mode: 0o700 });
+  const first = runProvision(baseCwd, { pathPrefix: bin, setupWorktree(root) {
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ pnpm: { patchedDependencies: { "dependency@1": "patches/dependency.diff" } } }),
+    );
+    fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    fs.mkdirSync(path.join(root, "patches"));
+    fs.writeFileSync(path.join(root, "patches/dependency.diff"), "first patch");
+  } });
+  assert.equal(first.result.status, 0, first.result.stderr);
+  const options = { pathPrefix: bin, existingWorktree: first.worktreeCwd };
+  assert.equal(runProvision(baseCwd, options).result.status, 0);
+  const callsPath = path.join(first.worktreeCwd, "pnpm-calls");
+  assert.equal(fs.readFileSync(callsPath, "utf8"), "install\n");
+  fs.writeFileSync(path.join(first.worktreeCwd, "patches/dependency.diff"), "changed patch");
+  assert.equal(runProvision(baseCwd, options).result.status, 0);
+  assert.equal(fs.readFileSync(callsPath, "utf8"), "install\ninstall\n");
+});
+
