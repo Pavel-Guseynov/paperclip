@@ -438,19 +438,11 @@ rl.on("line", (line) => {
 }
 
 function expectedConnectedToolName(input: { applicationKey: string | null; connectionId: string; toolName: string }) {
-  const applicationSegment = (input.applicationKey ?? "mcp")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "mcp";
-  const toolSegment = input.toolName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "tool";
-  return `mcp.${applicationSegment}-${input.connectionId.replace(/-/g, "").slice(0, 8)}:${toolSegment}`;
+  const segment = (value: string, fallback: string) =>
+    value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "") || fallback;
+  const name = `${segment(input.applicationKey ?? "mcp", "mcp")}_${segment(input.toolName, "tool")}`;
+  if (name.length > 40) throw new Error(`Fixture tool name ${name} would be truncated`);
+  return name;
 }
 
 function expectGatewayError(error: unknown, status: number, reasonCode: string) {
@@ -1514,7 +1506,8 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     const tools = await gateway.listToolsForSession(session.token);
     const connectedTool = tools.find((tool) => tool.providerType === "mcp_remote_http");
     expect(connectedTool).toMatchObject({
-      name: expect.stringMatching(/^mcp\.kv-demo-[0-9a-f]{8}:kv-set$/),
+      name: "kv-demo_kv_set",
+      legacyToolName: `mcp.kv-demo-${remoteTool.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set`,
       displayName: "Set KV value",
       providerType: "mcp_remote_http",
       risk: "write",
@@ -2086,8 +2079,12 @@ rl.on("line", (line) => {
     ].sort());
     expect(new Set(connectedTools.map((tool) => tool.name)).size).toBe(2);
     expect(connectedTools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
-      expect.stringMatching(new RegExp(`^mcp\\.kv-demo-${first.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set$`)),
-      expect.stringMatching(new RegExp(`^mcp\\.kv-demo-${second.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set$`)),
+      "kv-demo_kv_set",
+      `kv-demo_kv_set_${second.connection.id.replace(/-/g, "").slice(0, 8)}`,
+    ]));
+    expect(connectedTools.map((tool) => tool.legacyToolName)).toEqual(expect.arrayContaining([
+      `mcp.kv-demo-${first.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set`,
+      `mcp.kv-demo-${second.connection.id.replace(/-/g, "").slice(0, 8)}:kv-set`,
     ]));
   });
 
@@ -5812,12 +5809,13 @@ rl.on("line", (line) => {
       assignedAgentId: agent.id,
     }).returning();
 
-    // Read the names the gateway exposes, as an operator would have copied them.
+    // Read the legacy names the gateway exposed, as an operator would have
+    // copied them.
     const discovery = await allowToolsForAgent(db, company.id, agent.id, ["echo", "read.file", "list.files"]);
     const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
     const discoverySession = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
     const exposedName = new Map(
-      (await gateway.listToolsForSession(discoverySession.token)).map((tool) => [tool.catalogEntryId, tool.name]),
+      (await gateway.listToolsForSession(discoverySession.token)).map((tool) => [tool.catalogEntryId, tool.legacyToolName]),
     );
     await db.delete(toolProfileBindings).where(eq(toolProfileBindings.profileId, discovery.id));
     await db.delete(toolProfiles).where(eq(toolProfiles.id, discovery.id));
@@ -5890,5 +5888,249 @@ rl.on("line", (line) => {
       .map((tool) => tool.connectionId);
     expect(visible).toEqual([granted.connection.id]);
     expect(visible).not.toContain(sameName.connection.id);
+  });
+
+  describe("client-safe connected tool names", () => {
+    async function namedGatewayFor(companyId: string) {
+      const [profile] = await db.insert(toolProfiles).values({
+        companyId,
+        profileKey: `client-safe-${randomUUID()}`,
+        name: `Client-safe ${randomUUID()}`,
+        defaultAction: "allow",
+      }).returning();
+      const gateway = createTestToolGatewayService(db);
+      const created = await gateway.createNamedGateway({
+        companyId,
+        body: { name: `Client-safe gateway ${randomUUID()}`, profileId: profile!.id },
+      });
+      const token = await gateway.createNamedGatewayToken({
+        companyId,
+        gatewayId: created.id,
+        body: { name: "Agent client", clientLabel: "agent-client" },
+      });
+      const app = createGatewayRouteApp(db, gateway);
+      const send = (body: Record<string, unknown>) =>
+        request(app).post(created.endpointPath).set("authorization", `Bearer ${token.token}`).send(body);
+      return { send };
+    }
+
+    it("lists connected tools under names that MCP clients accept", async () => {
+      const company = await createCompany(db);
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+        body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "ok" }] } },
+      }));
+      try {
+        await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", toolName: "query",
+        });
+        await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "document-service", toolName: "export.markdown",
+        });
+        await createRemoteMcpTool(db, company.id, {
+          url: remote.url,
+          applicationKey: "enterprise-data-warehouse-platform",
+          toolName: "summarize_quarterly_revenue_by_region",
+        });
+        const { send } = await namedGatewayFor(company.id);
+        const listed = await send({ jsonrpc: "2.0", id: 1, method: "tools/list" }).expect(200);
+        const names = (listed.body.result.tools as Array<{ name: string }>).map((tool) => tool.name);
+        const connectedNames = [
+          "remote-analytics_query",
+          "document-service_export-markdown",
+          "enterprise-data-war_summarize_quarterly",
+        ];
+        expect(names).toEqual(expect.arrayContaining(connectedNames));
+        // Built-in tools keep their own `<provider>:<tool>` names.
+        const connectedListed = names.filter((name) => !name.includes(":") && !name.startsWith("paperclip_"));
+        expect(connectedListed).toHaveLength(connectedNames.length);
+        for (const name of connectedListed) expect(name).toMatch(/^[A-Za-z0-9_-]{1,40}$/);
+      } finally {
+        await remote.close();
+      }
+    });
+
+    it("calls a connected tool by its client-safe name with its upstream name", async () => {
+      const company = await createCompany(db);
+      const calls: Array<Record<string, unknown> | null> = [];
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => {
+        calls.push(body);
+        return { body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "query executed" }] } } };
+      });
+      try {
+        await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", toolName: "query",
+        });
+        const { send } = await namedGatewayFor(company.id);
+        const called = await send({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "remote-analytics_query", arguments: { query: "SELECT 1" } },
+        }).expect(200);
+        expect(called.body.result).toMatchObject({ content: [{ type: "text", text: "query executed" }] });
+        expect(calls.at(-1)).toMatchObject({
+          method: "tools/call",
+          params: { name: "query", arguments: { query: "SELECT 1" } },
+        });
+      } finally {
+        await remote.close();
+      }
+    });
+
+    it("keeps an existing tool name when another connection exposes the same tool", async () => {
+      const company = await createCompany(db);
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+        body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "ok" }] } },
+      }));
+      try {
+        await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", connectionName: "Production", toolName: "query",
+        });
+        const { send } = await namedGatewayFor(company.id);
+        const before = await send({ jsonrpc: "2.0", id: 1, method: "tools/list" }).expect(200);
+        expect(before.body.result.tools.map((tool: { name: string }) => tool.name)).toContain("remote-analytics_query");
+
+        const second = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", connectionName: "Staging", toolName: "query",
+        });
+        const after = await send({ jsonrpc: "2.0", id: 2, method: "tools/list" }).expect(200);
+        const secondName = `remote-analytics_query_${second.connection.id.replace(/-/g, "").slice(0, 8)}`;
+        expect(after.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(
+          expect.arrayContaining(["remote-analytics_query", secondName]),
+        );
+        for (const [id, name] of [[3, "remote-analytics_query"], [4, secondName]] as const) {
+          await send({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: {} } }).expect(200);
+        }
+      } finally {
+        await remote.close();
+      }
+    });
+
+    it("keeps every tool's name while an older connection with the same tool is unhealthy", async () => {
+      const company = await createCompany(db);
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+        body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "ok" }] } },
+      }));
+      try {
+        const production = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", connectionName: "Production", toolName: "query",
+        });
+        const staging = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", connectionName: "Staging", toolName: "query",
+        });
+        const stagingName = `remote-analytics_query_${staging.connection.id.replace(/-/g, "").slice(0, 8)}`;
+        const { send } = await namedGatewayFor(company.id);
+        const listedNames = async (id: number) =>
+          (await send({ jsonrpc: "2.0", id, method: "tools/list" }).expect(200)).body.result.tools
+            .map((tool: { name: string }) => tool.name);
+
+        expect(await listedNames(1)).toEqual(expect.arrayContaining(["remote-analytics_query", stagingName]));
+        await db.update(toolConnections).set({ healthStatus: "error" }).where(eq(toolConnections.id, production.connection.id));
+        const whileUnhealthy = await listedNames(2);
+        expect(whileUnhealthy).toContain(stagingName);
+        expect(whileUnhealthy).not.toContain("remote-analytics_query");
+        await db.update(toolConnections).set({ healthStatus: "ok" }).where(eq(toolConnections.id, production.connection.id));
+        expect(await listedNames(3)).toEqual(expect.arrayContaining(["remote-analytics_query", stagingName]));
+      } finally {
+        await remote.close();
+      }
+    });
+
+    it("never gives a connected tool a name the gateway uses for its own tools", async () => {
+      const company = await createCompany(db);
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+        body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "ok" }] } },
+      }));
+      try {
+        const search = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "search", toolName: "tools",
+        });
+        const resources = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "paperclip", toolName: "list_resources",
+        });
+        const { send } = await namedGatewayFor(company.id);
+        const names = (await send({ jsonrpc: "2.0", id: 1, method: "tools/list" }).expect(200)).body.result.tools
+          .map((tool: { name: string }) => tool.name);
+        const suffix = (connectionId: string) => connectionId.replace(/-/g, "").slice(0, 8);
+        expect(names).toEqual(expect.arrayContaining([
+          `search_tools_${suffix(search.connection.id)}`,
+          `paperclip_list_resources_${suffix(resources.connection.id)}`,
+        ]));
+        expect(names.filter((name: string) => name === "paperclip_list_resources")).toHaveLength(1);
+        expect(names).not.toContain("search_tools");
+      } finally {
+        await remote.close();
+      }
+    });
+
+    it("honors a tools:use grant scoped to a legacy tool name", async () => {
+      const company = await createCompany(db);
+      const agent = await createAgent(db, company.id);
+      const { run } = await createIssueAndRun(db, company.id, agent.id);
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+        body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
+      }));
+      try {
+        const { connection } = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", toolName: "query",
+        });
+        const legacyToolName = `mcp.remote-analytics-${connection.id.replace(/-/g, "").slice(0, 8)}:query`;
+        await allowToolsForAgent(db, company.id, agent.id, []);
+        await db.insert(principalPermissionGrants).values({
+          companyId: company.id,
+          principalType: "agent",
+          principalId: agent.id,
+          permissionKey: "tools:use",
+          // The selector matches no tool, so only the allow list can grant it.
+          scope: { allow: [`tool:${legacyToolName}`], toolNames: ["unrelated_tool"] },
+          grantedByUserId: "owner",
+        });
+
+        const gateway = createTestToolGatewayService(db);
+        const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+        const result = await gateway.executeTool({
+          sessionToken: session.token, tool: "remote-analytics_query", parameters: { query: "SELECT 1" },
+        });
+        expect(result).toMatchObject({ status: "completed", tool: "remote-analytics_query" });
+      } finally {
+        await remote.close();
+      }
+    });
+
+    it("applies policies stored under a legacy tool name and resolves calls by that name", async () => {
+      const company = await createCompany(db);
+      const agent = await createAgent(db, company.id);
+      const { run } = await createIssueAndRun(db, company.id, agent.id);
+      const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+        body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
+      }));
+      try {
+        const { connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+          url: remote.url, applicationKey: "remote-analytics", toolName: "query", riskLevel: "write",
+        });
+        const legacyToolName = `mcp.remote-analytics-${connection.id.replace(/-/g, "").slice(0, 8)}:query`;
+        await allowToolsForAgent(db, company.id, agent.id, [catalogEntry.toolName]);
+        await db.insert(toolPolicies).values({
+          companyId: company.id,
+          name: "Review legacy-named writes",
+          policyType: "require_approval",
+          selectors: { toolName: legacyToolName },
+          priority: 100,
+        });
+
+        const gateway = createTestToolGatewayService(db);
+        const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+        for (const tool of ["remote-analytics_query", legacyToolName]) {
+          await gateway.executeTool({ sessionToken: session.token, tool, parameters: { query: "SELECT 1" } }).then(
+            () => {
+              throw new Error(`Expected ${tool} to require approval`);
+            },
+            (error) => expectGatewayError(error, 409, "approval_required"),
+          );
+        }
+      } finally {
+        await remote.close();
+      }
+    });
   });
 });
