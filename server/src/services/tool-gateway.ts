@@ -127,7 +127,11 @@ import {
   REMOTE_URL_SECRET_CONFIG_PATH,
   remoteUrlCredentialMatchesPublicUrl,
 } from "./remote-url-credentials.js";
-import { toolAccessPolicyService } from "./tool-access-policy.js";
+import {
+  createToolPolicyReadCache,
+  toolAccessPolicyService,
+  type ToolPolicyReadCache,
+} from "./tool-access-policy.js";
 import { commitToolActionReview } from "./tool-action-review.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import {
@@ -1218,6 +1222,7 @@ export function createToolGatewayService(
 
   async function connectedMcpToolsForCompany(
     companyId: string,
+    readCache?: ToolPolicyReadCache,
   ): Promise<ToolGatewayDescriptor[]> {
     const rows = await db
       .select({
@@ -1259,6 +1264,7 @@ export function createToolGatewayService(
         ),
       )
       .orderBy(toolConnections.name, toolCatalogEntries.name);
+    for (const { catalogEntry } of rows) readCache?.primeCatalogEntry(catalogEntry);
 
     const eligibleRows = rows.filter(
       ({ catalogEntry, connection, application }) =>
@@ -2872,8 +2878,10 @@ export function createToolGatewayService(
       await assertAgentInCompany(session.companyId, session.agentId);
     }
     const guestBotConnection = await githubGuestBotConnectionForSession(db, session);
+    const readCache = createToolPolicyReadCache();
     const allConnectedTools = (await connectedMcpToolsForCompany(
       session.companyId,
+      readCache,
     )).filter(tool => !guestBotConnection || !tool.connectionId || (tool.connectionId === guestBotConnection && tool.providerType === "paperclip_github_chat"));
     const onDemandTargets = allConnectedTools.filter(isOnDemandRemoteTool);
     const tools = [
@@ -2891,6 +2899,7 @@ export function createToolGatewayService(
       tools.map(async (tool) => {
         const decision = await policyService.decide(
           policyInputForTool({ session, tool }),
+          { readCache },
         );
         return { tool, decision };
       }),
@@ -2918,6 +2927,7 @@ export function createToolGatewayService(
         onDemandTargets.map(async (tool) => {
           const decision = await policyService.decide(
             policyInputForTool({ session, tool }),
+            { readCache },
           );
           return { tool, decision };
         }),
