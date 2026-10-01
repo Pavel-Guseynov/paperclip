@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { environmentLeases, heartbeatRunEvents, heartbeatRuns, issueRecoveryActions, type Db } from "@paperclipai/db";
 import { readProcessStartedAt } from "./hot-restart.js";
+import { findActiveServerAdapter, listServerAdapters } from "../adapters/index.js";
 
 // These adapters accept a conversation turn. Retrying a process or webhook can
 // replay the action itself, so those adapters retain their recovery contract.
@@ -9,8 +10,21 @@ export const CONVERSATION_ADAPTER_TYPES = [
   "pi_local", "grok_local", "kimi_local", "hermes_local",
 ] as const;
 
+function declaresConversationContinuation(adapterType: string): boolean {
+  return findActiveServerAdapter(adapterType)?.supportsConversationContinuation === true;
+}
+
+function getConversationAdapterTypes(): string[] {
+  const types = new Set<string>(CONVERSATION_ADAPTER_TYPES);
+  for (const { type } of listServerAdapters()) {
+    if (declaresConversationContinuation(type)) types.add(type);
+  }
+  return Array.from(types);
+}
+
 export function isConversationAdapter(adapterType: string): boolean {
-  return (CONVERSATION_ADAPTER_TYPES as readonly string[]).includes(adapterType);
+  return (CONVERSATION_ADAPTER_TYPES as readonly string[]).includes(adapterType)
+    || declaresConversationContinuation(adapterType);
 }
 
 export const CONVERSATION_CONTINUATION_POLICY = "continue_conversation_v1";
@@ -26,15 +40,16 @@ export function claimedAdapterType(run: Pick<typeof heartbeatRuns.$inferSelect, 
 }
 
 function conversationRunPredicate() {
+  const types = getConversationAdapterTypes();
   return or(
-    inArray(sql`${heartbeatRuns.runnerProfileJson}->'adapterDispatch'->>'adapterType'`, [...CONVERSATION_ADAPTER_TYPES]),
+    inArray(sql`${heartbeatRuns.runnerProfileJson}->'adapterDispatch'->>'adapterType'`, types),
     sql`${heartbeatRuns.resultJson}->>'conversationContinuation' = ${CONVERSATION_CONTINUATION_POLICY}`,
     sql`exists (
       select 1 from ${heartbeatRunEvents}
       where ${heartbeatRunEvents.companyId} = ${heartbeatRuns.companyId}
         and ${heartbeatRunEvents.runId} = ${heartbeatRuns.id}
         and ${heartbeatRunEvents.eventType} = 'adapter.invoke'
-        and ${inArray(sql`${heartbeatRunEvents.payload}->>'adapterType'`, [...CONVERSATION_ADAPTER_TYPES])}
+        and ${inArray(sql`${heartbeatRunEvents.payload}->>'adapterType'`, types)}
     )`,
   );
 }
