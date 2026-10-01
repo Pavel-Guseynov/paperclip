@@ -4825,9 +4825,10 @@ export async function buildPaperclipRuntimeMcpServers(input: {
       subjectType: "heartbeat_run",
       subjectId: input.runId,
       clientLabel: `${input.agent.name} heartbeat run`,
-      ownerNote: `Short-lived runtime MCP token for heartbeat run ${input.runId}.`,
+      // No time expiry: the gateway rejects a heartbeat-run token as soon as
+      // its run is no longer running, so the token lives as long as the run.
+      ownerNote: `Runtime MCP token for heartbeat run ${input.runId}. Valid while the run is running.`,
       allowedActions: ["tools/list", "tools/call"],
-      expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
     },
     actor: { agentId: input.agent.id },
   });
@@ -5124,7 +5125,6 @@ export async function createManagedMcpRunConfig(input: {
   if (gateways.length === 0) return null;
 
   const service = createToolGatewayService(input.db);
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
   const managedGateways: ManagedMcpGatewayRunConfig["gateways"] = [];
   for (const gateway of gateways) {
     const token = await service.createNamedGatewayToken({
@@ -5135,9 +5135,9 @@ export async function createManagedMcpRunConfig(input: {
         subjectType: "heartbeat_run",
         subjectId: input.runId,
         clientLabel: `${input.agent.name} managed local adapter`,
-        ownerNote: `Short-lived Paperclip-managed MCP token for heartbeat run ${input.runId}.`,
+        // No time expiry, as for the runtime MCP token above.
+        ownerNote: `Paperclip-managed MCP token for heartbeat run ${input.runId}. Valid while the run is running.`,
         allowedActions: ["tools/list", "tools/call"],
-        expiresAt,
       },
       actor: { agentId: input.agent.id },
     });
