@@ -145,6 +145,7 @@ import {
   dispositionRepairDelayMs,
   DISPOSITION_REPAIR_MAX_ATTEMPTS,
 } from "./disposition-repair.js";
+import { reconcileReviewHandoffAfterBlockerClear } from "./review-handoff-retry.js";
 import {
   createActiveRunWatchdog,
   WatchdogDecisionApplicationError,
@@ -4934,6 +4935,38 @@ export function recoveryService(
             } else {
               result.skipped += 1;
             }
+          } else if (!participantLatestRun) {
+            // One issue's handoff failure is contained here so the rest of the
+            // sweep still runs, the same way the resolved-dependency backstop
+            // contains its own reconciliation failures.
+            let handoffResult: Awaited<
+              ReturnType<typeof reconcileReviewHandoffAfterBlockerClear>
+            > | null = null;
+            try {
+              handoffResult = await reconcileReviewHandoffAfterBlockerClear(
+                db,
+                {
+                  issueId: issue.id,
+                  companyId: issue.companyId,
+                  enqueueWakeup: deps.enqueueWakeup,
+                  treeControlSvc,
+                },
+              );
+            } catch (err) {
+              logger.warn(
+                { err, issueId: issue.id },
+                "failed to reconcile review handoff for stranded review participant",
+              );
+            }
+            if (handoffResult?.action === "enqueued") {
+              result.reviewParticipantRequeued += 1;
+              result.issueIds.push(issue.id);
+            } else if (handoffResult?.action === "exhausted") {
+              result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
           } else {
             result.skipped += 1;
           }
@@ -5604,6 +5637,61 @@ export function recoveryService(
         .orderBy(asc(issues.id))
         .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
     };
+
+    if (opts?.blockerIssueId) {
+      // A relation row and its dependent must belong to the same company, and
+      // the sweep is bounded by the same candidate limit as the blocked-issue
+      // backstop below so one blocker with many dependents cannot make this
+      // pass unbounded.
+      let inReviewDependents: Array<{ id: string; companyId: string }> = [];
+      try {
+        inReviewDependents = await db
+          .select({ id: issues.id, companyId: issues.companyId })
+          .from(issueRelations)
+          .innerJoin(
+            issues,
+            and(
+              eq(issueRelations.relatedIssueId, issues.id),
+              eq(issueRelations.companyId, issues.companyId),
+            ),
+          )
+          .where(
+            and(
+              eq(issueRelations.type, "blocks"),
+              eq(issueRelations.issueId, opts.blockerIssueId),
+              opts.companyId
+                ? eq(issueRelations.companyId, opts.companyId)
+                : undefined,
+              eq(issues.status, "in_review"),
+              visibleIssueCondition(),
+            ),
+          )
+          .orderBy(asc(issues.id))
+          .limit(RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT);
+      } catch (err) {
+        logger.warn(
+          { err, blockerIssueId: opts.blockerIssueId },
+          "failed to list in_review dependents in resolved dependency backstop",
+        );
+      }
+      // The candidates are ordered by issue id, so a dependent that keeps
+      // failing would starve every later one if its failure ended the pass.
+      for (const dep of inReviewDependents) {
+        try {
+          await reconcileReviewHandoffAfterBlockerClear(db, {
+            issueId: dep.id,
+            companyId: dep.companyId,
+            enqueueWakeup: deps.enqueueWakeup,
+            treeControlSvc,
+          });
+        } catch (err) {
+          logger.warn(
+            { err, blockerIssueId: opts.blockerIssueId, issueId: dep.id },
+            "failed to reconcile an in_review dependent in resolved dependency backstop",
+          );
+        }
+      }
+    }
 
     let candidateRows = await queryCandidates(
       useCursor ? resolvedDependencyWakeBackstopCandidateCursor : null,
