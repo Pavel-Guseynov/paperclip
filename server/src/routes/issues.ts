@@ -6772,14 +6772,23 @@ export function issueRoutes(
     }
   }
 
-  async function resolveActiveIssueRun(issue: {
-    id: string;
-    assigneeAgentId: string | null;
-    executionRunId?: string | null;
-  }) {
+  async function resolveActiveIssueRun(
+    issue: {
+      id: string;
+      assigneeAgentId: string | null;
+      executionRunId?: string | null;
+    },
+    options: { keepRun?: { runId: string; agentId: string } | null } = {},
+  ) {
+    // A kept run is never selected. A run is kept only when it belongs to the
+    // agent that names it.
+    const keepRun = options.keepRun ?? null;
+    const isKeptRun = (run: { id: string; agentId: string }) =>
+      keepRun !== null && run.id === keepRun.runId && run.agentId === keepRun.agentId;
     let runToInterrupt = issue.executionRunId
       ? await heartbeat.getRun(issue.executionRunId)
       : null;
+    if (runToInterrupt && isKeptRun(runToInterrupt)) runToInterrupt = null;
 
     if (
       (!runToInterrupt || runToInterrupt.status !== "running") &&
@@ -6800,7 +6809,8 @@ export function issueRoutes(
       if (
         activeRun &&
         activeRun.status === "running" &&
-        activeIssueId === issue.id
+        activeIssueId === issue.id &&
+        !isKeptRun(activeRun)
       ) {
         runToInterrupt = activeRun;
       }
@@ -13381,13 +13391,20 @@ export function issueRoutes(
       // Only this request may finish a mutation that intentionally stops its
       // own run (for example handing work to a signoff reviewer).
       const issueMutationStopId = randomUUID();
+      // A participant agent records a stage decision from inside its own run,
+      // and that run must survive to finish its work. Every other active run
+      // on the issue is still stopped.
+      const keepRun =
+        transition.decision && actor.actorType === "agent" && actor.agentId && actor.runId
+          ? { runId: actor.runId, agentId: actor.agentId }
+          : null;
       if (assigneeWillChange && existing.assigneeAgentId) {
         await stopRunnerGoalForOwnershipChange({
           companyId: existing.companyId,
           issueId: existing.id,
           agentId: existing.assigneeAgentId,
         });
-        const runToStopForReassignment = await resolveActiveIssueRun(existing);
+        const runToStopForReassignment = await resolveActiveIssueRun(existing, { keepRun });
         if (runToStopForReassignment) {
           const cancelled = await heartbeat.cancelRun(
             runToStopForReassignment.id,
@@ -13427,7 +13444,7 @@ export function issueRoutes(
           agentId: existing.assigneeAgentId,
         });
         const runToStopForTerminalization = goalStopAction
-          ? await resolveActiveIssueRun(existing)
+          ? await resolveActiveIssueRun(existing, { keepRun })
           : null;
         if (goalStopAction && runToStopForTerminalization) {
           const cancelled = await heartbeat.cancelRun(
