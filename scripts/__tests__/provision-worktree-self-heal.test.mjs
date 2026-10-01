@@ -293,7 +293,7 @@ for (const installExit of [0, 42]) {
       },
     });
     assert.equal(result.status, installExit, result.stderr);
-    assert.match(fs.readFileSync(path.join(worktreeCwd, "pnpm-calls"), "utf8"), /^install --prod=false --frozen-lockfile/);
+    assert.match(fs.readFileSync(path.join(worktreeCwd, "pnpm-calls"), "utf8"), /^install --frozen-lockfile/);
     assert.equal(fs.existsSync(path.join(worktreeCwd, ".paperclip", "pnpm-install-fingerprint")), installExit === 0);
     assert.equal(fs.existsSync(path.join(worktreeCwd, ".paperclip", "config.json")), false);
     assert.equal(fs.existsSync(path.join(worktreeCwd, ".paperclip", "seed-manifest.json")), false);
@@ -635,8 +635,7 @@ test("runtime provisioning does not trust a truncated verified manifest", () => 
 });
 
 /**
- * pnpm 9.15.4 calls the deprecated url.parse() once per `pnpm install`
- * (see toNerfDart in the pnpm bundle), which Node 24 reports as DEP0169.
+ * Node 24 reports url.parse() as DEP0169 during pnpm install.
  * Each `pnpm install` call site must silence that one warning code, and must
  * append the flag to any NODE_OPTIONS value the environment already set
  * instead of overwriting it.
@@ -650,7 +649,7 @@ test("every pnpm install call site silences DEP0169 without overwriting NODE_OPT
   assert.equal(repairCallSites.length, 2, "expected the repair pnpm install to carry the flag at both call sites (locked and unlocked)");
   assert.match(provisionSource, /local repair_node_options="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169"/);
   assert.match(provisionSource, appendsToExistingNodeOptions);
-  assert.match(provisionSource, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169" pnpm install --prod=false "\$@"/);
+  assert.match(provisionSource, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169" pnpm install "\$@"/);
 
   const runtimeSource = fs.readFileSync(runtimeScript, "utf8");
   const runtimeRepairCallSites = runtimeSource.match(/env -u NODE_ENV CI=true NODE_OPTIONS="\$repair_node_options" "\$\{repair_cmd\[@\]\}"/g) ?? [];
@@ -698,7 +697,11 @@ test("patch content changes invalidate an otherwise matching install fingerprint
   const bin = makeTempDir("paperclip-patch-pnpm-");
   fs.writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\ncase "$1" in install) echo install >> pnpm-calls; mkdir -p node_modules cli/node_modules ;; esac\n', { mode: 0o700 });
   const first = runProvision(baseCwd, { pathPrefix: bin, setupWorktree(root) {
-    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ pnpm: { patchedDependencies: { "dependency@1": "patches/dependency.diff" } } }));
+    fs.writeFileSync(path.join(root, "package.json"), "{}\n");
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "patchedDependencies: # patch manifest\n  # declared patch\n  'dependency@1': patches/dependency.diff # applied on install\n",
+    );
     fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     fs.mkdirSync(path.join(root, "patches"));
     fs.writeFileSync(path.join(root, "patches/dependency.diff"), "first patch");
@@ -710,6 +713,29 @@ test("patch content changes invalidate an otherwise matching install fingerprint
   assert.equal(fs.readFileSync(callsPath, "utf8"), "install\n");
   fs.writeFileSync(path.join(first.worktreeCwd, "unrelated.patch"), "unrelated change");
   assert.equal(runProvision(baseCwd, options).result.status, 0);
+  assert.equal(fs.readFileSync(callsPath, "utf8"), "install\n");
+  fs.writeFileSync(path.join(first.worktreeCwd, "patches/dependency.diff"), "changed patch");
+  assert.equal(runProvision(baseCwd, options).result.status, 0);
+  assert.equal(fs.readFileSync(callsPath, "utf8"), "install\ninstall\n");
+});
+
+test("pre-migration branch package.json patch content changes invalidate install fingerprint", () => {
+  const baseCwd = makeBaseWorkspace({ helpExit: 0, initExit: 0 });
+  const bin = makeTempDir("paperclip-legacy-patch-pnpm-");
+  fs.writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\ncase "$1" in install) echo install >> pnpm-calls; mkdir -p node_modules cli/node_modules ;; esac\n', { mode: 0o700 });
+  const first = runProvision(baseCwd, { pathPrefix: bin, setupWorktree(root) {
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ pnpm: { patchedDependencies: { "dependency@1": "patches/dependency.diff" } } }),
+    );
+    fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    fs.mkdirSync(path.join(root, "patches"));
+    fs.writeFileSync(path.join(root, "patches/dependency.diff"), "first patch");
+  } });
+  assert.equal(first.result.status, 0, first.result.stderr);
+  const options = { pathPrefix: bin, existingWorktree: first.worktreeCwd };
+  assert.equal(runProvision(baseCwd, options).result.status, 0);
+  const callsPath = path.join(first.worktreeCwd, "pnpm-calls");
   assert.equal(fs.readFileSync(callsPath, "utf8"), "install\n");
   fs.writeFileSync(path.join(first.worktreeCwd, "patches/dependency.diff"), "changed patch");
   assert.equal(runProvision(baseCwd, options).result.status, 0);

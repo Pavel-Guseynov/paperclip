@@ -1975,7 +1975,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
@@ -2076,7 +2076,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
@@ -2163,7 +2163,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.27.0",
           },
           null,
           2,
@@ -2187,7 +2187,7 @@ describe("realizeExecutionWorkspace", () => {
           "if [ \"$1\" = \"paperclipai\" ] && [ \"$2\" = \"--help\" ]; then",
           "  exit 1",
           "fi",
-          "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--prod=false\" ] && [ \"$3\" = \"--frozen-lockfile\" ]; then",
+          "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--frozen-lockfile\" ]; then",
           "  mkdir -p \"$PWD/node_modules\"",
           `  echo "install:$*" >> ${JSON.stringify(installLogPath)}`,
           "  exit 0",
@@ -2212,7 +2212,7 @@ describe("realizeExecutionWorkspace", () => {
       await runScript();
       await runScript();
       await expect(fs.readFile(installLogPath, "utf8")).resolves.toBe(
-        "install:install --prod=false --frozen-lockfile\n",
+        "install:install --frozen-lockfile\n",
       );
 
       await fs.writeFile(
@@ -2227,7 +2227,7 @@ describe("realizeExecutionWorkspace", () => {
 
       await runScript();
       await expect(fs.readFile(installLogPath, "utf8")).resolves.toBe(
-        "install:install --prod=false --frozen-lockfile\ninstall:install --prod=false --frozen-lockfile\n",
+        "install:install --frozen-lockfile\ninstall:install --frozen-lockfile\n",
       );
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
@@ -2404,7 +2404,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.27.0",
           },
           null,
           2,
@@ -2423,11 +2423,11 @@ describe("realizeExecutionWorkspace", () => {
           "if [ \"$1\" = \"paperclipai\" ] && [ \"$2\" = \"--help\" ]; then",
           "  exit 1",
           "fi",
-          "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--prod=false\" ] && [ \"$3\" = \"--frozen-lockfile\" ]; then",
+          "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--frozen-lockfile\" ]; then",
           "  echo \"ERR_PNPM_OUTDATED_LOCKFILE\" >&2",
           "  exit 1",
           "fi",
-          "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--prod=false\" ] && [ \"$3\" = \"--no-frozen-lockfile\" ]; then",
+          "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--no-frozen-lockfile\" ]; then",
           "  mkdir -p \"$PWD/node_modules\"",
           "  : > \"$PWD/node_modules/.retry-success\"",
           "  exit 0",
@@ -2473,7 +2473,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
