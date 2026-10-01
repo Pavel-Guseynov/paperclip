@@ -17,8 +17,17 @@ interface RunLifecycleEvent {
   fromStatus: string;
   toStatus: string;
   terminal: boolean;
+  /** Null unless the run was cancelled; then its cause and, when a person or agent asked for it, who. */
+  cancellation: RunCancellation | null;
   /** `clock_timestamp()` at the transition, in microseconds since the epoch. */
   transitionedAtEpochUs: string;
+}
+
+interface RunCancellation {
+  /** The run's error code: the cause the cancel path recorded, or null when it recorded none. */
+  code: string | null;
+  reason: string | null;
+  requestedBy: { type: string; id: string } | null;
 }
 
 /** A committed status change of a task (issue). */
@@ -66,8 +75,27 @@ export function logRunTransitionAfterCommit(
     fromStatus: transition.fromStatus,
     toStatus: transition.toStatus,
     terminal: TERMINAL_RUN_STATUSES.has(transition.toStatus),
+    cancellation: transition.toStatus === "cancelled" ? runCancellation(run) : null,
     transitionedAtEpochUs: transition.transitionedAtEpochUs,
   }, "heartbeat run status changed");
+}
+
+/**
+ * The cancel paths record who asked in the run's result: a board Stop as
+ * `cancelledByActorType`/`cancelledByUserId`, a comment interrupt as
+ * `interruptedByActorType`/`interruptedByActorId`. Other cancellations come
+ * from the system and name no requester.
+ */
+function runCancellation(run: typeof heartbeatRuns.$inferSelect): RunCancellation {
+  const result = run.resultJson ?? {};
+  const requester = (type: unknown, id: unknown) =>
+    typeof type === "string" && typeof id === "string" && id ? { type, id } : null;
+  return {
+    code: run.errorCode,
+    reason: run.error,
+    requestedBy: requester(result.cancelledByActorType, result.cancelledByUserId)
+      ?? requester(result.interruptedByActorType, result.interruptedByActorId),
+  };
 }
 
 /** Call inside the transaction that changed the status, with the row read under its lock. */
