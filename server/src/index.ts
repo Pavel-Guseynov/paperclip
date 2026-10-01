@@ -942,7 +942,19 @@ async function startServerWithDatabaseTeardown(
     port: listenPort,
   });
   const configuredApiUrl = process.env.PAPERCLIP_API_URL?.trim() || runtimeApiUrl;
+  // A pre-set PAPERCLIP_RUNTIME_API_URL is the operator's internal callback
+  // origin (for example loopback while the dashboard is served through a
+  // public tunnel). It becomes the runtime env var and leads the candidate
+  // list, so an agent that iterates the candidates tries it first. The public
+  // API URL stays in the list.
+  //
+  // Without a pin the runtime URL is `configuredApiUrl`, not the URL derived
+  // from authPublicBaseUrl: the public base URL can be VPN- or tailnet-only
+  // and unreachable from a runtime container, and an explicit
+  // PAPERCLIP_API_URL exists to replace it.
+  const pinnedRuntimeApiUrl = process.env.PAPERCLIP_RUNTIME_API_URL?.trim() ?? "";
   const runtimeApiCandidates = buildRuntimeApiCandidateUrls({
+    pinnedRuntimeApiUrl: pinnedRuntimeApiUrl || null,
     preferredApiUrl: configuredApiUrl,
     authPublicBaseUrl: config.authPublicBaseUrl ?? null,
     allowedHostnames: config.allowedHostnames,
@@ -951,7 +963,7 @@ async function startServerWithDatabaseTeardown(
   });
   process.env.PAPERCLIP_LISTEN_HOST = runtimeListenHost;
   process.env.PAPERCLIP_LISTEN_PORT = String(listenPort);
-  process.env.PAPERCLIP_RUNTIME_API_URL = runtimeApiUrl;
+  process.env.PAPERCLIP_RUNTIME_API_URL = pinnedRuntimeApiUrl || configuredApiUrl;
   process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON = JSON.stringify(runtimeApiCandidates);
   process.env.PAPERCLIP_API_URL = configuredApiUrl;
 

@@ -147,8 +147,11 @@ function buildWakeEnv(ctx: AdapterExecutionContext, configEnv: Record<string, st
   // callback wiring so cloud-side Paperclip tools degrade to a clean no-op.
   // Run results are delivered server-side via the Cursor Agent SDK (getRun /
   // wait), not through this callback, so nothing is lost.
+  // PAPERCLIP_RUNTIME_API_URL goes with it: the Paperclip CLI prefers it over
+  // PAPERCLIP_API_URL.
   if (!trimNullable(env.PAPERCLIP_API_KEY)) {
     delete env.PAPERCLIP_API_URL;
+    delete env.PAPERCLIP_RUNTIME_API_URL;
     delete env.PAPERCLIP_API_BRIDGE_MODE;
   }
 

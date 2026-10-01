@@ -3233,14 +3233,17 @@ export function buildPaperclipEnv(agent: {
   );
   const runtimePort =
     process.env.PAPERCLIP_LISTEN_PORT ?? process.env.PORT ?? "3100";
-  // An explicit PAPERCLIP_API_URL override must win over the URL derived from
-  // authPublicBaseUrl: the derived URL can be unreachable from inside the
-  // runtime container (e.g. when the public base URL is VPN/tailnet-only).
-  const apiUrl =
-    process.env.PAPERCLIP_API_URL ??
+  // The internal origin an agent process dials to call back into Paperclip.
+  // Server boot sets PAPERCLIP_RUNTIME_API_URL to an operator-pinned origin,
+  // or else to PAPERCLIP_API_URL, so the two differ only with a pin.
+  const runtimeApiUrl =
     process.env.PAPERCLIP_RUNTIME_API_URL ??
+    process.env.PAPERCLIP_API_URL ??
     `http://${runtimeHost}:${runtimePort}`;
+  // The public API URL. Without PAPERCLIP_API_URL it is the runtime URL.
+  const apiUrl = process.env.PAPERCLIP_API_URL ?? runtimeApiUrl;
   vars.PAPERCLIP_API_URL = apiUrl;
+  vars.PAPERCLIP_RUNTIME_API_URL = runtimeApiUrl;
   return vars;
 }
 

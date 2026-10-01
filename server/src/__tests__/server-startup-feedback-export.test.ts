@@ -799,6 +799,12 @@ describe("startServer PAPERCLIP_API_URL handling", () => {
     loadConfigMock.mockReturnValue(buildTestConfig());
     process.env.BETTER_AUTH_SECRET = "test-secret";
     delete process.env.PAPERCLIP_API_URL;
+    // startServer() writes PAPERCLIP_RUNTIME_API_URL into process.env, and a
+    // pre-set value is honored as the leading runtime candidate. Clear it
+    // (and the derived candidates) between tests so a prior startServer() call
+    // can't leak a runtime URL that overrides the PAPERCLIP_API_URL under test.
+    delete process.env.PAPERCLIP_RUNTIME_API_URL;
+    delete process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON;
   });
 
   afterEach(() => {
@@ -832,6 +838,45 @@ describe("startServer PAPERCLIP_API_URL handling", () => {
       expect.arrayContaining(["http://custom-api:3100"]),
     );
     expect(JSON.parse(process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON ?? "[]")[0]).toBe("http://custom-api:3100");
+  });
+
+  it("leads the runtime candidates with a pre-set PAPERCLIP_RUNTIME_API_URL", async () => {
+    process.env.PAPERCLIP_RUNTIME_API_URL = "http://127.0.0.1:9999";
+    process.env.PAPERCLIP_API_URL = "http://custom-api:3100";
+
+    await startServer();
+
+    // The pinned runtime URL is honored as the primary env var ...
+    expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe("http://127.0.0.1:9999");
+    // ... and it leads the candidate list, so an agent that iterates the
+    // candidates tries the pinned internal origin first ...
+    const candidates = JSON.parse(process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON ?? "[]") as string[];
+    expect(candidates[0]).toBe("http://127.0.0.1:9999");
+    // ... while the public API URL stays in the list behind it, so pinning the
+    // internal origin never removes a candidate that worked before.
+    expect(candidates[1]).toBe("http://custom-api:3100");
+    // The public API URL is untouched by the pin.
+    expect(process.env.PAPERCLIP_API_URL).toBe("http://custom-api:3100");
+  });
+
+  it("keeps a PAPERCLIP_API_URL override as the runtime URL when a public base URL is configured and nothing is pinned", async () => {
+    // authPublicBaseUrl is the browser-facing origin and can be VPN/tailnet-only.
+    // An operator sets PAPERCLIP_API_URL precisely to replace it for processes
+    // that cannot reach it. Without an explicit PAPERCLIP_RUNTIME_API_URL pin,
+    // the internal callback URL every agent consumer reads must stay that
+    // override — substituting the public origin would break the default path.
+    loadConfigMock.mockReturnValue(buildTestConfig({ authPublicBaseUrl: "https://pc.tailnet.test" }));
+    process.env.PAPERCLIP_API_URL = "http://10.0.0.5:3100";
+
+    await startServer();
+
+    expect(process.env.PAPERCLIP_RUNTIME_API_URL).toBe("http://10.0.0.5:3100");
+    expect(process.env.PAPERCLIP_API_URL).toBe("http://10.0.0.5:3100");
+    // The public origin is still offered as a later candidate, never as the
+    // primary internal callback URL.
+    const candidates = JSON.parse(process.env.PAPERCLIP_RUNTIME_API_CANDIDATES_JSON ?? "[]") as string[];
+    expect(candidates[0]).toBe("http://10.0.0.5:3100");
+    expect(candidates).toContain("https://pc.tailnet.test");
   });
 
   it("falls back to host-based URL when PAPERCLIP_API_URL is not set", async () => {

@@ -580,10 +580,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           homeDir: filesystemScope ? path.dirname(sharedClaudeConfigDir) : null,
           networkScope,
           networkAllowlist: parseLocalProcessNetworkAllowlist(config.networkAllowlist),
-          networkTrustedUrls: [
+          networkTrustedUrls: [...new Set([
             env.PAPERCLIP_API_URL,
+            // The internal callback origin that the Paperclip CLI dials. It
+            // differs from PAPERCLIP_API_URL when an operator pinned it.
+            env.PAPERCLIP_RUNTIME_API_URL,
             ...runtimeMcpServers.map((server) => server.url),
-          ].filter((value): value is string => typeof value === "string" && value.length > 0),
+          ].filter((value): value is string => typeof value === "string" && value.length > 0))],
           command: asString(config.filesystemSandboxCommand, "bwrap"),
         }
       : null;

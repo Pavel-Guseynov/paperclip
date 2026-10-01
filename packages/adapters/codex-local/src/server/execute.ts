@@ -762,9 +762,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       runtimeMcpGateways,
       managedMcpGatewaysFromContext(context),
     );
+    // Managed MCP endpoints are dialed by the Codex process itself, so they must
+    // carry the INTERNAL runtime callback origin, never the public dashboard URL:
+    // when an operator serves the dashboard through a tunnel or a tailnet-only
+    // hostname, that hostname is not resolvable from the Codex process and every
+    // managed gateway call fails before the session starts.
     const managedMcp = await writeManagedCodexMcpConfig({
       codexHome: effectiveCodexHome,
-      apiBaseUrl: paperclipBaseEnv.PAPERCLIP_API_URL,
+      apiBaseUrl: paperclipBaseEnv.PAPERCLIP_RUNTIME_API_URL,
       gateways: managedMcpGateways,
     });
     if (managedMcpGateways.length > 0) {
@@ -1010,6 +1015,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             networkAllowlist: parseLocalProcessNetworkAllowlist(config.networkAllowlist),
             networkTrustedUrls: [
               paperclipBaseEnv.PAPERCLIP_API_URL,
+              // The internal callback origin differs from the public dashboard
+              // origin whenever PAPERCLIP_RUNTIME_API_URL is set, and it is the
+              // one the confined Codex process actually dials.
+              paperclipBaseEnv.PAPERCLIP_RUNTIME_API_URL,
               ...runtimeMcpGateways.map((gateway) => gateway.endpointPath),
             ],
             command: asString(config.filesystemSandboxCommand, "bwrap"),
