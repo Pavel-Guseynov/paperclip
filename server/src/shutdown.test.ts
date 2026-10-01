@@ -320,7 +320,7 @@ describe("drainRunExecutionFinalizersForShutdown", () => {
     await expect(pending).resolves.toBe("drained");
   });
 
-  it("returns after the bounded timeout when an adopted run remains active", async () => {
+  it("returns after the bounded timeout and logs the runs that remain active", async () => {
     vi.useFakeTimers();
     try {
       const log = stubLogger();
@@ -328,12 +328,13 @@ describe("drainRunExecutionFinalizersForShutdown", () => {
         signal: "SIGINT",
         drain: () => new Promise<void>(() => undefined),
         timeoutMs: 250,
+        getActiveRunIds: () => ["run-a", "run-b"],
         log,
       });
       await vi.advanceTimersByTimeAsync(250);
       await expect(pending).resolves.toBe("timed_out");
-      expect(log.info).toHaveBeenCalledWith(
-        expect.objectContaining({ timeoutMs: 250 }),
+      expect(log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 250, pendingRunIds: ["run-a", "run-b"], pendingRunCount: 2 }),
         expect.stringContaining("timed out"),
       );
     } finally {

@@ -1287,6 +1287,10 @@ const SESSIONED_LOCAL_ADAPTERS = new Set([
 // Routes and the scheduler construct separate heartbeatService instances, but
 // they must agree on in-process adapter executions when reaping stale runs.
 const activeRunExecutions = new Set<string>();
+// Graceful shutdown waits for this process's run executions. A run that any
+// heartbeatService instance started during that wait would be cut off when the
+// process exits, so the stop on new runs belongs to the process.
+let runStartsStoppedForShutdown = false;
 // A legacy process adapter's signal exit can race the operator cancellation CAS while
 // its owned process group is still being joined. Keep that exit from becoming
 // a successful result (or a competing failure) before Stop settles. This is an
@@ -14489,6 +14493,7 @@ export function heartbeatService(
     now = new Date(),
   ) {
     shutdownInProgress = true;
+    runStartsStoppedForShutdown = true;
     const idleSessions = await closeIdleWarmNativeSessionsForRestart();
     if (idleSessions.failed > 0) {
       logger.warn({ idleSessions }, "idle native sessions could not checkpoint before controller shutdown");
@@ -19939,7 +19944,9 @@ export function heartbeatService(
   }
 
   async function startNextQueuedRunForAgent(agentId: string) {
-    if ((await getSchedulingSuppression()).suppressed) return [];
+    // After graceful shutdown begins, a queued run stays queued and the next
+    // server start resumes it.
+    if (runStartsStoppedForShutdown || (await getSchedulingSuppression()).suppressed) return [];
     const cutoff = await getWorktreeExecutionCutoff();
     // Cancelled after the start lock is released: cancelRunInternal promotes the
     // agent's next queued run, which takes this same lock.
@@ -20054,7 +20061,7 @@ export function heartbeatService(
 
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
       for (const queuedRun of prioritizedRuns) {
-        if (claimedRuns.length >= availableSlots) break;
+        if (claimedRuns.length >= availableSlots || runStartsStoppedForShutdown) break;
         let claimed: typeof heartbeatRuns.$inferSelect | null;
         try {
           claimed = await claimQueuedRun(queuedRun, companyAgents);
@@ -30082,6 +30089,7 @@ export function heartbeatService(
     resolveSchedulingSuppression: getSchedulingSuppression,
     drainRunningRunsForShutdown,
     drainActiveRunExecutions,
+    getActiveRunExecutionIds: () => [...activeRunExecutions],
     startTaskDrain,
     stopTaskDrain,
     getTaskDrainStatus,

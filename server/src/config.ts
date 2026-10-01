@@ -96,6 +96,7 @@ export interface Config {
   telemetryEnabled: boolean;
   announcementsEnabled: boolean;
   announcementsFeedUrl: string;
+  shutdownDrainTimeoutMs: number;
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -288,6 +289,19 @@ export function loadConfig(): Config {
       && workspaceReaperCooldownDaysRaw >= 0
       ? workspaceReaperCooldownDaysRaw
       : 7;
+  // Graceful shutdown waits this long for in-flight adapter executions to
+  // settle before the database closes. A value that is not a whole number of
+  // milliseconds between 1 and the largest timer delay (2^31 - 1) falls back
+  // to the config file, then to the default of 60 seconds.
+  const shutdownDrainTimeoutMsEnv = process.env.PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS?.trim();
+  const shutdownDrainTimeoutMsRaw = Number(shutdownDrainTimeoutMsEnv);
+  const shutdownDrainTimeoutMs =
+    shutdownDrainTimeoutMsEnv
+      && Number.isInteger(shutdownDrainTimeoutMsRaw)
+      && shutdownDrainTimeoutMsRaw > 0
+      && shutdownDrainTimeoutMsRaw <= 2_147_483_647
+      ? shutdownDrainTimeoutMsRaw
+      : (fileConfig?.server.shutdownDrainTimeoutMs ?? 60_000);
   const bindValidationErrors = validateConfiguredBindMode({
     deploymentMode,
     deploymentExposure,
@@ -362,5 +376,6 @@ export function loadConfig(): Config {
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
     announcementsEnabled: process.env.PAPERCLIP_ANNOUNCEMENTS_ENABLED !== "false",
     announcementsFeedUrl: process.env.PAPERCLIP_ANNOUNCEMENTS_FEED_URL?.trim() || "https://pages.paperclip.ing/announcements/v1/current.json",
+    shutdownDrainTimeoutMs,
   };
 }
