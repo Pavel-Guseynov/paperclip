@@ -129,10 +129,15 @@ async function createRemoteMcpFixture(
   db: ReturnType<typeof createDb>,
   companyId: string,
   options?: {
+    toolName?: string;
+    isReadOnly?: boolean;
+    riskLevel?: "read" | "low" | "write";
     config?: Record<string, unknown>;
   },
 ) {
-  const toolName = "query_data";
+  const toolName = options?.toolName ?? "query_data";
+  const isReadOnly = options?.isReadOnly ?? true;
+  const riskLevel = options?.riskLevel ?? (isReadOnly ? "read" : "write");
 
   const application = await db.insert(toolApplications).values({
     companyId,
@@ -176,8 +181,8 @@ async function createRemoteMcpFixture(
     name: toolName,
     toolName,
     title: "Remote Tool",
-    riskLevel: "read",
-    isReadOnly: true,
+    riskLevel,
+    isReadOnly,
     status: "active",
     versionHash: randomUUID(),
     schemaHash: randomUUID(),
@@ -342,6 +347,210 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
     expect(restored.healthStatus).toBe("ok");
     expect(restored.healthMessage).toBe("Remote MCP server responded to tools/call.");
     expect(restored.lastError).toBeNull();
+  });
+
+  it("refuses to replay an abandoned write under its original idempotency key", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, {
+      toolName: "charge_payment",
+      isReadOnly: false,
+      riskLevel: "write",
+    });
+
+    let dispatchCount = 0;
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => {
+        dispatchCount++;
+        return abandonedRequest(init);
+      },
+    });
+
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const writeTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
+    const idempotencyKey = `idempotent-write-${randomUUID()}`;
+
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: writeTool.name,
+        parameters: { amount: 5000 },
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+    expect(dispatchCount).toBe(1);
+
+    const [invocation] = await db
+      .select()
+      .from(toolInvocations)
+      .where(and(eq(toolInvocations.companyId, company.id), eq(toolInvocations.idempotencyKey, idempotencyKey)));
+    expect(invocation?.status).toBe("timed_out");
+
+    const replayError = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: writeTool.name,
+      parameters: { amount: 5000 },
+      timeoutMs: 500,
+      idempotencyKey,
+    }).catch((caught: unknown) => caught as { status?: number; message?: string; details?: Record<string, unknown> });
+
+    expect(replayError?.status).toBe(409);
+    expect(replayError?.message).toContain("ambiguous outcome");
+    expect(replayError?.message).toContain("new idempotency key");
+    expect(replayError?.details).toMatchObject({ code: "ambiguous_invocation_timeout", invocationId: invocation!.id });
+
+    // The provider is never asked to do the work a second time.
+    expect(dispatchCount).toBe(1);
+  });
+
+  it("still replays an abandoned read under its original idempotency key", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, { toolName: "query_data", isReadOnly: true, riskLevel: "read" });
+
+    let dispatchCount = 0;
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => {
+        dispatchCount++;
+        return abandonedRequest(init);
+      },
+    });
+
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const readTool = (await gateway.listToolsForSession(session.token))
+      .find((tool) => tool.providerType === "mcp_remote_http")!;
+    const idempotencyKey = `idempotent-read-${randomUUID()}`;
+
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: readTool.name,
+        parameters: { q: "test" },
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+
+    // A read cannot have changed anything upstream, so the ambiguous-outcome
+    // refusal must not apply to it: the key keeps its ordinary replay.
+    const replay = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: readTool.name,
+      parameters: { q: "test" },
+      timeoutMs: 500,
+      idempotencyKey,
+    });
+    expect(replay.status).toBe("replayed");
+    expect(dispatchCount).toBe(1);
+  });
+
+  it("refuses an abandoned write's key even when the replay names a read tool", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, {
+      toolName: "charge_payment",
+      isReadOnly: false,
+      riskLevel: "write",
+    });
+    await createRemoteMcpFixture(db, company.id, { toolName: "query_data", isReadOnly: true, riskLevel: "read" });
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => abandonedRequest(init),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tools = await gateway.listToolsForSession(session.token);
+    const writeTool = tools.find((tool) => tool.upstreamToolName === "charge_payment")!;
+    const readTool = tools.find((tool) => tool.upstreamToolName === "query_data")!;
+    expect(writeTool).toBeDefined();
+    expect(readTool).toBeDefined();
+
+    const idempotencyKey = `shared-key-${randomUUID()}`;
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: writeTool.name,
+        parameters: { amount: 5000 },
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+
+    // The key is unique per company, not per tool: what the abandoned call
+    // could have done is decided by that call, not by the tool named now.
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: readTool.name,
+        parameters: { q: "test" },
+        timeoutMs: 500,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "ambiguous_invocation_timeout", tool: writeTool.name } });
+  });
+
+  it("still replays an abandoned low-risk call under its original idempotency key", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, { toolName: "list_items", isReadOnly: true, riskLevel: "low" });
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) => abandonedRequest(init),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tool = (await gateway.listToolsForSession(session.token))
+      .find((candidate) => candidate.providerType === "mcp_remote_http")!;
+    const idempotencyKey = `low-risk-${randomUUID()}`;
+
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: tool.name,
+        parameters: {},
+        timeoutMs: 20,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 504, reasonCode: "tool_timeout" });
+
+    // "low" is not write-capable in this service's risk taxonomy.
+    const replay = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: tool.name,
+      parameters: {},
+      timeoutMs: 500,
+      idempotencyKey,
+    });
+    expect(replay.status).toBe("replayed");
+  });
+
+  it("refuses to replay an abandoned call that recorded no risk level", async () => {
+    const { company, agent, run } = await createRunFixture(db);
+    await createRemoteMcpFixture(db, company.id, { toolName: "query_data", isReadOnly: true, riskLevel: "read" });
+
+    const idempotencyKey = `unknown-risk-${randomUUID()}`;
+    await db.insert(toolInvocations).values({
+      companyId: company.id,
+      idempotencyKey,
+      toolName: "some_uncatalogued_tool",
+      riskLevel: null,
+      status: "timed_out",
+    });
+
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async (_url, init) =>
+        jsonRpcResponse(init, { result: { content: [{ type: "text", text: "data" }] } }),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tool = (await gateway.listToolsForSession(session.token))
+      .find((candidate) => candidate.providerType === "mcp_remote_http")!;
+
+    // An invocation that recorded no risk level could have done anything.
+    await expect(
+      gateway.executeTool({
+        sessionToken: session.token,
+        tool: tool.name,
+        parameters: {},
+        timeoutMs: 500,
+        idempotencyKey,
+      }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "ambiguous_invocation_timeout" } });
   });
 
   it("fails closed and withdraws the catalog when the transport never answers", async () => {
