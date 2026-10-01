@@ -923,6 +923,9 @@ export function recoveryService(
     ) => boolean;
     liveRunExecutions?: Readonly<{ has(id: string): boolean }>;
     beforeOrphanedRunTerminalWrite?: (runId: string) => Promise<void>;
+    releaseTerminalizedRunLeases?: (
+      run: typeof heartbeatRuns.$inferSelect,
+    ) => Promise<void>;
   },
 ) {
   const issuesSvc = issueService(db);
@@ -6013,6 +6016,18 @@ export function recoveryService(
     // the stale lock below, so fire it and do not await it.
     void emitAgentTaskRun(db, updated);
     runningProcesses.delete(run.id);
+    // A live execution releases the leases after its own cleanup. Without one,
+    // nothing else releases them before the orphaned-lease sweep.
+    if (!hasLiveExecution) {
+      try {
+        await deps.releaseTerminalizedRunLeases?.(updated);
+      } catch (error) {
+        logger.error(
+          { err: error, runId: run.id },
+          "failed to release environment leases after terminalizing orphaned run in stale-lock sweep",
+        );
+      }
+    }
     // The run update above already committed the terminal status. The audit
     // event is best-effort: if the insert fails, the caller must still treat
     // the run as terminalized and clear the lock in the same sweep. So catch
