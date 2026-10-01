@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -322,6 +323,7 @@ function startInput(options?: {
   expose?: Record<string, unknown> | null;
   port?: Record<string, unknown> | number;
   command?: string;
+  executionWorkspaceId?: string;
 }) {
   const expose = options?.expose === undefined ? DECLARED_EXPOSE : options.expose;
   return {
@@ -343,7 +345,7 @@ function startInput(options?: {
       created: false,
       branchCreatedByRuntime: false,
     },
-    executionWorkspaceId: EXECUTION_WORKSPACE_ID,
+    executionWorkspaceId: options?.executionWorkspaceId ?? EXECUTION_WORKSPACE_ID,
     config: {
       workspaceRuntime: {
         services: [{
@@ -384,7 +386,11 @@ describe("workspace runtime tailscale_https lifecycle", () => {
       },
     });
 
-    const input = startInput();
+    // A fresh execution workspace keeps this case apart from the others. The
+    // port is still allocated automatically, so the assertion below covers
+    // the scan into the dedicated range.
+    const executionWorkspaceId = randomUUID();
+    const input = startInput({ executionWorkspaceId });
     // The first real child pays cold shell/Node startup on CI; its first log
     // can arrive near the old 10s cutoff. Use the normal 30s readiness budget
     // for this lifecycle assertion while still requiring a live HTTP listener.
@@ -396,7 +402,7 @@ describe("workspace runtime tailscale_https lifecycle", () => {
     expect(runtime.exposure?.state).toBe("ready");
 
     await stopRuntimeServicesForExecutionWorkspace({
-      executionWorkspaceId: EXECUTION_WORKSPACE_ID,
+      executionWorkspaceId,
       runtimeServiceId: runtime.id,
     });
     expect(calls).toEqual(["reserve", "expose", "remove"]);
@@ -407,7 +413,11 @@ describe("workspace runtime tailscale_https lifecycle", () => {
     const { broker, calls } = createBroker();
     installDeps({ broker, probeHealth: async () => false });
 
-    await expect(startRuntimeServicesForWorkspaceControl(startInput())).rejects.toThrow(/HTTPS exposure failed/);
+    await expect(
+      startRuntimeServicesForWorkspaceControl(startInput({
+        executionWorkspaceId: randomUUID(),
+      })),
+    ).rejects.toThrow(/HTTPS exposure failed/);
     expect(calls).toEqual(["reserve", "expose", "remove"]);
   }, 15_000);
 });

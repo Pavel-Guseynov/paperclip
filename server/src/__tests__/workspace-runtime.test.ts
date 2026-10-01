@@ -361,21 +361,27 @@ async function findFreePort() {
   return port;
 }
 
+// A range the fixtures can hold for the length of a test: it sits below both
+// the Darwin (49152+) and the Linux (32768+) ephemeral ranges, so the kernel
+// never hands one of these ports to unrelated traffic mid-test, and it misses
+// the dedicated runtime exposure ranges (42000-42999 app, 52000-52999 HMR), so
+// it cannot collide with a real allocation either.
+const FIXTURE_PORT_RANGE_MIN = 25_000;
+const FIXTURE_PORT_RANGE_MAX = 32_000;
+
 async function reserveContiguousPorts(count: number) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const basePort = await findFreePort();
-    if (basePort + count - 1 > 65_535) continue;
+  for (let candidateBase = FIXTURE_PORT_RANGE_MIN; candidateBase + count - 1 <= FIXTURE_PORT_RANGE_MAX; candidateBase += 1) {
     const servers: net.Server[] = [];
     try {
       for (let offset = 0; offset < count; offset += 1) {
-        servers.push(await listenOnPort(basePort + offset));
+        servers.push(await listenOnPort(candidateBase + offset));
       }
-      return { basePort, servers };
+      return { basePort: candidateBase, servers };
     } catch {
       await Promise.all(servers.map((server) => closeNetServer(server).catch(() => undefined)));
     }
   }
-  throw new Error(`Failed to reserve ${count} contiguous test ports`);
+  throw new Error(`Failed to reserve ${count} contiguous test ports in fixture range [${FIXTURE_PORT_RANGE_MIN}, ${FIXTURE_PORT_RANGE_MAX}]`);
 }
 
 function createWorkspaceOperationRecorderDouble() {

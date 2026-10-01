@@ -527,6 +527,7 @@ export async function resetRuntimeServicesForTests(
   runtimeReplacementClaimsByReuseKey.clear();
   quarantinedRuntimeExposurePorts.clear();
   exposurePortPairClaims.clear();
+  resetRuntimeServicePortReservationsForTests();
   workspaceRuntimeExposureDeps = defaultWorkspaceRuntimeExposureDeps();
 }
 
