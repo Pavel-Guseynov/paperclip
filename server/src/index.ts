@@ -1487,6 +1487,10 @@ async function startServerWithDatabaseTeardown(
         // Legacy remote recovery releases sandbox leases. Wait for provider
         // workers before cleanup or retry admission, including unmanaged installs.
         await app.locals.bundledPluginsStartup;
+        // Recovery continues a lost run's conversation when its adapter declares
+        // support, so external adapters must be registered first.
+        const { waitForExternalAdapters } = await import("./adapters/registry.js");
+        await waitForExternalAdapters();
         try {
           const nativeRecovery = await heartbeat.recoverNativeRunsAfterRestart();
           if (nativeRecovery.dispositions.length > 0) {
