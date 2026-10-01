@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   activityLog,
   agents,
+  chatEndpoints,
   companySecretBindings,
   companySecrets,
   companySecretVersions,
@@ -48,6 +49,7 @@ import { resolveNativeRuntimeMcpSnapshot } from "../services/native-runtime/runt
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { mcpGatewayProtocolRoutes, toolGatewayRoutes } from "../routes/tool-gateway.js";
 import { toolAccessService } from "../services/tool-access.js";
+import { migrateLegacyProfileToolNameEntries } from "../services/tool-profile-migration.js";
 import {
   canonicalToolArguments,
   readSignedToolArgumentsPayload,
@@ -165,6 +167,18 @@ async function allowToolsForAgent(db: Db, companyId: string, agentId: string, to
       toolName,
     })));
   }
+  return profile;
+}
+
+async function allowCatalogEntryForAgent(db: Db, companyId: string, agentId: string, catalogEntryId: string) {
+  const profile = await allowToolsForAgent(db, companyId, agentId, []);
+  await db.insert(toolProfileEntries).values({
+    companyId,
+    profileId: profile.id,
+    selectorType: "catalog_entry",
+    effect: "include",
+    catalogEntryId,
+  });
   return profile;
 }
 
@@ -613,7 +627,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
       }).returning();
       await db.insert(toolProfileEntries).values({
         companyId: company.id, profileId: profile.id,
-        selectorType: "tool_name", effect: "include", toolName,
+        selectorType: "tool_name", effect: "include", toolName: catalogEntry.toolName,
       });
       const gateway = createTestToolGatewayService(db);
       const named = await gateway.createNamedGateway({
@@ -685,7 +699,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         profileId: profile.id,
         selectorType: "tool_name",
         effect: "include",
-        toolName: gatewayToolName,
+        toolName: catalogEntry.toolName,
       });
 
       const gateway = createTestToolGatewayService(db);
@@ -1227,7 +1241,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         profileId: profile.id,
         selectorType: "tool_name",
         effect: "include",
-        toolName: gatewayToolName,
+        toolName: catalogEntry.toolName,
       });
       // Pin the clock so every request in this test shares one rate-limit
       // window. The window boundary aligns to wall-clock time, so a real clock
@@ -2960,7 +2974,7 @@ rl.on("line", (line) => {
         connectionId: remoteTool.connection.id,
         toolName: remoteTool.catalogEntry.toolName,
       });
-      await allowToolsForAgent(db, company.id, agent.id, [targetToolName]);
+      await allowToolsForAgent(db, company.id, agent.id, [remoteTool.catalogEntry.toolName]);
 
       const gateway = createTestToolGatewayService(db);
       const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
@@ -3538,13 +3552,9 @@ rl.on("line", (line) => {
           methodConfig: { storeDomain: "paperclip-demo.myshopify.com" },
         },
       });
-      await allowToolsForAgent(db, company.id, agent.id, [
-        expectedConnectedToolName({
-          applicationKey: approvalTool.application.applicationKey,
-          connectionId: approvalTool.connection.id,
-          toolName: approvalTool.catalogEntry.toolName,
-        }),
-      ]);
+      // Grant this one connection's kv_set only: other connections in this test
+      // expose a tool with the same catalog name.
+      await allowCatalogEntryForAgent(db, company.id, agent.id, approvalTool.catalogEntry.id);
       const approvalToolName = (await gateway.listToolsForSession(session.token))
         .find((tool) => tool.connectionId === approvalTool.connection.id)!.name;
       await db.insert(toolPolicies).values({
@@ -3736,13 +3746,7 @@ rl.on("line", (line) => {
         toolName: "kv_set",
         url: fake.url,
       });
-      await allowToolsForAgent(db, company.id, agent.id, [
-        expectedConnectedToolName({
-          applicationKey: rejectedTool.application.applicationKey,
-          connectionId: rejectedTool.connection.id,
-          toolName: rejectedTool.catalogEntry.toolName,
-        }),
-      ]);
+      await allowCatalogEntryForAgent(db, company.id, agent.id, rejectedTool.catalogEntry.id);
       await db.insert(toolPolicies).values({
         companyId: company.id,
         name: "Reject connected writes",
@@ -3790,13 +3794,7 @@ rl.on("line", (line) => {
         toolName: "kv_set",
         url: fake.url,
       });
-      await allowToolsForAgent(db, company.id, agent.id, [
-        expectedConnectedToolName({
-          applicationKey: rateTool.application.applicationKey,
-          connectionId: rateTool.connection.id,
-          toolName: rateTool.catalogEntry.toolName,
-        }),
-      ]);
+      await allowCatalogEntryForAgent(db, company.id, agent.id, rateTool.catalogEntry.id);
       await db.insert(toolPolicies).values({
         companyId: company.id,
         name: "One connected call",
@@ -5731,5 +5729,166 @@ rl.on("line", (line) => {
       },
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
+  });
+
+  it("matches a tool_name profile entry against the catalog tool name on every surface", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    const { catalogEntry, application, connection } = await createLocalStdioMcpTool(db, company.id, {
+      applicationKey: "catalog-identity",
+      connectionName: "Catalog identity",
+      toolName: "echo",
+    });
+    const profile = await allowToolsForAgent(db, company.id, agent.id, [catalogEntry.toolName]);
+
+    const details = await toolAccessService(db).getProfile(profile.id, company.id);
+    expect(details.summary.allowedToolCount).toBe(1);
+
+    const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const gatewayToolName = expectedConnectedToolName({
+      applicationKey: application.applicationKey,
+      connectionId: connection.id,
+      toolName: catalogEntry.toolName,
+    });
+    const visible = await gateway.listToolsForSession(session.token);
+    expect(visible.map((tool) => tool.name)).toContain(gatewayToolName);
+    const called = await gateway.executeTool({
+      sessionToken: session.token,
+      tool: gatewayToolName,
+      parameters: { message: "catalog" },
+    });
+    expect(called.status).toBe("completed");
+  });
+
+  it("converts stored gateway-name tool_name entries to exact catalog entry grants", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    const granted = await createLocalStdioMcpTool(db, company.id, {
+      applicationKey: "legacy-analytics",
+      connectionName: "Legacy analytics",
+      toolName: "echo",
+    });
+    // Another connection exposes a tool with the same catalog name. A legacy
+    // gateway name grants one connection only, so it must not reach this one.
+    const sameName = await createLocalStdioMcpTool(db, company.id, {
+      applicationKey: "other-analytics",
+      connectionName: "Other analytics",
+      toolName: "echo",
+    });
+    const sameConnectionEntry = (toolName: string, status: "active" | "disabled" = "active") => ({
+      companyId: company.id,
+      applicationId: granted.application.id,
+      connectionId: granted.connection.id,
+      entryKind: "tool" as const,
+      name: toolName,
+      toolName,
+      riskLevel: "read" as const,
+      isReadOnly: true,
+      status,
+      versionHash: randomUUID(),
+      schemaHash: randomUUID(),
+    });
+    // Two live entries of one connection whose names share a gateway base name.
+    const [dotted] = await db.insert(toolCatalogEntries).values(sameConnectionEntry("read.file")).returning();
+    const [underscored] = await db.insert(toolCatalogEntries).values(sameConnectionEntry("read_file")).returning();
+    // A disabled entry that shares the base name of a live one: the gateway
+    // never exposes it, so it leaves that name unambiguous.
+    const [listed] = await db.insert(toolCatalogEntries).values(sameConnectionEntry("list.files")).returning();
+    await db.insert(toolCatalogEntries).values(sameConnectionEntry("list_files", "disabled"));
+    // A Slack bot exposes its connection's tools under its chat endpoint.
+    const slackTool = await createLocalStdioMcpTool(db, company.id, {
+      applicationKey: "slack-workspace",
+      connectionName: "Slack workspace",
+      toolName: "post_message",
+    });
+    const [slackEndpoint] = await db.insert(chatEndpoints).values({
+      companyId: company.id,
+      connectionId: slackTool.connection.id,
+      provider: "slack",
+      publicId: randomUUID(),
+      assignedAgentId: agent.id,
+    }).returning();
+
+    // Read the names the gateway exposes, as an operator would have copied them.
+    const discovery = await allowToolsForAgent(db, company.id, agent.id, ["echo", "read.file", "list.files"]);
+    const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+    const discoverySession = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const exposedName = new Map(
+      (await gateway.listToolsForSession(discoverySession.token)).map((tool) => [tool.catalogEntryId, tool.name]),
+    );
+    await db.delete(toolProfileBindings).where(eq(toolProfileBindings.profileId, discovery.id));
+    await db.delete(toolProfiles).where(eq(toolProfiles.id, discovery.id));
+    const echoName = exposedName.get(granted.catalogEntry.id)!;
+    const dottedName = exposedName.get(dotted!.id)!;
+    const listedName = exposedName.get(listed!.id)!;
+    expect(echoName).toBe(`mcp.legacy-analytics-${granted.connection.id.replace(/-/g, "").slice(0, 8)}:echo`);
+    // The two live entries are exposed with their catalog entry suffix; their
+    // shared base name, stored while only one existed, now names both.
+    expect(dottedName).toMatch(/-[0-9a-f]{8}$/);
+    const sharedBaseName = dottedName.replace(/-[0-9a-f]{8}$/, "");
+    expect(listedName).not.toMatch(/-[0-9a-f]{8}$/);
+    const slackBotName = `slack-bot.${slackEndpoint!.id}:post_message`;
+    // A gateway name of a connection that no longer exists matches nothing.
+    const unknownGatewayName = `mcp.legacy-analytics-${randomUUID().replace(/-/g, "").slice(0, 8)}:echo`;
+
+    const profile = await allowToolsForAgent(db, company.id, agent.id, [
+      echoName,
+      dottedName,
+      listedName,
+      sharedBaseName,
+      slackBotName,
+      "echo",
+      "mcp-stdio-fixture:runtime_status",
+      unknownGatewayName,
+    ]);
+    const [sharedExclude] = await db.insert(toolProfileEntries).values({
+      companyId: company.id,
+      profileId: profile.id,
+      selectorType: "tool_name",
+      effect: "exclude",
+      toolName: sharedBaseName,
+    }).returning();
+
+    const first = await migrateLegacyProfileToolNameEntries(db);
+    expect(first).toEqual({ scannedEntries: 9, migratedEntries: 5, unresolvedEntries: 1 });
+    const entries = await db
+      .select()
+      .from(toolProfileEntries)
+      .where(eq(toolProfileEntries.profileId, profile.id));
+    const summary = (entry: typeof toolProfileEntries.$inferSelect) =>
+      `${entry.effect} ${entry.selectorType} ${entry.toolName ?? entry.catalogEntryId}`;
+    expect(entries.map(summary).sort()).toEqual([
+      `include catalog_entry ${granted.catalogEntry.id}`,
+      `include catalog_entry ${dotted!.id}`,
+      `include catalog_entry ${listed!.id}`,
+      `include catalog_entry ${slackTool.catalogEntry.id}`,
+      `include tool_name ${sharedBaseName}`,
+      "include tool_name echo",
+      "include tool_name mcp-stdio-fixture:runtime_status",
+      `include tool_name ${unknownGatewayName}`,
+      `exclude catalog_entry ${dotted!.id}`,
+      `exclude catalog_entry ${underscored!.id}`,
+    ].sort());
+    expect(entries.find((entry) => entry.id === sharedExclude!.id)?.selectorType).toBe("catalog_entry");
+    expect(await migrateLegacyProfileToolNameEntries(db)).toEqual({
+      scannedEntries: 4,
+      migratedEntries: 0,
+      unresolvedEntries: 1,
+    });
+
+    // The converted grant keeps its connection scope.
+    await db.delete(toolProfileEntries).where(and(
+      eq(toolProfileEntries.profileId, profile.id),
+      eq(toolProfileEntries.toolName, "echo"),
+    ));
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const visible = (await gateway.listToolsForSession(session.token))
+      .filter((tool) => tool.upstreamToolName === "echo")
+      .map((tool) => tool.connectionId);
+    expect(visible).toEqual([granted.connection.id]);
+    expect(visible).not.toContain(sameName.connection.id);
   });
 });

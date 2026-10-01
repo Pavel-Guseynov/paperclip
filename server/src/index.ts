@@ -67,6 +67,7 @@ import {
   attentionService,
   backfillPrincipalAccessCompatibility,
   backfillLegacyToolOAuthTokens,
+  migrateLegacyProfileToolNameEntries,
   bootstrapExecutionPolicyFromEnv,
   environmentCustomImageService,
   decisionService,
@@ -705,6 +706,13 @@ async function startServerWithDatabaseTeardown(
   const toolOAuthBackfill = await backfillLegacyToolOAuthTokens(db as any);
   if (toolOAuthBackfill.sanitizedConnections > 0 || toolOAuthBackfill.migratedConnections > 0) {
     logger.info(toolOAuthBackfill, "Backfilled legacy tool OAuth credentials into company secrets");
+  }
+  const toolProfileMigration = await migrateLegacyProfileToolNameEntries(db);
+  if (toolProfileMigration.migratedEntries > 0) {
+    logger.info(toolProfileMigration, "Converted legacy gateway-name tool profile entries to catalog entry selectors");
+  }
+  if (toolProfileMigration.unresolvedEntries > 0) {
+    logger.warn(toolProfileMigration, "Left ambiguous gateway-name tool profile entries unchanged");
   }
   const confirmationSweep = await issueThreadInteractionService(db as any)
     .sweepSupersededPendingRequestConfirmations();
