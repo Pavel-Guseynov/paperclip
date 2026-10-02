@@ -69,6 +69,8 @@ type ToolAccessContext = {
   applicationKey: string | null;
   upstreamToolName: string | null;
   toolName: string;
+  legacyToolName?: string | null;
+  legacyToolNames?: string[];
   riskLevel: ToolRiskLevel | null;
   argumentsHash: string;
   arguments: unknown;
@@ -355,8 +357,11 @@ function selectorMatches(selector: ToolAccessSelector | Record<string, unknown> 
     match("connectionId", "connectionIds", ctx.connectionId) &&
     match("catalogEntryId", "catalogEntryIds", ctx.catalogEntryId) &&
     match("applicationKey", "applicationKeys", ctx.applicationKey) &&
-    match("providerType", "providerTypes", ctx.providerType) &&
-    matchAny("toolName", "toolNames", [ctx.toolName, ctx.upstreamToolName]) &&
+    matchAny("toolName", "toolNames", [
+      ctx.toolName,
+      ctx.upstreamToolName,
+      ...(ctx.legacyToolNames ?? (ctx.legacyToolName ? [ctx.legacyToolName] : [])),
+    ]) &&
     match("riskLevel", "riskLevels", ctx.riskLevel)
   );
 }
@@ -673,7 +678,8 @@ function rateBucket(rule: ToolRateLimitRule, ctx: ToolAccessContext): string {
 function scopeAllowsTool(scope: Record<string, unknown> | null, ctx: ToolAccessContext) {
   if (!scope || Object.keys(scope).length === 0) return true;
   const allowed = listValues(scope.allow);
-  if (allowed.includes(`tool:${ctx.toolName}`)) return true;
+  const legacyNames = ctx.legacyToolNames ?? (ctx.legacyToolName ? [ctx.legacyToolName] : []);
+  if (allowed.includes(`tool:${ctx.toolName}`) || legacyNames.some((legacy) => allowed.includes(`tool:${legacy}`))) return true;
   if (ctx.connectionId && allowed.includes(`connection:${ctx.connectionId}`)) return true;
   if (ctx.applicationId && allowed.includes(`application:${ctx.applicationId}`)) return true;
   return selectorMatches(scope, ctx);
@@ -997,6 +1003,11 @@ export function toolAccessPolicyService(db: Db) {
         applicationKey,
         upstreamToolName,
         toolName: input.request.toolName,
+        legacyToolName: input.request.legacyToolName ?? null,
+        legacyToolNames: [
+          ...(input.request.legacyToolNames ?? []),
+          ...(input.request.legacyToolName ? [input.request.legacyToolName] : []),
+        ],
         riskLevel,
         argumentsHash: redaction.summary.sha256 ?? sha256(input.request.arguments ?? {}),
         arguments: input.request.arguments ?? {},
