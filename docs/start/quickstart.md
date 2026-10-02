@@ -25,7 +25,7 @@ npx paperclipai run
 
 ## Local Development
 
-For contributors working on Paperclip itself. Prerequisites: Node.js 24.11+ and pnpm 11+.
+For contributors working on Paperclip itself. Prerequisites: Node.js 24.11+, pnpm 11+, and a Rust toolchain (optional: set `PAPERCLIP_SKIP_RUNNER_BINARY=1` to build without the native runner binary).
 
 Clone the repository, then:
 
