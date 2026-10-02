@@ -1,4 +1,6 @@
 {
+  "id": "861a2815-1418-4c71-a77b-d0e2e9566413",
+  "prevId": "4770ad6d-2cdc-45c4-af89-c300fd134d91",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1874,28 +1876,6 @@
           "method": "btree",
           "with": {}
         },
-        "agent_wakeup_requests_review_handoff_retry_idempotency_uq": {
-          "name": "agent_wakeup_requests_review_handoff_retry_idempotency_uq",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "idempotency_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"agent_wakeup_requests\".\"idempotency_key\" LIKE 'review-handoff:%' AND \"agent_wakeup_requests\".\"status\" <> 'skipped'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "agent_wakeup_requests_question_response_delivery_idempotency_uq": {
           "name": "agent_wakeup_requests_question_response_delivery_idempotency_uq",
           "columns": [
@@ -2057,6 +2037,12 @@
         "icon": {
           "name": "icon",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appearance": {
+          "name": "appearance",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -47815,10 +47801,8 @@
   "policies": {},
   "views": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
-  },
-  "id": "8f726cc4-a439-4ec4-b5a9-f7414d60b553",
-  "prevId": "4770ad6d-2cdc-45c4-af89-c300fd134d91"
+    "tables": {}
+  }
 }
