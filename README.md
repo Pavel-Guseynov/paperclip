@@ -402,6 +402,7 @@ This starts the API server at `http://localhost:3100`. An embedded PostgreSQL da
 
 > **Requirements:** Node.js 24.11+, pnpm 11.27+
 
+Source development also builds the native Paperclip Runner when enabled (the self-hosted default). Install a Rust toolchain, set `PAPERCLIP_RUNNER_BINARY` to a compatible prebuilt runner, or set `PAPERCLIP_SKIP_RUNNER_BINARY=1` to skip building the native runner binary (native-runtime providers require the binary at runtime).
 <br/>
 
 ### Managed MCP authentication
