@@ -7215,6 +7215,16 @@ export function createToolGatewayService(
       ? `id:${tokenId}`
       : `hash:${hashGatewayToken(token).slice(0, 24)}`;
     const gateway = await findGatewayForProtocolLocator(input);
+    logger.warn(
+      {
+        event: "named_gateway_auth_failed",
+        gatewayId: input.gatewayId ?? gateway?.id ?? null,
+        gatewayPublicId: input.gatewayPublicId ?? gateway?.gatewayPublicId ?? null,
+        reasonCode: input.reasonCode,
+        clientMetadata: input.clientMetadata,
+      },
+      `MCP named gateway authentication failed: ${input.reasonCode}`,
+    );
     if (!gateway) {
       throw new ToolGatewayHttpError(
         401,
@@ -7361,7 +7371,11 @@ export function createToolGatewayService(
         clientMetadata,
       });
     }
-    if (row.token.expiresAt && row.token.expiresAt.getTime() <= Date.now()) {
+    if (
+      row.token.subjectType !== "heartbeat_run" &&
+      row.token.expiresAt &&
+      row.token.expiresAt.getTime() <= Date.now()
+    ) {
       await recordNamedGatewayAuthFailure({
         gatewayId: input.gatewayId,
         gatewayPublicId: input.gatewayPublicId,
