@@ -151,6 +151,7 @@ import {
   verifyToolArgumentsSignature,
 } from "./tool-content-guards.js";
 import { extendApprovedExecutionWaitDeadline } from "./approved-execution-wait.js";
+import { HttpError } from "../errors.js";
 
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 60 * 60 * 1000;
@@ -399,6 +400,7 @@ type RemoteHttpExecutionAudit = {
     bodySizeBytes: number;
     upstreamRequestId: string | null;
   };
+  failureKind?: "invocation_timeout" | "transport_failure" | "protocol_failure";
 };
 
 type LocalStdioRuntimeTemplate = {
@@ -1238,7 +1240,7 @@ export function createToolGatewayService(
           // catalog discoverable; execution resolves and validates that user's
           // grant, and a successful call restores the shared health indicator.
           or(
-            inArray(toolConnections.healthStatus, ["ok", "healthy"]),
+            inArray(toolConnections.healthStatus, ["ok", "healthy", "degraded"]),
             eq(toolConnections.credentialPolicy, "per_user"),
           ),
           eq(toolApplications.companyId, companyId),
@@ -3499,8 +3501,26 @@ export function createToolGatewayService(
     connection: typeof toolConnections.$inferSelect,
     status: "ok" | "error" | "missing_secret" | "degraded",
     message: string | null,
+    options?: { observedAt?: Date },
   ) {
     const now = new Date();
+    if (status === "degraded" && options?.observedAt) {
+      const [current] = await db
+        .select({
+          healthStatus: toolConnections.healthStatus,
+          lastHealthAt: toolConnections.lastHealthAt,
+        })
+        .from(toolConnections)
+        .where(eq(toolConnections.id, connection.id));
+      if (
+        current &&
+        current.healthStatus === "ok" &&
+        current.lastHealthAt &&
+        new Date(current.lastHealthAt).getTime() >= options.observedAt.getTime()
+      ) {
+        return;
+      }
+    }
     await db
       .update(toolConnections)
       .set({
@@ -5814,6 +5834,7 @@ export function createToolGatewayService(
     invocationId: string,
     callerHeaders?: ExecuteGatewayToolInput["callerHeaders"],
     useDefaultTimeout = false,
+    startedAt?: Date,
   ): Promise<RemoteHttpExecutionResult> {
     const { entry, connection } = await resolveConnectedRemoteTool(
       session,
@@ -5852,6 +5873,7 @@ export function createToolGatewayService(
         dispatched: true,
       },
     };
+    const invocationStartedAt = startedAt ?? new Date();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     timer.unref?.();
@@ -6073,10 +6095,16 @@ export function createToolGatewayService(
           response.headers.get("traceparent"),
       };
       if (!response.ok) {
+        execution.failureKind = "protocol_failure";
         // Session expiration is recoverable on an explicit retry. Marking the
         // connection unhealthy here would hide every tool and prevent it.
         if (!sessionExpired) {
-          await markRemoteConnectionHealth(connection, "error", "Remote MCP server returned an HTTP error.");
+          await markRemoteConnectionHealth(
+            connection,
+            "error",
+            "Remote MCP server returned an HTTP error.",
+            { observedAt: invocationStartedAt },
+          );
         }
         throw new ToolGatewayHttpError(
           502,
@@ -6088,6 +6116,7 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "protocol_failure",
           },
         );
       }
@@ -6095,10 +6124,12 @@ export function createToolGatewayService(
       try {
         payload = JSON.parse(body);
       } catch {
+        execution.failureKind = "protocol_failure";
         await markRemoteConnectionHealth(
           connection,
           "error",
           "Remote MCP server returned invalid JSON.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           502,
@@ -6108,11 +6139,21 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "protocol_failure",
           },
         );
       }
       const payloadRecord = asRecord(payload);
-      if (!payloadRecord) throw malformedRemoteMcpResponse();
+      if (!payloadRecord) {
+        execution.failureKind = "protocol_failure";
+        await markRemoteConnectionHealth(
+          connection,
+          "error",
+          "Remote MCP server returned a malformed tools/call response.",
+          { observedAt: invocationStartedAt },
+        );
+        throw malformedRemoteMcpResponse();
+      }
       const upstreamPending = extractRemoteMcpPending(payloadRecord, String(connection.config.sourceTemplateKey ?? ""), entry.toolName);
       if (upstreamPending) {
         await retainUpstreamHandoff(invocationId, upstreamPending);
@@ -6129,10 +6170,12 @@ export function createToolGatewayService(
       }
       if (payloadRecord.error !== undefined) {
         const errorRecord = asRecord(payloadRecord.error);
+        execution.failureKind = "protocol_failure";
         await markRemoteConnectionHealth(
           connection,
           "error",
           "Remote MCP server returned a JSON-RPC error.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           502,
@@ -6144,10 +6187,18 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "protocol_failure",
           },
         );
       }
       if (!Object.prototype.hasOwnProperty.call(payloadRecord, "result")) {
+        execution.failureKind = "protocol_failure";
+        await markRemoteConnectionHealth(
+          connection,
+          "error",
+          "Remote MCP server returned a malformed tools/call response.",
+          { observedAt: invocationStartedAt },
+        );
         throw malformedRemoteMcpResponse();
       }
       const resultElicitation = extractMcpElicitationRequest(
@@ -6179,33 +6230,52 @@ export function createToolGatewayService(
       return { result, headerSummary, execution };
     } catch (error) {
       if (error instanceof McpHttpResponseError) {
+        execution.failureKind = "protocol_failure";
         const failure = error.reason === "too_large" ? responseTooLargeError()
           : error.reason === "malformed_response" ? malformedRemoteMcpResponse()
           : new ToolGatewayHttpError(502, "Remote MCP server returned invalid JSON", "mcp_remote_invalid_json");
         await markRemoteConnectionHealth(connection, "error", failure.message);
         throw new ToolGatewayHttpError(failure.status, failure.message, failure.reasonCode, {
-          connectionId: connection.id, catalogEntryId: entry.id, execution,
+          connectionId: connection.id, catalogEntryId: entry.id, execution, failureKind: "protocol_failure",
         });
       }
       if (error instanceof RailwayError) {
         throw new ToolGatewayHttpError(error.status, error.message, error.code, { connectionId: connection.id, catalogEntryId: entry.id, execution });
       }
       if (error instanceof ToolGatewayHttpError) {
+        const failureKind =
+          (error.details.failureKind as "invocation_timeout" | "transport_failure" | "protocol_failure" | undefined) ??
+          (error.reasonCode === "tool_timeout"
+            ? "invocation_timeout"
+            : error.reasonCode === "mcp_remote_status" ||
+                error.reasonCode === "mcp_remote_invalid_json" ||
+                error.reasonCode === "remote_mcp_error" ||
+                error.reasonCode === "remote_mcp_malformed_response"
+              ? "protocol_failure"
+              : undefined);
+        const currentExecution = error.details.execution ?? execution;
+        if (failureKind && currentExecution && typeof currentExecution === "object") {
+          (currentExecution as RemoteHttpExecutionAudit).failureKind =
+            (currentExecution as RemoteHttpExecutionAudit).failureKind ?? failureKind;
+        }
         throw new ToolGatewayHttpError(
           error.status,
           error.message,
           error.reasonCode,
           {
             ...error.details,
-            execution: error.details.execution ?? execution,
+            execution: currentExecution,
+            ...(failureKind ? { failureKind } : {}),
           },
         );
       }
       if (error instanceof Error && error.name === "AbortError") {
+        execution.failureKind = "invocation_timeout";
         await markRemoteConnectionHealth(
           connection,
-          "error",
-          "Remote MCP tool call timed out.",
+          "degraded",
+          "Remote MCP tool call timed out; transport remains viable.",
+          { observedAt: invocationStartedAt },
         );
         throw new ToolGatewayHttpError(
           504,
@@ -6215,13 +6285,16 @@ export function createToolGatewayService(
             connectionId: connection.id,
             catalogEntryId: entry.id,
             execution,
+            failureKind: "invocation_timeout",
           },
         );
       }
+      execution.failureKind = "transport_failure";
       await markRemoteConnectionHealth(
         connection,
         "error",
         "Remote MCP tool call failed.",
+        { observedAt: invocationStartedAt },
       );
       throw new ToolGatewayHttpError(
         502,
@@ -6231,6 +6304,7 @@ export function createToolGatewayService(
           connectionId: connection.id,
           catalogEntryId: entry.id,
           execution,
+          failureKind: "transport_failure",
         },
       );
     } finally {
@@ -7099,6 +7173,7 @@ export function createToolGatewayService(
               args.invocationId,
               undefined,
               args.timeoutMs === undefined,
+              new Date(startedAt),
             )
           : args.tool.providerType === "mcp_local_stdio"
             ? await executeLocalStdioTool(
@@ -10363,6 +10438,7 @@ export function createToolGatewayService(
                 invocationId,
                 input.callerHeaders,
                 input.timeoutMs === undefined,
+                new Date(startedAt),
               )
             : tool.providerType === "mcp_local_stdio"
               ? await executeLocalStdioTool(
@@ -10501,13 +10577,18 @@ export function createToolGatewayService(
         const status =
           normalizedError instanceof ToolGatewayHttpError
             ? normalizedError.status
-            : 502;
+            : normalizedError instanceof HttpError
+              ? normalizedError.status
+              : 502;
         const reasonCode =
           normalizedError instanceof ToolContentValidationError
             ? normalizedError.reasonCode
             : normalizedError instanceof ToolGatewayHttpError
               ? normalizedError.reasonCode
-              : "tool_execution_failed";
+              : normalizedError instanceof HttpError &&
+                  typeof (normalizedError.details as Record<string, unknown> | undefined)?.code === "string"
+                ? ((normalizedError.details as Record<string, unknown>).code as string)
+                : "tool_execution_failed";
         const isRuntimeDeferred =
           status === 429 &&
           (reasonCode === "runtime_capacity_unavailable" ||
