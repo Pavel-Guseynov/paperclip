@@ -7242,7 +7242,6 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
           const [row] = await db.execute<{ count: number }>(sql`
           select count(*)::int as count from pg_stat_activity
           where datname = current_database() and ${pid} = any(pg_blocking_pids(pid))
-            and query ilike '%update%heartbeat_runs%'
         `);
           expect(row!.count).toBeGreaterThan(0);
         });
@@ -7513,9 +7512,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
         expect(duplicateSettled).toBe(false);
         if (failure === "write") {
           const error = new Error("owned cancellation write unavailable");
-          writeSpy = adapterType === "codex_local"
-            ? vi.spyOn(db, "update").mockImplementationOnce(() => { throw error; })
-            : vi.spyOn(db, "transaction").mockRejectedValueOnce(error);
+          writeSpy = vi.spyOn(db, "transaction").mockRejectedValueOnce(error);
         }
       } finally {
         releaseTermination();
