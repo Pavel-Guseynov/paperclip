@@ -153,7 +153,7 @@ async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source
   const config = {
     $meta: {
       version: 1,
-      updatedAt: new Date().toISOString(),
+      updatedAt: "2026-01-01T00:00:00.000Z",
       source: "configure",
     },
     database: {
@@ -166,6 +166,8 @@ async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source
       logDir: path.join(configDir, "runtime/logs"),
     },
     server: {
+      deploymentMode: "local_trusted",
+      exposure: "private",
       host: "127.0.0.1",
       port: 3100,
     },
@@ -1908,7 +1910,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
@@ -2009,7 +2011,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
@@ -2096,7 +2098,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.27.0",
           },
           null,
           2,
@@ -2337,7 +2339,7 @@ describe("realizeExecutionWorkspace", () => {
           {
             name: "workspace-root",
             private: true,
-            packageManager: "pnpm@9.15.4",
+            packageManager: "pnpm@11.27.0",
           },
           null,
           2,
@@ -2406,7 +2408,7 @@ describe("realizeExecutionWorkspace", () => {
         {
           name: "workspace-root",
           private: true,
-          packageManager: "pnpm@9.15.4",
+          packageManager: "pnpm@11.27.0",
         },
         null,
         2,
