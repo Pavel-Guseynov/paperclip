@@ -518,6 +518,14 @@ export interface ServerAdapterModule {
   supportsInstructionsBundle?: boolean;
 
   /**
+   * Adapter supports conversation continuation across turns, interrupts, and retries.
+   * When true, non-succeeded runs are stamped with continue_conversation_v1 instead of
+   * being held for board reconciliation, and subsequent wakes resume the existing session.
+   * Built-in local adapters default to checking CONVERSATION_ADAPTER_TYPES; external plugins opt in.
+   */
+  supportsConversationContinuation?: boolean;
+
+  /**
    * The adapterConfig key that holds the instructions file path.
    * Defaults to "instructionsFilePath" when supportsInstructionsBundle is true.
    */
