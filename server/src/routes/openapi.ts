@@ -189,6 +189,7 @@ import {
   archiveCompanyMemberSchema,
   updateMemberPermissionsSchema,
   updateUserCompanyAccessSchema,
+  replayLifecycleEventsSchema,
   // Instance settings
   patchInstanceGeneralSettingsSchema,
   patchInstanceExperimentalSettingsSchema,
@@ -1530,6 +1531,7 @@ const INSTANCE_ADMIN_OPERATIONS = new Set([
   "POST /api/admin/users/{userId}/promote-instance-admin",
   "POST /api/admin/users/{userId}/demote-instance-admin",
   "PUT /api/admin/users/{userId}/company-access",
+  "POST /api/admin/lifecycle-events/replay",
 ]);
 
 const CREATED_OPERATIONS = new Set([
@@ -9269,6 +9271,22 @@ registry.registerPath({
     401: r.unauthorized,
     403: r.forbidden,
     404: r.notFound,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/admin/lifecycle-events/replay",
+  tags: ["admin"],
+  summary: "Replay activity log lifecycle events to OpenObserve",
+  request: {
+    body: jsonBody(replayLifecycleEventsSchema),
+  },
+  responses: {
+    200: r.ok(),
+    400: r.badRequest,
+    401: r.unauthorized,
+    403: r.forbidden,
   },
 });
 
