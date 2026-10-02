@@ -6880,14 +6880,21 @@ export function issueRoutes(
     }
   }
 
-  async function resolveActiveIssueRun(issue: {
-    id: string;
-    assigneeAgentId: string | null;
-    executionRunId?: string | null;
-  }) {
-    let runToInterrupt = issue.executionRunId
-      ? await heartbeat.getRun(issue.executionRunId)
-      : null;
+  async function resolveActiveIssueRun(
+    issue: {
+      id: string;
+      assigneeAgentId: string | null;
+      executionRunId?: string | null;
+    },
+    options?: {
+      excludeRunId?: string | null;
+    },
+  ) {
+    const excludeRunId = options?.excludeRunId ?? null;
+    let runToInterrupt =
+      issue.executionRunId && issue.executionRunId !== excludeRunId
+        ? await heartbeat.getRun(issue.executionRunId)
+        : null;
 
     if (
       (!runToInterrupt || runToInterrupt.status !== "running") &&
@@ -6908,7 +6915,8 @@ export function issueRoutes(
       if (
         activeRun &&
         activeRun.status === "running" &&
-        activeIssueId === issue.id
+        activeIssueId === issue.id &&
+        activeRun.id !== excludeRunId
       ) {
         runToInterrupt = activeRun;
       }
@@ -13362,6 +13370,12 @@ export function issueRoutes(
       const persistReviewActivityTransactionally =
         enteringReviewRequested || Boolean(reviewInteractionId);
 
+      const requestingRunId =
+        (typeof actor.runId === "string" && actor.runId.trim()) ||
+        (typeof req.header("x-paperclip-run-id") === "string" &&
+          req.header("x-paperclip-run-id")!.trim()) ||
+        null;
+
       const nextAssigneeAgentId =
         updateFields.assigneeAgentId === undefined
           ? existing.assigneeAgentId
@@ -13418,7 +13432,12 @@ export function issueRoutes(
           issueId: existing.id,
           agentId: existing.assigneeAgentId,
         });
-        const runToStopForReassignment = await resolveActiveIssueRun(existing);
+        const runToStopForReassignment = await resolveActiveIssueRun(
+          existing,
+          transition.decision && requestingRunId
+            ? { excludeRunId: requestingRunId }
+            : undefined,
+        );
         if (runToStopForReassignment) {
           const cancelled = await heartbeat.cancelRun(
             runToStopForReassignment.id,
@@ -13458,7 +13477,12 @@ export function issueRoutes(
           agentId: existing.assigneeAgentId,
         });
         const runToStopForTerminalization = goalStopAction
-          ? await resolveActiveIssueRun(existing)
+          ? await resolveActiveIssueRun(
+              existing,
+              transition.decision && requestingRunId
+                ? { excludeRunId: requestingRunId }
+                : undefined,
+            )
           : null;
         if (goalStopAction && runToStopForTerminalization) {
           const cancelled = await heartbeat.cancelRun(
