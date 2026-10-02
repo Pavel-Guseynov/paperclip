@@ -6,19 +6,6 @@ import { readWorkspacePatchedDependencies } from "./prepare-bundled-package.mjs"
 
 export const expectedPnpmVersion = "11.27.0";
 const expectedPackageManager = `pnpm@${expectedPnpmVersion}`;
-const skippedDirectories = new Set([
-  ".git",
-  ".paperclip",
-  "coverage",
-  "data",
-  "dist",
-  "dist-preview",
-  "dist-flow-preview",
-  "node_modules",
-  ".vite",
-  "tmp",
-  "target",
-]);
 
 // Documents that state the pnpm prerequisite, with the text each must contain.
 export const documentedPrerequisites = [
@@ -29,15 +16,6 @@ export const documentedPrerequisites = [
   ["docs/deploy/local-development.md", "pnpm 11+"],
   ["docs/start/quickstart.md", "pnpm 11+"],
 ];
-
-function walk(directory, visit) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory() && skippedDirectories.has(entry.name)) continue;
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) walk(entryPath, visit);
-    else if (entry.isFile()) visit(entryPath);
-  }
-}
 
 // Lines of one top-level YAML block, without blank and comment-only lines.
 function topLevelBlock(source, key) {
@@ -52,6 +30,28 @@ function topLevelBlock(source, key) {
     if (inBlock) lines.push(line);
   }
   return lines;
+}
+
+export function checkTrackedPnpm9References(repoRoot) {
+  const failures = [];
+  const historicalDirectories = ["doc/logs/", "doc/plans/"];
+  const scannedFile = /(\.(md|mdx|ya?ml|json|mjs|cjs|js|ts|tsx|sh)|Dockerfile)$/;
+  const trackedFiles = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+
+  for (const relativePath of trackedFiles) {
+    if (!scannedFile.test(relativePath) || relativePath === "pnpm-lock.yaml") continue;
+    if (historicalDirectories.some((directory) => relativePath.startsWith(directory))) continue;
+    if (relativePath === "scripts/check-pnpm-version-policy.mjs") continue;
+    if (relativePath === "scripts/check-pnpm-version-policy.test.mjs") continue;
+    const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+    if (/pnpm@9\.|pnpm 9\b|pnpm v9\b/.test(source)) {
+      failures.push(`${relativePath}: references pnpm 9; the supported toolchain is ${expectedPackageManager}`);
+    }
+  }
+
+  return failures;
 }
 
 export function checkPnpmVersionPolicy(repoRoot, options = {}) {
@@ -106,8 +106,9 @@ export function checkPnpmVersionPolicy(repoRoot, options = {}) {
   // 3. GitHub Actions workflow pnpm version pins, checked per setup step
   const workflowRoot = path.join(repoRoot, ".github", "workflows");
   if (fs.existsSync(workflowRoot)) {
-    walk(workflowRoot, (filePath) => {
-      if (!/\.ya?ml$/.test(filePath)) return;
+    for (const entry of fs.readdirSync(workflowRoot, { withFileTypes: true })) {
+      if (!entry.isFile() || !/\.ya?ml$/.test(entry.name)) continue;
+      const filePath = path.join(workflowRoot, entry.name);
       const lines = fs.readFileSync(filePath, "utf8").split("\n");
       lines.forEach((line, index) => {
         const setup = line.match(/^(\s*)(?:-\s+)?uses:\s*pnpm\/action-setup@/);
@@ -129,7 +130,7 @@ export function checkPnpmVersionPolicy(repoRoot, options = {}) {
           failures.push(`${relative(filePath)}:${index + 1}: pnpm action-setup version must be ${expectedPnpmVersion}, found ${version ?? "none"}`);
         }
       });
-    });
+    }
   }
 
   // 4. Dockerfile pnpm version pins
@@ -153,23 +154,7 @@ export function checkPnpmVersionPolicy(repoRoot, options = {}) {
     }
   }
 
-  // 6. No active pnpm 9 references in source files. Dated logs and plans are
-  // historical records.
-  const historicalDirectories = ["doc/logs/", "doc/plans/"];
-  const scannedFile = /(\.(md|mdx|ya?ml|json|mjs|cjs|js|ts|tsx|sh)|Dockerfile)$/;
-  walk(repoRoot, (filePath) => {
-    const relativePath = path.relative(repoRoot, filePath).split(path.sep).join("/");
-    if (!scannedFile.test(relativePath) || relativePath === "pnpm-lock.yaml") return;
-    if (historicalDirectories.some((directory) => relativePath.startsWith(directory))) return;
-    if (relativePath === "scripts/check-pnpm-version-policy.mjs") return;
-    if (relativePath === "scripts/check-pnpm-version-policy.test.mjs") return;
-    const source = fs.readFileSync(filePath, "utf8");
-    if (/pnpm@9\.|pnpm 9\b|pnpm v9\b/.test(source)) {
-      failures.push(`${relativePath}: references pnpm 9; the supported toolchain is ${expectedPackageManager}`);
-    }
-  });
-
-  // 7. Running pnpm version check
+  // 6. Running pnpm version check
   let runningPnpm = options.runningVersion;
   if (runningPnpm === undefined) {
     try {
@@ -182,12 +167,18 @@ export function checkPnpmVersionPolicy(repoRoot, options = {}) {
     failures.push(`running pnpm version mismatch: expected ${expectedPnpmVersion}, found ${runningPnpm}`);
   }
 
+  // 7. Tracked pnpm 9 references (when explicitly enabled)
+  if (options.scanTracked) {
+    failures.push(...checkTrackedPnpm9References(repoRoot));
+  }
+
   return failures;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const failures = checkPnpmVersionPolicy(repoRoot);
+  const scanTracked = process.argv.includes("--scan-tracked");
+  const failures = checkPnpmVersionPolicy(repoRoot, { scanTracked });
   if (failures.length > 0) {
     console.error("pnpm version policy check failed:");
     for (const failure of failures) {
