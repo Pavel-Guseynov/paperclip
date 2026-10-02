@@ -40,6 +40,7 @@ import type {
   ToolRedactedValueSummary,
   ToolTrustRuleArgumentFilters,
   ToolRiskLevel,
+  ToolMcpGatewayDefaultProfileMode,
 } from "@paperclipai/shared";
 import { toolPolicyConditionsSchema } from "@paperclipai/shared";
 import { badRequest, conflict, notFound, unprocessable } from "../errors.js";
@@ -685,6 +686,349 @@ function scopeAllowsTool(scope: Record<string, unknown> | null, ctx: ToolAccessC
   return selectorMatches(scope, ctx);
 }
 
+export interface ToolEvaluationContextCache {
+  companyId: string;
+  policiesPromise?: Promise<Array<typeof toolPolicies.$inferSelect>>;
+  bindingsPromise?: Promise<Array<typeof toolProfileBindings.$inferSelect>>;
+  profilesById: Map<string, typeof toolProfiles.$inferSelect>;
+  profileEntriesByProfileId: Map<string, Array<typeof toolProfileEntries.$inferSelect>>;
+  gatewayPromises: Map<string, Promise<{ profileId: string; defaultProfileMode: ToolMcpGatewayDefaultProfileMode } | null>>;
+  agentPromises: Map<string, Promise<typeof agents.$inferSelect | null>>;
+  runPromises: Map<string, Promise<typeof heartbeatRuns.$inferSelect | null>>;
+  issuePromises: Map<string, Promise<typeof issues.$inferSelect | null>>;
+  projectPromises: Map<string, Promise<typeof projects.$inferSelect | null>>;
+  routinePromises: Map<string, Promise<typeof routines.$inferSelect | null>>;
+  connectionPromises: Map<string, Promise<typeof toolConnections.$inferSelect | null>>;
+  applicationPromises: Map<string, Promise<typeof toolApplications.$inferSelect | null>>;
+  catalogEntryPromises: Map<string, Promise<typeof toolCatalogEntries.$inferSelect | null>>;
+  grantsByPrincipal: Map<string, Promise<Array<typeof principalPermissionGrants.$inferSelect>>>;
+
+  getPolicies(): Promise<Array<typeof toolPolicies.$inferSelect>>;
+  getBindings(): Promise<Array<typeof toolProfileBindings.$inferSelect>>;
+  getGateway(gatewayId: string): Promise<{ profileId: string; defaultProfileMode: ToolMcpGatewayDefaultProfileMode } | null>;
+  getProfile(profileId: string): Promise<typeof toolProfiles.$inferSelect | null>;
+  getProfiles(profileIds: string[]): Promise<Array<typeof toolProfiles.$inferSelect>>;
+  getProfileEntries(profileIds: string[]): Promise<Array<typeof toolProfileEntries.$inferSelect>>;
+  getAgent(agentId: string): Promise<typeof agents.$inferSelect | null>;
+  getRun(runId: string): Promise<typeof heartbeatRuns.$inferSelect | null>;
+  getIssue(issueId: string): Promise<typeof issues.$inferSelect | null>;
+  getProject(projectId: string): Promise<typeof projects.$inferSelect | null>;
+  getRoutine(routineId: string): Promise<typeof routines.$inferSelect | null>;
+  getConnection(connectionId: string): Promise<typeof toolConnections.$inferSelect | null>;
+  getApplication(applicationId: string): Promise<typeof toolApplications.$inferSelect | null>;
+  getCatalogEntry(catalogEntryId: string): Promise<typeof toolCatalogEntries.$inferSelect | null>;
+  getPrincipalGrants(principalType: "agent" | "user", principalId: string): Promise<Array<typeof principalPermissionGrants.$inferSelect>>;
+
+  primeCatalogEntry(entry: typeof toolCatalogEntries.$inferSelect): void;
+  primeConnection(connection: typeof toolConnections.$inferSelect): void;
+  primeApplication(application: typeof toolApplications.$inferSelect): void;
+}
+
+export function createToolEvaluationContextCache(
+  db: Db,
+  companyId: string,
+): ToolEvaluationContextCache {
+  let policiesPromise: Promise<Array<typeof toolPolicies.$inferSelect>> | undefined;
+  let bindingsPromise: Promise<Array<typeof toolProfileBindings.$inferSelect>> | undefined;
+
+  const profilesById = new Map<string, typeof toolProfiles.$inferSelect>();
+  const profilePromises = new Map<string, Promise<typeof toolProfiles.$inferSelect | null>>();
+
+  const profileEntriesByProfileId = new Map<string, Array<typeof toolProfileEntries.$inferSelect>>();
+
+  const gatewayPromises = new Map<string, Promise<{ profileId: string; defaultProfileMode: ToolMcpGatewayDefaultProfileMode } | null>>();
+  const agentPromises = new Map<string, Promise<typeof agents.$inferSelect | null>>();
+  const runPromises = new Map<string, Promise<typeof heartbeatRuns.$inferSelect | null>>();
+  const issuePromises = new Map<string, Promise<typeof issues.$inferSelect | null>>();
+  const projectPromises = new Map<string, Promise<typeof projects.$inferSelect | null>>();
+  const routinePromises = new Map<string, Promise<typeof routines.$inferSelect | null>>();
+
+  const connectionMap = new Map<string, typeof toolConnections.$inferSelect>();
+  const connectionPromises = new Map<string, Promise<typeof toolConnections.$inferSelect | null>>();
+
+  const applicationMap = new Map<string, typeof toolApplications.$inferSelect>();
+  const applicationPromises = new Map<string, Promise<typeof toolApplications.$inferSelect | null>>();
+
+  const catalogEntryMap = new Map<string, typeof toolCatalogEntries.$inferSelect>();
+  const catalogEntryPromises = new Map<string, Promise<typeof toolCatalogEntries.$inferSelect | null>>();
+
+  const grantsByPrincipal = new Map<string, Promise<Array<typeof principalPermissionGrants.$inferSelect>>>();
+
+  return {
+    companyId,
+    get policiesPromise() {
+      return policiesPromise;
+    },
+    get bindingsPromise() {
+      return bindingsPromise;
+    },
+    profilesById,
+    profileEntriesByProfileId,
+    gatewayPromises,
+    agentPromises,
+    runPromises,
+    issuePromises,
+    projectPromises,
+    routinePromises,
+    connectionPromises,
+    applicationPromises,
+    catalogEntryPromises,
+    grantsByPrincipal,
+
+    async getPolicies() {
+      if (!policiesPromise) {
+        policiesPromise = db
+          .select()
+          .from(toolPolicies)
+          .where(and(eq(toolPolicies.companyId, companyId), eq(toolPolicies.enabled, true)))
+          .orderBy(asc(toolPolicies.priority), asc(toolPolicies.createdAt));
+      }
+      return policiesPromise;
+    },
+
+    async getBindings() {
+      if (!bindingsPromise) {
+        bindingsPromise = db
+          .select()
+          .from(toolProfileBindings)
+          .where(eq(toolProfileBindings.companyId, companyId));
+      }
+      return bindingsPromise;
+    },
+
+    async getGateway(gatewayId: string) {
+      let p = gatewayPromises.get(gatewayId);
+      if (!p) {
+        p = db
+          .select({
+            profileId: toolMcpGateways.profileId,
+            defaultProfileMode: toolMcpGateways.defaultProfileMode,
+          })
+          .from(toolMcpGateways)
+          .where(and(eq(toolMcpGateways.companyId, companyId), eq(toolMcpGateways.id, gatewayId)))
+          .limit(1)
+          .then((rows) => (rows[0] ? { profileId: rows[0].profileId, defaultProfileMode: rows[0].defaultProfileMode } : null));
+        gatewayPromises.set(gatewayId, p);
+      }
+      return p;
+    },
+
+    async getProfile(profileId: string) {
+      if (profilesById.has(profileId)) return profilesById.get(profileId)!;
+      let p = profilePromises.get(profileId);
+      if (!p) {
+        p = db
+          .select()
+          .from(toolProfiles)
+          .where(and(eq(toolProfiles.companyId, companyId), eq(toolProfiles.id, profileId)))
+          .limit(1)
+          .then((rows) => {
+            const profile = rows[0] ?? null;
+            if (profile) profilesById.set(profile.id, profile);
+            return profile;
+          });
+        profilePromises.set(profileId, p);
+      }
+      return p;
+    },
+
+    async getProfiles(profileIds: string[]) {
+      const missing = profileIds.filter((id) => !profilesById.has(id));
+      if (missing.length > 0) {
+        const rows = await db
+          .select()
+          .from(toolProfiles)
+          .where(and(eq(toolProfiles.companyId, companyId), inArray(toolProfiles.id, missing)));
+        for (const row of rows) {
+          profilesById.set(row.id, row);
+        }
+      }
+      return profileIds.map((id) => profilesById.get(id)).filter(Boolean) as Array<typeof toolProfiles.$inferSelect>;
+    },
+
+    async getProfileEntries(profileIds: string[]) {
+      const missing = profileIds.filter((id) => !profileEntriesByProfileId.has(id));
+      if (missing.length > 0) {
+        const rows = await db
+          .select()
+          .from(toolProfileEntries)
+          .where(and(eq(toolProfileEntries.companyId, companyId), inArray(toolProfileEntries.profileId, missing)));
+        for (const id of missing) {
+          profileEntriesByProfileId.set(id, []);
+        }
+        for (const row of rows) {
+          const arr = profileEntriesByProfileId.get(row.profileId) ?? [];
+          arr.push(row);
+          profileEntriesByProfileId.set(row.profileId, arr);
+        }
+      }
+      const results: Array<typeof toolProfileEntries.$inferSelect> = [];
+      for (const id of profileIds) {
+        const entries = profileEntriesByProfileId.get(id);
+        if (entries) results.push(...entries);
+      }
+      return results;
+    },
+
+    async getAgent(agentId: string) {
+      let p = agentPromises.get(agentId);
+      if (!p) {
+        p = db
+          .select()
+          .from(agents)
+          .where(and(eq(agents.id, agentId), eq(agents.companyId, companyId)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        agentPromises.set(agentId, p);
+      }
+      return p;
+    },
+
+    async getRun(runId: string) {
+      let p = runPromises.get(runId);
+      if (!p) {
+        p = db
+          .select()
+          .from(heartbeatRuns)
+          .where(and(eq(heartbeatRuns.id, runId), eq(heartbeatRuns.companyId, companyId)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        runPromises.set(runId, p);
+      }
+      return p;
+    },
+
+    async getIssue(issueId: string) {
+      let p = issuePromises.get(issueId);
+      if (!p) {
+        p = db
+          .select()
+          .from(issues)
+          .where(and(eq(issues.id, issueId), eq(issues.companyId, companyId)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        issuePromises.set(issueId, p);
+      }
+      return p;
+    },
+
+    async getProject(projectId: string) {
+      let p = projectPromises.get(projectId);
+      if (!p) {
+        p = db
+          .select()
+          .from(projects)
+          .where(and(eq(projects.id, projectId), eq(projects.companyId, companyId)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        projectPromises.set(projectId, p);
+      }
+      return p;
+    },
+
+    async getRoutine(routineId: string) {
+      let p = routinePromises.get(routineId);
+      if (!p) {
+        p = db
+          .select()
+          .from(routines)
+          .where(and(eq(routines.id, routineId), eq(routines.companyId, companyId)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        routinePromises.set(routineId, p);
+      }
+      return p;
+    },
+
+    async getConnection(connectionId: string) {
+      if (connectionMap.has(connectionId)) return connectionMap.get(connectionId)!;
+      let p = connectionPromises.get(connectionId);
+      if (!p) {
+        p = db
+          .select()
+          .from(toolConnections)
+          .where(and(eq(toolConnections.id, connectionId), eq(toolConnections.companyId, companyId)))
+          .limit(1)
+          .then((rows) => {
+            const row = rows[0] ?? null;
+            if (row) connectionMap.set(row.id, row);
+            return row;
+          });
+        connectionPromises.set(connectionId, p);
+      }
+      return p;
+    },
+
+    async getApplication(applicationId: string) {
+      if (applicationMap.has(applicationId)) return applicationMap.get(applicationId)!;
+      let p = applicationPromises.get(applicationId);
+      if (!p) {
+        p = db
+          .select()
+          .from(toolApplications)
+          .where(and(eq(toolApplications.id, applicationId), eq(toolApplications.companyId, companyId)))
+          .limit(1)
+          .then((rows) => {
+            const row = rows[0] ?? null;
+            if (row) applicationMap.set(row.id, row);
+            return row;
+          });
+        applicationPromises.set(applicationId, p);
+      }
+      return p;
+    },
+
+    async getCatalogEntry(catalogEntryId: string) {
+      if (catalogEntryMap.has(catalogEntryId)) return catalogEntryMap.get(catalogEntryId)!;
+      let p = catalogEntryPromises.get(catalogEntryId);
+      if (!p) {
+        p = db
+          .select()
+          .from(toolCatalogEntries)
+          .where(and(eq(toolCatalogEntries.id, catalogEntryId), eq(toolCatalogEntries.companyId, companyId)))
+          .limit(1)
+          .then((rows) => {
+            const row = rows[0] ?? null;
+            if (row) catalogEntryMap.set(row.id, row);
+            return row;
+          });
+        catalogEntryPromises.set(catalogEntryId, p);
+      }
+      return p;
+    },
+
+    async getPrincipalGrants(principalType: "agent" | "user", principalId: string) {
+      const key = `${principalType}:${principalId}`;
+      let p = grantsByPrincipal.get(key);
+      if (!p) {
+        p = db
+          .select()
+          .from(principalPermissionGrants)
+          .where(and(
+            eq(principalPermissionGrants.companyId, companyId),
+            eq(principalPermissionGrants.principalType, principalType),
+            eq(principalPermissionGrants.principalId, principalId),
+            eq(principalPermissionGrants.permissionKey, "tools:use"),
+          ));
+        grantsByPrincipal.set(key, p);
+      }
+      return p;
+    },
+
+    primeCatalogEntry(entry: typeof toolCatalogEntries.$inferSelect) {
+      catalogEntryMap.set(entry.id, entry);
+    },
+
+    primeConnection(connection: typeof toolConnections.$inferSelect) {
+      connectionMap.set(connection.id, connection);
+    },
+
+    primeApplication(application: typeof toolApplications.$inferSelect) {
+      applicationMap.set(application.id, application);
+    },
+  };
+}
+
 export function toolAccessPolicyService(db: Db) {
   async function listPolicies(companyId: string) {
     return db
@@ -844,7 +1188,10 @@ export function toolAccessPolicyService(db: Db) {
     return deleted;
   }
 
-  async function loadContext(input: ToolAccessDecisionInput): Promise<
+  async function loadContext(
+    input: ToolAccessDecisionInput,
+    cache?: ToolEvaluationContextCache,
+  ): Promise<
     | { ok: true; ctx: ToolAccessContext; redaction: RedactionResult }
     | { ok: false; decision: ToolAccessDecision; redaction: RedactionResult }
   > {
@@ -857,15 +1204,19 @@ export function toolAccessPolicyService(db: Db) {
     const gatewayId = input.runContext?.gatewayId ?? null;
 
     if (input.actor.actorType === "agent") {
-      const [agent] = await db.select().from(agents).where(and(eq(agents.id, agentId ?? ""), eq(agents.companyId, input.companyId)));
-      if (!agent) {
+      const agent = cache
+        ? await cache.getAgent(agentId ?? "")
+        : (await db.select().from(agents).where(and(eq(agents.id, agentId ?? ""), eq(agents.companyId, input.companyId))))[0] ?? null;
+      if (!agent || agent.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_missing_agent", "Authenticated agent was not found in the company.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
       agentId = agent.id;
     }
 
     if (heartbeatRunId) {
-      const [run] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, heartbeatRunId));
+      const run = cache
+        ? await cache.getRun(heartbeatRunId)
+        : (await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, heartbeatRunId)))[0] ?? null;
       if (!run || run.companyId !== input.companyId || (input.actor.actorType === "agent" && run.agentId !== agentId)) {
         return { ok: false, redaction, decision: decision("deny", "deny_run_context_mismatch", "Supplied run context does not match the authenticated actor.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
@@ -885,7 +1236,9 @@ export function toolAccessPolicyService(db: Db) {
     }
 
     if (issueId) {
-      const [issue] = await db.select().from(issues).where(eq(issues.id, issueId));
+      const issue = cache
+        ? await cache.getIssue(issueId)
+        : (await db.select().from(issues).where(eq(issues.id, issueId)))[0] ?? null;
       if (!issue || issue.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_company_boundary", "Issue context is outside the company.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
@@ -895,13 +1248,17 @@ export function toolAccessPolicyService(db: Db) {
       projectId = projectId ?? issue.projectId;
     }
     if (projectId) {
-      const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+      const project = cache
+        ? await cache.getProject(projectId)
+        : (await db.select().from(projects).where(eq(projects.id, projectId)))[0] ?? null;
       if (!project || project.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_company_boundary", "Project context is outside the company.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
     }
     if (routineId) {
-      const [routine] = await db.select().from(routines).where(eq(routines.id, routineId));
+      const routine = cache
+        ? await cache.getRoutine(routineId)
+        : (await db.select().from(routines).where(eq(routines.id, routineId)))[0] ?? null;
       if (!routine || routine.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_company_boundary", "Routine context is outside the company.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
@@ -921,7 +1278,9 @@ export function toolAccessPolicyService(db: Db) {
     let applicationType: string | null = null;
 
     if (catalogEntryId) {
-      const [entry] = await db.select().from(toolCatalogEntries).where(eq(toolCatalogEntries.id, catalogEntryId));
+      const entry = cache
+        ? await cache.getCatalogEntry(catalogEntryId)
+        : (await db.select().from(toolCatalogEntries).where(eq(toolCatalogEntries.id, catalogEntryId)))[0] ?? null;
       if (!entry || entry.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_missing_tool", "Requested tool is not in the company catalog.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
@@ -949,7 +1308,9 @@ export function toolAccessPolicyService(db: Db) {
     }
 
     if (connectionId) {
-      const [connection] = await db.select().from(toolConnections).where(eq(toolConnections.id, connectionId));
+      const connection = cache
+        ? await cache.getConnection(connectionId)
+        : (await db.select().from(toolConnections).where(eq(toolConnections.id, connectionId)))[0] ?? null;
       if (!connection || connection.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_company_boundary", "Connection is outside the company.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
@@ -960,7 +1321,9 @@ export function toolAccessPolicyService(db: Db) {
       connectionTransport = connection.transport;
     }
     if (applicationId) {
-      const [application] = await db.select().from(toolApplications).where(eq(toolApplications.id, applicationId));
+      const application = cache
+        ? await cache.getApplication(applicationId)
+        : (await db.select().from(toolApplications).where(eq(toolApplications.id, applicationId)))[0] ?? null;
       if (!application || application.companyId !== input.companyId) {
         return { ok: false, redaction, decision: decision("deny", "deny_company_boundary", "Application is outside the company.", [], [], { redactionPlan: redaction.redactionPlan }) };
       }
@@ -1015,30 +1378,65 @@ export function toolAccessPolicyService(db: Db) {
     };
   }
 
-  async function effectiveProfiles(ctx: ToolAccessContext) {
-    const bindings = await db.select().from(toolProfileBindings).where(eq(toolProfileBindings.companyId, ctx.companyId));
+  async function effectiveProfiles(ctx: ToolAccessContext, cache?: ToolEvaluationContextCache) {
+    const bindings = cache
+      ? await cache.getBindings()
+      : await db.select().from(toolProfileBindings).where(eq(toolProfileBindings.companyId, ctx.companyId));
     const matchingBindings = bindings.filter((binding) => targetMatches(binding, ctx));
+
+    const gateway = ctx.gatewayId
+      ? cache
+        ? await cache.getGateway(ctx.gatewayId)
+        : (await db
+            .select({
+              profileId: toolMcpGateways.profileId,
+              defaultProfileMode: toolMcpGateways.defaultProfileMode,
+            })
+            .from(toolMcpGateways)
+            .where(
+              and(
+                eq(toolMcpGateways.companyId, ctx.companyId),
+                eq(toolMcpGateways.id, ctx.gatewayId),
+              ),
+            )
+            .limit(1)
+            .then((rows) => (rows[0] ? { profileId: rows[0].profileId, defaultProfileMode: rows[0].defaultProfileMode } : null)))
+      : null;
+
+    if (ctx.gatewayId && gateway?.profileId) {
+      const hasGatewayBinding = matchingBindings.some(
+        (b) => b.targetType === "gateway" && b.targetId === ctx.gatewayId && b.profileId === gateway.profileId,
+      );
+      if (!hasGatewayBinding) {
+        matchingBindings.unshift({
+          id: `synthetic:${ctx.gatewayId}:${gateway.profileId}`,
+          companyId: ctx.companyId,
+          profileId: gateway.profileId,
+          targetType: "gateway" as const,
+          targetId: ctx.gatewayId,
+          priority: 0,
+          metadata: {},
+          createdByAgentId: null,
+          createdByUserId: null,
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        });
+      }
+    }
+
     if (matchingBindings.length === 0) return { profiles: [], entries: [] as Array<typeof toolProfileEntries.$inferSelect> };
     const candidateProfileIds = profileIdsInBindingOrder(matchingBindings);
-    const candidateProfiles = await db.select().from(toolProfiles).where(and(
-      eq(toolProfiles.companyId, ctx.companyId),
-      inArray(toolProfiles.id, candidateProfileIds),
-    ));
-    const [gateway] = ctx.gatewayId
-      ? await db
-          .select({ defaultProfileMode: toolMcpGateways.defaultProfileMode })
-          .from(toolMcpGateways)
-          .where(and(
-            eq(toolMcpGateways.companyId, ctx.companyId),
-            eq(toolMcpGateways.id, ctx.gatewayId),
-          ))
-          .limit(1)
-      : [];
+    const candidateProfiles = cache
+      ? await cache.getProfiles(candidateProfileIds)
+      : await db.select().from(toolProfiles).where(and(
+          eq(toolProfiles.companyId, ctx.companyId),
+          inArray(toolProfiles.id, candidateProfileIds),
+        ));
     const activeBindings = effectiveToolProfileBindings(
       matchingBindings,
       candidateProfiles,
       ctx.connectionId,
-      { includeAdditiveAppProfiles: gateway?.defaultProfileMode !== "gateway_only" },
+      { includeAdditiveAppProfiles: ctx.gatewayId ? false : gateway?.defaultProfileMode !== "gateway_only" },
     );
     const profileIds = profileIdsInBindingOrder(activeBindings);
     const profilesById = new Map(candidateProfiles.map((profile) => [profile.id, profile]));
@@ -1047,24 +1445,28 @@ export function toolAccessPolicyService(db: Db) {
       .filter((profile): profile is typeof toolProfiles.$inferSelect => Boolean(profile && profile.status === "active"));
     const activeProfileIds = activeProfiles.map((profile) => profile.id);
     const entries = activeProfileIds.length > 0
-      ? await db.select().from(toolProfileEntries).where(and(eq(toolProfileEntries.companyId, ctx.companyId), inArray(toolProfileEntries.profileId, activeProfileIds)))
+      ? cache
+        ? await cache.getProfileEntries(activeProfileIds)
+        : await db.select().from(toolProfileEntries).where(and(eq(toolProfileEntries.companyId, ctx.companyId), inArray(toolProfileEntries.profileId, activeProfileIds)))
       : [];
     return { profiles: activeProfiles, entries };
   }
 
-  async function explicitGrant(ctx: ToolAccessContext): Promise<boolean> {
+  async function explicitGrant(ctx: ToolAccessContext, cache?: ToolEvaluationContextCache): Promise<boolean> {
     const principalType = ctx.actorType === "agent" ? "agent" : ctx.actorType === "user" ? "user" : null;
     const principalId = ctx.actorType === "agent" ? ctx.agentId : ctx.actorId;
     if (!principalType || !principalId) return false;
-    const grants = await db
-      .select()
-      .from(principalPermissionGrants)
-      .where(and(
-        eq(principalPermissionGrants.companyId, ctx.companyId),
-        eq(principalPermissionGrants.principalType, principalType),
-        eq(principalPermissionGrants.principalId, principalId),
-        eq(principalPermissionGrants.permissionKey, "tools:use"),
-      ));
+    const grants = cache
+      ? await cache.getPrincipalGrants(principalType, principalId)
+      : await db
+          .select()
+          .from(principalPermissionGrants)
+          .where(and(
+            eq(principalPermissionGrants.companyId, ctx.companyId),
+            eq(principalPermissionGrants.principalType, principalType),
+            eq(principalPermissionGrants.principalId, principalId),
+            eq(principalPermissionGrants.permissionKey, "tools:use"),
+          ));
     return grants.some((grant) => scopeAllowsTool(grant.scope, ctx));
   }
 
@@ -1188,18 +1590,24 @@ export function toolAccessPolicyService(db: Db) {
     });
   }
 
-  async function decide(input: ToolAccessDecisionInput): Promise<ToolAccessDecision> {
-    const loaded = await loadContext(input);
+  async function decide(
+    input: ToolAccessDecisionInput,
+    cache?: ToolEvaluationContextCache,
+  ): Promise<ToolAccessDecision> {
+    const loaded = await loadContext(input, cache);
     if (!loaded.ok) return loaded.decision;
     const { ctx, redaction } = loaded;
-    const profileState = await effectiveProfiles(ctx);
+    const profileState = await effectiveProfiles(ctx, cache);
     const effectiveProfileIds = profileState.profiles.map((profile) => profile.id);
     const permittedByProfile = profileState.profiles.some((profile) => {
       const matchingEntries = profileState.entries.filter((entry) => entry.profileId === profile.id && profileEntryMatches(entry, ctx));
       return !matchingEntries.some((entry) => entry.effect === "exclude")
         && (profile.defaultAction === "allow" || matchingEntries.some((entry) => entry.effect === "include"));
     });
-    const policies = await db.select().from(toolPolicies).where(and(eq(toolPolicies.companyId, ctx.companyId), eq(toolPolicies.enabled, true))).orderBy(asc(toolPolicies.priority), asc(toolPolicies.createdAt));
+    const policies = cache
+      ? await cache.getPolicies()
+      : await db.select().from(toolPolicies).where(and(eq(toolPolicies.companyId, ctx.companyId), eq(toolPolicies.enabled, true))).orderBy(asc(toolPolicies.priority), asc(toolPolicies.createdAt));
+
     for (const policy of policies) {
       const conditions = policyConditions(policy);
       if (conditions && selectorMatches(policy.selectors, ctx)) {
@@ -1301,7 +1709,7 @@ export function toolAccessPolicyService(db: Db) {
         return decision("allow", "allow_policy", "Tool access allowed by policy.", effectiveProfileIds, [policy.id], { redactionPlan: redaction.redactionPlan, policyExplanation });
       }
     }
-    if (await explicitGrant(ctx)) {
+    if (await explicitGrant(ctx, cache)) {
       return decision("allow", "allow_explicit_grant", "Tool access allowed by explicit grant.", effectiveProfileIds, [], { redactionPlan: redaction.redactionPlan });
     }
 
@@ -1878,6 +2286,7 @@ export function toolAccessPolicyService(db: Db) {
 
   return {
     decide,
+    createContextCache: (companyId: string) => createToolEvaluationContextCache(db, companyId),
     writeAudit,
     recordInvocation,
     summarizeAndRedact,
