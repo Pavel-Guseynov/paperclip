@@ -10,10 +10,15 @@ import type {
   AdapterExecutionResult,
 } from "@paperclipai/adapter-utils";
 import {
+  inferOpenAiCompatibleBiller,
+  resolveRuntimeCallbackEndpoint,
+  validateRuntimeEndpointReachability,
+  formatReachabilityDiagnostic,
+} from "@paperclipai/adapter-utils";
+import {
   parseLocalProcessFilesystemScope,
   parseLocalProcessNetworkScope,
 } from "@paperclipai/adapter-utils/local-process-sandbox";
-import { inferOpenAiCompatibleBiller } from "@paperclipai/adapter-utils";
 import {
   ensureAdapterExecutionTargetCommandResolvable,
   readAdapterExecutionTarget,
@@ -43,8 +48,12 @@ import { copyBackCodexAuth } from "./codex-auth-copyback.js";
 import { buildCodexAuthInboundProvision } from "./codex-auth-merge-scripts.js";
 import {
   evaluateCodexCredentialReadiness,
+  resolveManagedCodexHomeDir,
   resolveSharedCodexHomeDir,
   stageCodexHomeForSync,
+  mergeManagedCodexMcpGateways,
+  writeManagedCodexMcpConfig,
+  type ManagedCodexMcpGateway,
 } from "./codex-home.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
 
@@ -67,7 +76,9 @@ type CodexEngineResolutionInput =
 type CodexAcpExecutorOptions = Omit<
   AcpxEngineExecutorOptions,
   "adapterType" | "moduleDir" | "packageRootDir"
->;
+> & {
+  executor?: CodexAcpExecutor;
+};
 
 type CodexAcpExecutor = (ctx: AdapterExecutionContext) => Promise<AdapterExecutionResult>;
 
@@ -325,9 +336,86 @@ export function resolveCodexAcpBillingIdentity(
   return { provider: "openai", biller, billingType };
 }
 
+function extractManagedMcpGateways(context?: Record<string, unknown> | null): ManagedCodexMcpGateway[] {
+  const managedMcp = parseObject(context?.paperclipManagedMcp);
+  if (managedMcp.managedMcpOnly !== true) return [];
+  const gateways = Array.isArray(managedMcp.gateways) ? managedMcp.gateways : [];
+  return gateways
+    .map((raw): ManagedCodexMcpGateway | null => {
+      const gateway = parseObject(raw);
+      const name = asString(gateway.name, "").trim();
+      const endpointPath = asString(gateway.endpointPath, "").trim();
+      const bearerToken = asString(gateway.bearerToken, "").trim();
+      if (!name || !endpointPath || !bearerToken) return null;
+      return { name, endpointPath, bearerToken };
+    })
+    .filter((gateway): gateway is ManagedCodexMcpGateway => Boolean(gateway));
+}
+
 export function createCodexAcpExecutor(options: CodexAcpExecutorOptions = {}): CodexAcpExecutor {
-  let executor: CodexAcpExecutor | null = null;
+  let executor: CodexAcpExecutor | null = options.executor ?? null;
   return async (ctx) => {
+    const target = readAdapterExecutionTarget({
+      executionTarget: ctx.executionTarget,
+      legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
+    });
+    const envConfig = parseObject(parseObject(ctx.config).env);
+    const envConfigStrings = Object.fromEntries(
+      Object.entries(envConfig).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+    const resolvedCallback = resolveRuntimeCallbackEndpoint({
+      target,
+      env: envConfigStrings,
+    });
+    const reachability = await validateRuntimeEndpointReachability({
+      endpoint: resolvedCallback,
+      executionMode: "acp",
+    });
+    if (!reachability.ok) {
+      const diagnosticMsg = formatReachabilityDiagnostic(reachability.diagnostic);
+      if (ctx.onLog) {
+        await ctx.onLog("stderr", `${diagnosticMsg}\n`);
+      }
+      return {
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        errorCode: "runtime_api_unreachable",
+        errorMessage: reachability.diagnostic.message,
+        resultJson: {
+          executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+          reachability: reachability.diagnostic,
+        },
+      };
+    }
+
+    try {
+      const effectiveCodexHome =
+        typeof envConfigStrings.CODEX_HOME === "string" && envConfigStrings.CODEX_HOME.trim().length > 0
+          ? path.resolve(envConfigStrings.CODEX_HOME.trim())
+          : resolveManagedCodexHomeDir(process.env, ctx.agent?.companyId ?? undefined);
+      const runtimeMcpGateways = (ctx.runtimeMcp?.getServers() ?? []).map((server) => ({
+        name: server.name,
+        endpointPath: server.url,
+        bearerToken: server.token,
+      }));
+      const managedMcpGateways = mergeManagedCodexMcpGateways(
+        runtimeMcpGateways,
+        extractManagedMcpGateways(ctx.context),
+      );
+      if (managedMcpGateways.length > 0) {
+        await writeManagedCodexMcpConfig({
+          codexHome: effectiveCodexHome,
+          apiBaseUrl: resolvedCallback.url,
+          gateways: managedMcpGateways,
+        });
+      }
+    } catch {
+      // Best-effort for config.toml write; ACP protocol options carry mcpServers.
+    }
+
     let currentExecutor = executor;
     if (!currentExecutor) {
       const { createAcpxEngineExecutor } = await import("@paperclipai/adapter-utils/acpx-engine/execute");

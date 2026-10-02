@@ -3126,14 +3126,18 @@ export function buildPaperclipEnv(agent: {
   );
   const runtimePort =
     process.env.PAPERCLIP_LISTEN_PORT ?? process.env.PORT ?? "3100";
-  // An explicit PAPERCLIP_API_URL override must win over the URL derived from
-  // authPublicBaseUrl: the derived URL can be unreachable from inside the
-  // runtime container (e.g. when the public base URL is VPN/tailnet-only).
-  const apiUrl =
-    process.env.PAPERCLIP_API_URL ??
-    process.env.PAPERCLIP_RUNTIME_API_URL ??
+  // The internal runtime API URL agents use to call back into Paperclip.
+  // An explicitly configured PAPERCLIP_RUNTIME_API_URL has highest precedence.
+  const runtimeApiUrl =
+    process.env.PAPERCLIP_RUNTIME_API_URL?.trim() ||
     `http://${runtimeHost}:${runtimePort}`;
+  // The public API / dashboard URL. If unset, it falls back to the internal runtime URL.
+  // A public dashboard URL must never overwrite the internal callback URL.
+  const apiUrl =
+    process.env.PAPERCLIP_API_URL?.trim() ||
+    runtimeApiUrl;
   vars.PAPERCLIP_API_URL = apiUrl;
+  vars.PAPERCLIP_RUNTIME_API_URL = runtimeApiUrl;
   return vars;
 }
 
@@ -3421,7 +3425,7 @@ export function defaultPathForPlatform() {
   if (process.platform === "win32") {
     return "C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem";
   }
-  return "/usr/local/bin:/opt/homebrew/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
+  return "/run/current-system/sw/bin:/usr/local/bin:/opt/homebrew/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
 }
 
 function windowsPathExts(env: NodeJS.ProcessEnv): string[] {
