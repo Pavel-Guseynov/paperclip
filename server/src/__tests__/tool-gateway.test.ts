@@ -51,6 +51,7 @@ import { errorHandler } from "../middleware/error-handler.js";
 import { mcpGatewayProtocolRoutes, toolGatewayRoutes } from "../routes/tool-gateway.js";
 import { initializeRunIdentity, reserveSteeredIdentity } from "../services/run-identity.js";
 import { toolAccessService } from "../services/tool-access.js";
+import { migrateLegacyProfileToolNameEntries } from "../services/tool-profile-migration.js";
 import {
   canonicalToolArguments,
   readSignedToolArgumentsPayload,
@@ -159,13 +160,29 @@ async function allowToolsForAgent(db: Db, companyId: string, agentId: string, to
     targetId: agentId,
   });
   if (toolNames.length > 0) {
-    await db.insert(toolProfileEntries).values(toolNames.map((toolName) => ({
-      companyId,
-      profileId: profile.id,
-      selectorType: "tool_name" as const,
-      effect: "include" as const,
-      toolName,
-    })));
+    const catalog = await db
+      .select({ toolName: toolCatalogEntries.toolName })
+      .from(toolCatalogEntries)
+      .where(eq(toolCatalogEntries.companyId, companyId));
+    await db.insert(toolProfileEntries).values(toolNames.map((toolName) => {
+      let resolvedToolName = toolName;
+      if (toolName.startsWith("mcp.") && toolName.includes(":")) {
+        const slug = toolName.slice(toolName.lastIndexOf(":") + 1);
+        const match = catalog.find(
+          (c) =>
+            c.toolName === slug ||
+            c.toolName.toLowerCase().replace(/[^a-z0-9]+/g, "-") === slug,
+        );
+        if (match) resolvedToolName = match.toolName;
+      }
+      return {
+        companyId,
+        profileId: profile.id,
+        selectorType: "tool_name" as const,
+        effect: "include" as const,
+        toolName: resolvedToolName,
+      };
+    }));
   }
   return profile;
 }
@@ -657,6 +674,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     await tempDb?.cleanup();
   });
 
+
   it("exposes a named gateway with scoped bearer-token auth and revocation", async () => {
     const company = await createCompany(db);
     const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
@@ -690,7 +708,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         profileId: profile.id,
         selectorType: "tool_name",
         effect: "include",
-        toolName: gatewayToolName,
+        toolName: catalogEntry.toolName,
       });
 
       const gateway = createTestToolGatewayService(db);
@@ -1264,7 +1282,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         profileId: profile.id,
         selectorType: "tool_name",
         effect: "include",
-        toolName: gatewayToolName,
+        toolName: catalogEntry.toolName,
       });
       // Pin the clock so every request in this test shares one rate-limit
       // window. The window boundary aligns to wall-clock time, so a real clock
@@ -6085,4 +6103,281 @@ rl.on("line", (line) => {
       expect(serializedAudits).not.toContain(gwToken.token);
     });
   });
+
+  it("lists and permits tool through named gateway when deny-by-default profile includes tool_name in catalog identity", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+      body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
+    }));
+    try {
+      const { application, connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "openobserve",
+        toolName: "searchsql",
+        title: "Search SQL",
+        riskLevel: "read",
+      });
+
+      // Deny-by-default profile with one tool_name include entry in documented identity (catalog tool name)
+      const [profile] = await db
+        .insert(toolProfiles)
+        .values({
+          companyId: company.id,
+          profileKey: `gateway-deny-${randomUUID()}`,
+          name: `Deny Profile ${randomUUID()}`,
+          defaultAction: "deny",
+        })
+        .returning();
+
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "tool_name",
+        effect: "include",
+        toolName: "searchsql",
+      });
+
+      // 1. Profile summary reports that same tool as allowed
+      const profileDetails = await toolAccessService(db).getProfile(profile.id, company.id);
+      expect(profileDetails.summary.allowedToolCount).toBe(1);
+
+      // 2. Named gateway using this profile
+      const gateway = createTestToolGatewayService(db);
+      const namedGateway = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: {
+          name: `Gateway ${randomUUID()}`,
+          profileId: profile.id,
+          defaultProfileMode: "gateway_only",
+        },
+      });
+
+      const token = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: {
+          name: "Gateway token",
+          subjectType: "agent",
+          subjectId: agent.id,
+          clientLabel: "Named gateway client",
+          allowedActions: ["tools/list", "tools/call"],
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        actor: { agentId: agent.id },
+      });
+
+      // 3. Gateway lists exactly that tool
+      const listed = await gateway.listToolsForNamedGateway({
+        gatewayId: namedGateway.id,
+        bearerToken: token.token,
+      });
+      const matched = listed.find((t) => (t.upstreamToolName ?? t.name) === "searchsql");
+      expect(matched).toBeDefined();
+
+      // 4. Gateway permits and executes exactly that tool
+      const app = createGatewayRouteApp(db, gateway);
+      const callRes = await request(app)
+        .post(namedGateway.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: matched!.name, arguments: { query: "SELECT 1" } },
+        })
+        .expect(200);
+      expect(callRes.body.result).toMatchObject({
+        content: [{ type: "text", text: "executed" }],
+      });
+    } finally {
+      await remote.close();
+    }
+  });
+
+  it("preserves effect of stored profile tool_name entries across upgrade migration", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+
+    // 0. Clean database with no tool_name entries to convert
+    const initialCleanResult = await migrateLegacyProfileToolNameEntries(db);
+    expect(initialCleanResult.migratedEntries).toBe(0);
+
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
+      body: { jsonrpc: "2.0", id: body?.id, result: { content: [{ type: "text", text: "executed" }] } },
+    }));
+    try {
+      const { connection: ooConn } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "harness-mcp-openobserve",
+        toolName: "searchsql",
+        title: "Search SQL",
+        riskLevel: "read",
+      });
+
+      const { connection: giteaConn } = await createRemoteMcpTool(db, company.id, {
+        url: remote.url,
+        applicationKey: "gitea-committer",
+        toolName: "pull-request-write",
+        title: "Pull Request Write",
+        riskLevel: "write",
+      });
+
+      const legacyToolName = `mcp.harness-mcp-openobserve-${ooConn.id.replace(/-/g, "").slice(0, 8)}:searchsql`;
+      const clientSafeOoToolName = `harness-mcp-openobserve_searchsql`;
+      const clientSafeGiteaToolName = `gitea-committer_pull-request-write`;
+      const clientSafeCollisionName = `harness-mcp-openobser_searchsql_c2222222`;
+      const fixtureReportName = `mcp_openobserve_conn5678_searchsql`;
+
+      // 1. Profile with entries written under legacy name, real Change 14 names, collision name, fixture, and plugin
+      const [profile] = await db
+        .insert(toolProfiles)
+        .values({
+          companyId: company.id,
+          profileKey: `legacy-profile-${randomUUID()}`,
+          name: `Legacy Profile ${randomUUID()}`,
+          defaultAction: "deny",
+        })
+        .returning();
+
+      const [legacyEntry, clientSafeOoEntry, clientSafeGiteaEntry, collisionEntry, reportFixtureEntry, fixtureEntry, pluginEntry] = await db
+        .insert(toolProfileEntries)
+        .values([
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: legacyToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: clientSafeOoToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: clientSafeGiteaToolName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: clientSafeCollisionName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: fixtureReportName,
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: "mcp-stdio-fixture:status",
+          },
+          {
+            companyId: company.id,
+            profileId: profile.id,
+            selectorType: "tool_name",
+            effect: "include",
+            toolName: "demo-plugin:echo",
+          },
+        ])
+        .returning();
+
+      // Run upgrade migration on database with entries still to convert
+      const migrationResult = await migrateLegacyProfileToolNameEntries(db);
+      expect(migrationResult.migratedEntries).toBe(5);
+
+      // Verify entries in db: all converted to catalog tool names, fixture and plugin preserved
+      const updatedEntries = await db
+        .select()
+        .from(toolProfileEntries)
+        .where(eq(toolProfileEntries.profileId, profile.id));
+      const updatedLegacy = updatedEntries.find((e) => e.id === legacyEntry.id);
+      const updatedOo = updatedEntries.find((e) => e.id === clientSafeOoEntry.id);
+      const updatedGitea = updatedEntries.find((e) => e.id === clientSafeGiteaEntry.id);
+      const updatedCollision = updatedEntries.find((e) => e.id === collisionEntry.id);
+      const updatedReportFixture = updatedEntries.find((e) => e.id === reportFixtureEntry.id);
+      const updatedFixture = updatedEntries.find((e) => e.id === fixtureEntry.id);
+      const updatedPlugin = updatedEntries.find((e) => e.id === pluginEntry.id);
+
+      expect(updatedLegacy?.toolName).toBe("searchsql");
+      expect(updatedOo?.toolName).toBe("searchsql");
+      expect(updatedGitea?.toolName).toBe("pull-request-write");
+      expect(updatedCollision?.toolName).toBe("searchsql");
+      expect(updatedReportFixture?.toolName).toBe("searchsql");
+      expect(updatedFixture?.toolName).toBe("mcp-stdio-fixture:status");
+      expect(updatedPlugin?.toolName).toBe("demo-plugin:echo");
+
+      // Verify second run on already-converted database: converted exactly once (zero further migrations)
+      const secondRunResult = await migrateLegacyProfileToolNameEntries(db);
+      expect(secondRunResult.migratedEntries).toBe(0);
+
+      // Verify profile summary reports tools as allowed
+      const profileDetails = await toolAccessService(db).getProfile(profile.id, company.id);
+      expect(profileDetails.summary.allowedToolCount).toBe(2);
+
+      // Verify named gateway lists and permits tool
+      const gateway = createTestToolGatewayService(db);
+      const namedGateway = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: {
+          name: `Gateway ${randomUUID()}`,
+          profileId: profile.id,
+          defaultProfileMode: "gateway_only",
+        },
+      });
+
+      const token = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: {
+          name: "Gateway token",
+          subjectType: "agent",
+          subjectId: agent.id,
+          clientLabel: "Named gateway client",
+          allowedActions: ["tools/list", "tools/call"],
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        actor: { agentId: agent.id },
+      });
+
+      const listed = await gateway.listToolsForNamedGateway({
+        gatewayId: namedGateway.id,
+        bearerToken: token.token,
+      });
+      const matched = listed.find((t) => (t.upstreamToolName ?? t.name) === "searchsql");
+      expect(matched).toBeDefined();
+
+      const app = createGatewayRouteApp(db, gateway);
+      const callRes = await request(app)
+        .post(namedGateway.endpointPath)
+        .set("authorization", `Bearer ${token.token}`)
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: matched!.name, arguments: { query: "SELECT 1" } },
+        })
+        .expect(200);
+      expect(callRes.body.result).toMatchObject({
+        content: [{ type: "text", text: "executed" }],
+      });
+    } finally {
+      await remote.close();
+    }
+  });
 });
+
+
