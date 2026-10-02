@@ -4,7 +4,7 @@
 | --- | --- |
 | Upstream PR | `paperclipai/paperclip#13894` |
 | Branch | `stable/v2026.916.1/chore/pnpm-11-toolchain` |
-| Head | `62cc2cb44f9d733b992eb53deb73f70fe291584e` |
+| Head | `9f698ae1d62c90c7f2fe963d3fb47f3b89065471` |
 | Base commit | `8f7baf2f7254cebc7250d775e1e2757269e42666` |
 | Upstream base | `paperclipai/paperclip` master `8f7baf2f7254cebc7250d775e1e2757269e42666` |
 | Stack prerequisite | none (based on upstream master) |
