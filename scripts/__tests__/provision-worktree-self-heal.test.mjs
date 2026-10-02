@@ -293,7 +293,7 @@ for (const installExit of [0, 42]) {
       },
     });
     assert.equal(result.status, installExit, result.stderr);
-    assert.match(fs.readFileSync(path.join(worktreeCwd, "pnpm-calls"), "utf8"), /^install --frozen-lockfile/);
+    assert.match(fs.readFileSync(path.join(worktreeCwd, "pnpm-calls"), "utf8"), /^install --prod=false --frozen-lockfile/);
     assert.equal(fs.existsSync(path.join(worktreeCwd, ".paperclip", "pnpm-install-fingerprint")), installExit === 0);
     assert.equal(fs.existsSync(path.join(worktreeCwd, ".paperclip", "config.json")), false);
     assert.equal(fs.existsSync(path.join(worktreeCwd, ".paperclip", "seed-manifest.json")), false);
@@ -649,7 +649,7 @@ test("every pnpm install call site silences DEP0169 without overwriting NODE_OPT
   assert.equal(repairCallSites.length, 2, "expected the repair pnpm install to carry the flag at both call sites (locked and unlocked)");
   assert.match(provisionSource, /local repair_node_options="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169"/);
   assert.match(provisionSource, appendsToExistingNodeOptions);
-  assert.match(provisionSource, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169" pnpm install "\$@"/);
+  assert.match(provisionSource, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169" pnpm install --prod=false "\$@"/);
 
   const runtimeSource = fs.readFileSync(runtimeScript, "utf8");
   const runtimeRepairCallSites = runtimeSource.match(/env -u NODE_ENV CI=true NODE_OPTIONS="\$repair_node_options" "\$\{repair_cmd\[@\]\}"/g) ?? [];
