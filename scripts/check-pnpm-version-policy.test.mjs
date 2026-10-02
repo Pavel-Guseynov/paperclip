@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   checkPnpmVersionPolicy,
+  checkTrackedPnpm9References,
   documentedPrerequisites,
   expectedPnpmVersion,
 } from "./check-pnpm-version-policy.mjs";
@@ -37,8 +38,8 @@ const validWorkflow = `jobs:
 `;
 
 // A repository that satisfies the policy; `files` overrides or removes
-// (null) individual paths.
-function createRepository(t, files = {}) {
+// (null) individual paths. `ignored` creates files that are git-ignored or untracked.
+function createRepository(t, files = {}, ignored = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "pnpm-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const tracked = {
@@ -57,6 +58,10 @@ function createRepository(t, files = {}) {
   }
   execFileSync("git", ["init", "-q"], { cwd: root });
   execFileSync("git", ["add", "-A"], { cwd: root });
+  for (const [relativePath, content] of Object.entries(ignored)) {
+    mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
+    writeFileSync(path.join(root, relativePath), content);
+  }
   return root;
 }
 
@@ -70,11 +75,32 @@ test("accepts a source tree exported without .git", (t) => {
   assert.deepEqual(checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion }), []);
 });
 
+test("accepts a git checkout with an ignored file that mentions pnpm 9", (t) => {
+  const root = createRepository(
+    t,
+    { ".gitignore": "ignored.md\ntest-results/\n" },
+    {
+      "ignored.md": "Mentions pnpm 9 in git-ignored file\n",
+      "test-results/output.json": JSON.stringify({ note: "pnpm@9.15.4" }),
+      "untracked.md": "Mentions pnpm 9 in untracked scratch notes\n",
+    },
+  );
+  assert.deepEqual(checkTrackedPnpm9References(root), []);
+  assert.deepEqual(
+    checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion, scanTracked: true }),
+    [],
+  );
+});
+
 test("rejects a pnpm 9 package manager and a package.json#pnpm section", (t) => {
   const root = createRepository(t, {
     "package.json": JSON.stringify({ packageManager: "pnpm@9.15.4", pnpm: { overrides: {} } }),
   });
   assert.deepEqual(checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion }), [
+    `package.json: packageManager must be pnpm@${expectedPnpmVersion}, found pnpm@9.15.4`,
+    "package.json: root package.json must not have a 'pnpm' configuration section; pnpm 11 requires pnpm-workspace.yaml authority",
+  ]);
+  assert.deepEqual(checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion, scanTracked: true }), [
     `package.json: packageManager must be pnpm@${expectedPnpmVersion}, found pnpm@9.15.4`,
     "package.json: root package.json must not have a 'pnpm' configuration section; pnpm 11 requires pnpm-workspace.yaml authority",
     `package.json: references pnpm 9; the supported toolchain is pnpm@${expectedPnpmVersion}`,
@@ -159,18 +185,27 @@ test("requires each documented prerequisite", (t) => {
   ]);
 });
 
-test("rejects active pnpm 9 references outside dated logs, plans, and generated directories", (t) => {
-  const root = createRepository(t, {
-    "docs/guide.md": "Install pnpm 9 first.\n",
-    "doc/logs/2026-01-01-install.md": "The old shim ran pnpm add pnpm@9.15.4.\n",
-    "doc/plans/2026-01-01-toolchain.md": "Move off pnpm 9.\n",
-    "scripts/versions.json": JSON.stringify({ unrelated: "9.15.4" }),
-    "node_modules/dependency/README.md": "pnpm 9 in node_modules\n",
-    "dist/bundle.js": "// built with pnpm 9\n",
-  });
-  assert.deepEqual(checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion }), [
+test("rejects tracked pnpm 9 references outside dated logs, plans, and generated directories", (t) => {
+  const root = createRepository(
+    t,
+    {
+      "docs/guide.md": "Install pnpm 9 first.\n",
+      "doc/logs/2026-01-01-install.md": "The old shim ran pnpm add pnpm@9.15.4.\n",
+      "doc/plans/2026-01-01-toolchain.md": "Move off pnpm 9.\n",
+      "scripts/versions.json": JSON.stringify({ unrelated: "9.15.4" }),
+    },
+    {
+      "notes/untracked.md": "pnpm 9 scratch notes\n",
+      "test-results/ignored.json": JSON.stringify({ pnpm: "9.15.4" }),
+    },
+  );
+  assert.deepEqual(checkTrackedPnpm9References(root), [
     `docs/guide.md: references pnpm 9; the supported toolchain is pnpm@${expectedPnpmVersion}`,
   ]);
+  assert.deepEqual(
+    checkPnpmVersionPolicy(root, { runningVersion: expectedPnpmVersion, scanTracked: true }),
+    [`docs/guide.md: references pnpm 9; the supported toolchain is pnpm@${expectedPnpmVersion}`],
+  );
 });
 
 test("fails when the running pnpm version differs from the pinned version", (t) => {
