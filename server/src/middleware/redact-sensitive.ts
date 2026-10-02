@@ -11,6 +11,15 @@
 // objects/arrays. Caps depth so a hostile or accidental cycle can't pin
 // the logger.
 
+import {
+  isHttpObject,
+  isKnownCredentialName,
+  REDACTION_MAX_DEPTH,
+  sanitizeCredentialText,
+  summarizeHttpObject,
+  VALUE_REDACTION_MARKER,
+} from "./http-log-redaction.js";
+
 const SENSITIVE_KEYS = new Set<string>([
   // Provider setup payloads deliberately group all durable authentication
   // material under `credentials`. Redact the whole subtree instead of trying
@@ -89,8 +98,8 @@ const SENSITIVE_KEYS = new Set<string>([
   "erroruri",
 ]);
 
-const MAX_DEPTH = 6;
-const REDACTED = "[REDACTED]";
+const MAX_DEPTH = REDACTION_MAX_DEPTH;
+const REDACTED = VALUE_REDACTION_MARKER;
 const URLISH_KEYS = new Set<string>([
   "href",
   "locator",
@@ -109,7 +118,10 @@ const URLISH_KEYS = new Set<string>([
 ]);
 
 function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEYS.has(key.toLowerCase());
+  const normalized = key.toLowerCase();
+  // `isKnownCredentialName` owns the credential header and field names, so
+  // this module never keeps a second, drifting copy of that list.
+  return SENSITIVE_KEYS.has(normalized) || isKnownCredentialName(normalized);
 }
 
 function isUrlishKey(key: string): boolean {
@@ -136,19 +148,34 @@ export function stripSecretBearingUrlParts(value: string): string {
 
 export function redactSensitive(value: unknown, depth = 0): unknown {
   if (depth > MAX_DEPTH) return undefined;
-  if (value === null || typeof value !== "object") return value;
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return sanitizeCredentialText(value);
+  }
+  if (typeof value !== "object") return value;
+  if (isHttpObject(value)) return summarizeHttpObject(value);
   if (Array.isArray(value)) {
     if (depth + 1 > MAX_DEPTH) return undefined;
     return value.map((entry) => redactSensitive(entry, depth + 1));
   }
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (isHttpObject(entry)) {
+      // Node request/response objects are cyclic, own the raw socket and carry
+      // live credentials in `headers`. Keep a content-free projection instead.
+      out[key] = summarizeHttpObject(entry);
+      continue;
+    }
     if (isSensitiveKey(key)) {
       out[key] = REDACTED;
       continue;
     }
-    if (typeof entry === "string" && isUrlishKey(key)) {
-      out[key] = stripSecretBearingUrlParts(entry);
+    if (typeof entry === "string") {
+      if (isUrlishKey(key)) {
+        out[key] = stripSecretBearingUrlParts(entry);
+      } else {
+        out[key] = sanitizeCredentialText(entry);
+      }
       continue;
     }
     out[key] = redactSensitive(entry, depth + 1);
