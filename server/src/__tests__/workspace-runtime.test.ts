@@ -376,21 +376,22 @@ async function findFreePort() {
   return port;
 }
 
-async function reserveContiguousPorts(count: number) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const basePort = await findFreePort();
-    if (basePort + count - 1 > 65_535) continue;
+const DEDICATED_BOUNDED_PORT_RANGE_MIN = 25_000;
+const DEDICATED_BOUNDED_PORT_RANGE_MAX = 32_000;
+
+async function reserveContiguousPorts(count: number, startAt = DEDICATED_BOUNDED_PORT_RANGE_MIN) {
+  for (let candidateBase = startAt; candidateBase + count - 1 <= DEDICATED_BOUNDED_PORT_RANGE_MAX; candidateBase += 1) {
     const servers: net.Server[] = [];
     try {
       for (let offset = 0; offset < count; offset += 1) {
-        servers.push(await listenOnPort(basePort + offset));
+        servers.push(await listenOnPort(candidateBase + offset));
       }
-      return { basePort, servers };
+      return { basePort: candidateBase, servers };
     } catch {
       await Promise.all(servers.map((server) => closeNetServer(server).catch(() => undefined)));
     }
   }
-  throw new Error(`Failed to reserve ${count} contiguous test ports`);
+  throw new Error(`Failed to reserve ${count} contiguous test ports in dedicated range [${startAt}, ${DEDICATED_BOUNDED_PORT_RANGE_MAX}]`);
 }
 
 function createWorkspaceOperationRecorderDouble() {
@@ -7468,7 +7469,7 @@ describeEmbeddedPostgres("workspace runtime service control persistence", () => 
         executionWorkspaceId: firstWorkspace.id,
         workspaceCwd: firstWorkspace.cwd,
       }).catch(() => undefined);
-      await Promise.all(otherReservations.map((server) => closeNetServer(server).catch(() => undefined)));
+      await Promise.all(reservation.servers.map((server) => closeNetServer(server).catch(() => undefined)));
       await cleanupRuntimeHome();
       await fixture.cleanup();
       await otherCompanyFixture.cleanup();
