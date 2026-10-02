@@ -59,7 +59,6 @@ import {
   summarizeToolValue,
 } from "../services/tool-content-guards.js";
 import { createToolGatewayService, ToolGatewayHttpError, formatClientSafeGatewayToolBaseName } from "../services/tool-gateway.js";
-import type { ComposioClient } from "../services/composio.js";
 import { secretService } from "../services/secrets.js";
 import { createKvDemoHttpServer, type KvDemoHttpServer } from "../../../packages/kv-demo-mcp-server/src/http.js";
 import {
@@ -675,10 +674,10 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
 
   it("exposes a named gateway with scoped bearer-token auth and revocation", async () => {
     const company = await createCompany(db);
-    const remote = await startFakeRemoteMcpServer(async () => ({
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
       body: {
         jsonrpc: "2.0",
-        id: "test",
+        id: body?.id,
         result: { content: [{ type: "text", text: "read ok" }], structuredContent: { ok: true } },
       },
     }));
@@ -1249,10 +1248,10 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
 
   it("rate limits public named gateway session setup, discovery, and calls with redacted audits", async () => {
     const company = await createCompany(db);
-    const remote = await startFakeRemoteMcpServer(async () => ({
+    const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
       body: {
         jsonrpc: "2.0",
-        id: "test",
+        id: body?.id,
         result: { content: [{ type: "text", text: "read ok" }], structuredContent: { ok: true } },
       },
     }));
@@ -1617,7 +1616,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         },
         {
           name: "an expired token",
-          invalidate: ({ token }) => db.update(toolMcpGatewayTokens).set({ subjectType: "gateway_client", expiresAt: new Date(0) })
+          invalidate: ({ token }) => db.update(toolMcpGatewayTokens).set({ expiresAt: new Date(0) })
             .where(eq(toolMcpGatewayTokens.id, token.id)),
         },
         {
@@ -1934,141 +1933,24 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     expect(otherTools.map((tool) => tool.catalogEntryId)).not.toContain(remoteTool.catalogEntry.id);
   });
 
-  it("invokes an installed Composio child through a tool-scoped session and re-mints once on 401", async () => {
+
+  it("hides retired Composio child tools and denies a previously discovered tool without upstream traffic", async () => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
     const { run } = await createIssueAndRun(db, company.id, agent.id);
-    const remoteTool = await createRemoteMcpTool(db, company.id, {
-      applicationKey: "composio",
-      connectionName: "GitHub (via Composio)",
-      toolName: "GITHUB_LIST_REPOS",
-      title: "List repositories",
-      riskLevel: "read",
-    });
-    const apiKey = await secretService(db).create(company.id, {
-      name: "Composio API key",
-      key: `tool_app.${randomUUID()}.composio_api_key`,
-      provider: "local_encrypted",
-      value: "ak_composio_gateway_fixture",
-    });
-    const [parent] = await db.insert(toolConnections).values({
-      companyId: company.id,
-      applicationId: remoteTool.application.id,
-      name: "Composio",
-      uid: `composio/${randomUUID()}`,
-      transport: "rest_api",
-      authKind: "api_key",
-      status: "active",
-      enabled: true,
-      config: { sourceTemplateKey: "composio" },
-      transportConfig: { sourceTemplateKey: "composio" },
-      credentialRefs: [{
-        name: "credentials.apiKey",
-        secretId: apiKey.id,
-        version: "latest",
-        placement: "header",
-        key: "x-api-key",
-        prefix: null,
-      }],
-      credentialSecretRefs: [{
-        secretId: apiKey.id,
-        versionSelector: "latest",
-        configPath: "credentials.apiKey",
-        required: true,
-        label: "Composio API key",
-      }],
-    }).returning();
-    await db.insert(companySecretBindings).values({
-      companyId: company.id,
-      secretId: apiKey.id,
-      targetType: "tool_connection",
-      targetId: parent!.id,
-      configPath: "credentials.apiKey",
-    });
-    const childConfig = {
-      provider: "composio",
-      parentConnectionId: parent!.id,
-      toolkitSlug: "github",
-      connectedAccountId: "ca_github_fixture",
-    };
-    await db.update(toolConnections).set({ config: childConfig, transportConfig: childConfig })
-      .where(eq(toolConnections.id, remoteTool.connection.id));
-    await db.insert(toolConnectionInstalls).values({
-      companyId: company.id,
-      connectionId: remoteTool.connection.id,
-      targetType: "agent",
-      targetId: agent.id,
-    });
+    const remote = await createRemoteMcpTool(db, company.id, { applicationKey: "composio", connectionName: "Old toolkit", toolName: "read", title: "Read" });
     const profile = await allowToolsForAgent(db, company.id, agent.id, []);
-    await db.insert(toolProfileEntries).values({
-      companyId: company.id,
-      profileId: profile.id,
-      selectorType: "catalog_entry",
-      effect: "include",
-      catalogEntryId: remoteTool.catalogEntry.id,
-    });
-
-    const sessionRequests: Array<{ apiKey: string; userId: string; options: unknown }> = [];
-    let upstreamCalls = 0;
-    const gateway = createTestToolGatewayService(db, {
-      composioClientFactory: (resolvedApiKey) => ({
-        createSession: async (userId, sessionOptions) => {
-          sessionRequests.push({ apiKey: resolvedApiKey, userId, options: sessionOptions });
-          const suffix = sessionRequests.length;
-          return {
-            session_id: `composio-session-${suffix}`,
-            mcp: {
-              url: `https://mcp.composio.test/session-${suffix}`,
-              headers: { Authorization: `Bearer composio-session-token-${suffix}` },
-            },
-          };
-        },
-      }) as unknown as ComposioClient,
-      remoteHttpRequest: async (url, init) => {
-        upstreamCalls += 1;
-        expect(url).toBe(`https://mcp.composio.test/session-${upstreamCalls}`);
-        expect(new Headers(init.headers).get("authorization")).toBe(`Bearer composio-session-token-${upstreamCalls}`);
-        if (upstreamCalls === 1) return new Response("unauthorized", { status: 401 });
-        return new Response(JSON.stringify({
-          jsonrpc: "2.0",
-          id: "fixture",
-          result: { content: [{ type: "text", text: "repo-a" }], structuredContent: { repositories: ["repo-a"] } },
-        }), { status: 200, headers: { "content-type": "application/json" } });
-      },
-    });
+    await db.insert(toolProfileEntries).values({ companyId: company.id, profileId: profile.id, selectorType: "catalog_entry", effect: "include", catalogEntryId: remote.catalogEntry.id });
+    const remoteHttpRequest = vi.fn();
+    const gateway = createTestToolGatewayService(db, { remoteHttpRequest });
     const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-    const tool = (await gateway.listToolsForSession(session.token)).find((candidate) => candidate.connectionId === remoteTool.connection.id);
+    const listed = await gateway.listToolsForSession(session.token);
+    const tool = listed.find((entry) => entry.connectionId === remote.connection.id)!;
     expect(tool).toBeDefined();
-    await expect(gateway.executeTool({ sessionToken: session.token, tool: tool!.name, parameters: {} })).resolves.toMatchObject({
-      status: "completed",
-      result: { content: "repo-a", data: { structuredContent: { repositories: ["repo-a"] } } },
-    });
-    await db.update(connectionGrants).set({ updatedAt: new Date(Date.now() + 1_000) })
-      .where(eq(connectionGrants.connectionId, remoteTool.connection.id));
-    await expect(gateway.executeTool({ sessionToken: session.token, tool: tool!.name, parameters: {} })).resolves.toMatchObject({
-      status: "completed",
-      result: { content: "repo-a" },
-    });
-    expect(sessionRequests).toEqual([
-      expect.objectContaining({
-        apiKey: "ak_composio_gateway_fixture",
-        userId: `paperclip:${company.id}`,
-        options: expect.objectContaining({
-          mcp: true,
-          toolkits: ["github"],
-          tools: { github: { enable: ["GITHUB_LIST_REPOS"] } },
-        }),
-      }),
-      expect.objectContaining({ options: expect.objectContaining({ tools: { github: { enable: ["GITHUB_LIST_REPOS"] } } }) }),
-      expect.objectContaining({ options: expect.objectContaining({ tools: { github: { enable: ["GITHUB_LIST_REPOS"] } } }) }),
-    ]);
-    const [persistedChild] = await db.select().from(toolConnections).where(eq(toolConnections.id, remoteTool.connection.id));
-    expect(JSON.stringify(persistedChild!.config)).not.toContain("session-");
-    expect(JSON.stringify(persistedChild!.transportConfig)).not.toContain("mcp.composio.test");
-    expect(persistedChild!.credentialSecretRefs.map((ref) => ref.configPath)).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^composio\.session\.[a-f0-9]+\.url$/),
-      expect.stringMatching(/^composio\.session\.[a-f0-9]+\.header\.[a-f0-9]+$/),
-    ]));
+    await db.update(toolConnections).set({ config: { provider: "composio", parentConnectionId: randomUUID(), toolkitSlug: "github", url: "https://legacy.example/mcp" } }).where(eq(toolConnections.id, remote.connection.id));
+    expect((await gateway.listToolsForSession(session.token)).some((entry) => entry.connectionId === remote.connection.id)).toBe(false);
+    await expect(gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).rejects.toThrow();
+    expect(remoteHttpRequest).not.toHaveBeenCalled();
   });
 
   it("lists and executes connected local stdio MCP catalog tools through the gateway", async () => {
@@ -2582,6 +2464,56 @@ rl.on("line", (line) => {
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    { connectionMethodKey: "managed", transportConfigOnly: false },
+    { connectionMethodKey: "mcp-key", transportConfigOnly: false },
+    { connectionMethodKey: "managed", transportConfigOnly: true },
+    { connectionMethodKey: "mcp-key", transportConfigOnly: true },
+  ])("sends the GitHub Actions toolset for $connectionMethodKey (legacy config: $transportConfigOnly)", async ({ connectionMethodKey, transportConfigOnly }) => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    const parameters = { method: "run_workflow", owner: "example", repo: "release", workflow_id: "nightly.yml", ref: "main" };
+    const fake = await startFakeRemoteMcpServer((fakeRequest) => {
+      expect(fakeRequest.headers["x-mcp-toolsets"]).toBe("default,actions");
+      expect(fakeRequest.body).toMatchObject({
+        method: "tools/call",
+        params: { name: "actions_run_trigger", arguments: parameters },
+      });
+      return { body: { jsonrpc: "2.0", id: fakeRequest.body?.id, result: { content: [{ type: "text", text: "Workflow dispatched" }] } } };
+    });
+    try {
+      const { connection, catalogEntry } = await createRemoteMcpTool(db, company.id, {
+        applicationKey: "github",
+        url: fake.url,
+        toolName: "actions_run_trigger",
+        riskLevel: "destructive",
+        connectionConfig: { sourceTemplateKey: "github", connectionMethodKey },
+      });
+      if (transportConfigOnly) {
+        await db.update(toolConnections).set({ config: { url: fake.url } }).where(eq(toolConnections.id, connection.id));
+      }
+      await db.update(toolCatalogEntries).set({
+        inputSchema: {
+          type: "object",
+          properties: Object.fromEntries(Object.keys(parameters).map((key) => [key, { type: "string" }])),
+          required: Object.keys(parameters),
+          additionalProperties: false,
+        },
+      }).where(eq(toolCatalogEntries.id, catalogEntry.id));
+      await allowAllToolsForAgent(db, company.id, agent.id);
+      const gateway = createTestToolGatewayService(db);
+      const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      const tool = (await gateway.listToolsForSession(session.token)).find((entry) => entry.catalogEntryId === catalogEntry.id);
+      expect(tool).toBeTruthy();
+      const result = await gateway.executeTool({ sessionToken: session.token, tool: tool!.name, parameters });
+      expect(result.status).toBe("completed");
+      expect(fake.requests).toHaveLength(1);
+    } finally {
+      await fake.close();
     }
   });
 
@@ -5915,6 +5847,7 @@ rl.on("line", (line) => {
       (error) => expectGatewayError(error, 403, "run_context_mismatch"),
     );
   });
+
   it("lists client-safe tool names matching ^[A-Za-z0-9_-]{1,40}$ for harness-mcp-openobserve and gitea-committer", async () => {
     const company = await createCompany(db);
     const remote = await startFakeRemoteMcpServer(async ({ body }) => ({
@@ -6323,6 +6256,259 @@ rl.on("line", (line) => {
     }
   });
 
+  describe("run-scoped gateway session-token verification", () => {
+    it("authenticates tools/list and tools/call using Authorization Bearer pcgt_* through its advertised expiry", async () => {
+      const company = await createCompany(db);
+      const agent = await createAgent(db, company.id);
+      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
+      const localTool = await createLocalStdioMcpTool(db, company.id, {
+        applicationKey: "local-demo",
+        connectionName: "Local Demo",
+        toolName: "echo",
+        title: "Local echo",
+      });
+      const expectedToolName = expectedConnectedToolName({
+        applicationKey: "local-demo",
+        connectionId: localTool.connection.id,
+        toolName: "echo",
+      });
+      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "catalog_entry",
+        effect: "include",
+        catalogEntryId: localTool.catalogEntry.id,
+      });
+
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+
+      const session = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+        ttlMs: 60_000,
+      });
+
+      expect(session.token).toMatch(/^pcgt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]+$/i);
+
+      // tools/list via Authorization: Bearer
+      const listRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${session.token}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.body).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: expectedToolName }),
+      ]));
+      expect(JSON.stringify(listRes.body)).not.toContain(session.token);
+
+      // tools/call via Authorization: Bearer
+      const callRes = await request(app)
+        .post("/api/tool-gateway/tools/call")
+        .set("Authorization", `Bearer ${session.token}`)
+        .send({
+          tool: expectedToolName,
+          parameters: { message: "hello" },
+        });
+      expect(callRes.status).toBe(200);
+      expect(callRes.body).toMatchObject({
+        status: "completed",
+        result: expect.objectContaining({ content: "local:hello" }),
+      });
+      expect(JSON.stringify(callRes.body)).not.toContain(session.token);
+
+      // tools/list via x-paperclip-tool-gateway-token header
+      const headerListRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("x-paperclip-tool-gateway-token", session.token);
+      expect(headerListRes.status).toBe(200);
+
+      // Controlled clock verification near expiry boundary and after expiry
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        // 1 second before expiry: success
+        vi.setSystemTime(new Date(session.expiresAt.getTime() - 1_000));
+        const nearExpiryRes = await request(app)
+          .get("/api/tool-gateway/tools")
+          .set("Authorization", `Bearer ${session.token}`);
+        expect(nearExpiryRes.status).toBe(200);
+
+        // 1 second after expiry: rejected with session_expired
+        vi.setSystemTime(new Date(session.expiresAt.getTime() + 1_000));
+        const expiredRes = await request(app)
+          .get("/api/tool-gateway/tools")
+          .set("Authorization", `Bearer ${session.token}`);
+        expect(expiredRes.status).toBe(401);
+        expect(expiredRes.body).toMatchObject({
+          reasonCode: "session_expired",
+        });
+        expect(JSON.stringify(expiredRes.body)).not.toContain(session.token);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("rejects revoked, cross-session, malformed, inactive-run, and cross-protocol tokens with stable reason codes", async () => {
+      const company = await createCompany(db);
+      const agent = await createAgent(db, company.id);
+      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
+      const localTool = await createLocalStdioMcpTool(db, company.id, {
+        applicationKey: "local-demo",
+        connectionName: "Local Demo",
+        toolName: "echo",
+        title: "Local echo",
+      });
+      const expectedToolName = expectedConnectedToolName({
+        applicationKey: "local-demo",
+        connectionId: localTool.connection.id,
+        toolName: "echo",
+      });
+      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
+      await db.insert(toolProfileEntries).values({
+        companyId: company.id,
+        profileId: profile.id,
+        selectorType: "catalog_entry",
+        effect: "include",
+        catalogEntryId: localTool.catalogEntry.id,
+      });
+
+      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
+      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
+
+      const sessionA = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+      const sessionB = await gateway.createSession({
+        companyId: company.id,
+        agentId: agent.id,
+        runId: run.id,
+        issueId: issue.id,
+        projectId: project.id,
+      });
+
+      // 1. Rejection after revocation
+      await gateway.revokeSession({
+        companyId: company.id,
+        sessionId: sessionA.id,
+      });
+      const revokedRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${sessionA.token}`);
+      expect(revokedRes.status).toBe(401);
+      expect(revokedRes.body).toMatchObject({
+        reasonCode: "session_revoked",
+      });
+      expect(JSON.stringify(revokedRes.body)).not.toContain(sessionA.token);
+
+      // 2. Cross-session token (Session A id with Session B secret)
+      const secretB = sessionB.token.split(".")[1];
+      const crossSessionToken = `pcgt_${sessionA.id}.${secretB}`;
+      const crossSessionRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${crossSessionToken}`);
+      expect(crossSessionRes.status).toBe(401);
+      expect(crossSessionRes.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(crossSessionRes.body)).not.toContain(crossSessionToken);
+
+      // 3. Non-existent session ID
+      const nonExistentToken = `pcgt_${randomUUID()}.${secretB}`;
+      const nonExistentRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${nonExistentToken}`);
+      expect(nonExistentRes.status).toBe(401);
+      expect(nonExistentRes.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(nonExistentRes.body)).not.toContain(nonExistentToken);
+
+      // 4. Malformed tokens
+      for (const badToken of [
+        `pcgt_not-a-uuid.${secretB}`,
+        `pcgt_${sessionB.id}`,
+        `pcgt_${sessionB.id}.`,
+        "pcgt_malformed",
+        "not-even-a-prefix",
+      ]) {
+        const malformedRes = await request(app)
+          .get("/api/tool-gateway/tools")
+          .set("Authorization", `Bearer ${badToken}`);
+        expect(malformedRes.status).toBe(401);
+        expect(malformedRes.body).toMatchObject({
+          reasonCode: "session_token_malformed",
+        });
+        expect(JSON.stringify(malformedRes.body)).not.toContain(badToken);
+      }
+
+      // 5. Rejection of pcgw_* on pcgt_*-only routes (tools/list and tools/call)
+      const namedGateway = await gateway.createNamedGateway({
+        companyId: company.id,
+        body: { name: `GW ${randomUUID()}`, profileId: profile.id, defaultProfileMode: "gateway_only" },
+      });
+      const gwToken = await gateway.createNamedGatewayToken({
+        companyId: company.id,
+        gatewayId: namedGateway.id,
+        body: { name: "test-gw-token", clientLabel: "test-gw-token", subjectType: "heartbeat_run", subjectId: run.id },
+      });
+
+      const pcgwOnSessionRoute = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${gwToken.token}`);
+      expect(pcgwOnSessionRoute.status).toBe(401);
+      expect(pcgwOnSessionRoute.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(pcgwOnSessionRoute.body)).not.toContain(gwToken.token);
+
+      const pcgwOnCallRoute = await request(app)
+        .post("/api/tool-gateway/tools/call")
+        .set("Authorization", `Bearer ${gwToken.token}`)
+        .send({ tool: expectedToolName, parameters: { message: "hi" } });
+      expect(pcgwOnCallRoute.status).toBe(401);
+      expect(pcgwOnCallRoute.body).toMatchObject({
+        reasonCode: "session_invalid",
+      });
+      expect(JSON.stringify(pcgwOnCallRoute.body)).not.toContain(gwToken.token);
+
+      // 6. Rejection of pcgt_* on pcgw_* route
+      const pcgtOnNamedGw = await request(app)
+        .post(`/mcp/gateways/${namedGateway.gatewayPublicId}`)
+        .set("Authorization", `Bearer ${sessionB.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      expect(pcgtOnNamedGw.status).toBe(401);
+      expect(pcgtOnNamedGw.body).toMatchObject({
+        error: { data: { reasonCode: "gateway_token_invalid" } },
+      });
+      expect(JSON.stringify(pcgtOnNamedGw.body)).not.toContain(sessionB.token);
+
+      // 7. Rejection with session_run_inactive when heartbeat run completes
+      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, run.id));
+      const inactiveRunRes = await request(app)
+        .get("/api/tool-gateway/tools")
+        .set("Authorization", `Bearer ${sessionB.token}`);
+      expect(inactiveRunRes.status).toBe(401);
+      expect(inactiveRunRes.body).toMatchObject({
+        reasonCode: "session_run_inactive",
+      });
+      expect(JSON.stringify(inactiveRunRes.body)).not.toContain(sessionB.token);
+
+      // 8. Verify audit logs do not leak any raw token material
+      const allAudits = await db.select().from(activityLog);
+      const serializedAudits = JSON.stringify(allAudits);
+      expect(serializedAudits).not.toContain(sessionA.token);
+      expect(serializedAudits).not.toContain(sessionB.token);
+      expect(serializedAudits).not.toContain(gwToken.token);
+    });
+  });
+
   it("lists and permits tool through named gateway when deny-by-default profile includes tool_name in catalog identity", async () => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
@@ -6597,258 +6783,6 @@ rl.on("line", (line) => {
       await remote.close();
     }
   });
-  describe("run-scoped gateway session-token verification", () => {
-    it("authenticates tools/list and tools/call using Authorization Bearer pcgt_* through its advertised expiry", async () => {
-      const company = await createCompany(db);
-      const agent = await createAgent(db, company.id);
-      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
-      const localTool = await createLocalStdioMcpTool(db, company.id, {
-        applicationKey: "local-demo",
-        connectionName: "Local Demo",
-        toolName: "echo",
-        title: "Local echo",
-      });
-      const expectedToolName = expectedConnectedToolName({
-        applicationKey: "local-demo",
-        connectionId: localTool.connection.id,
-        toolName: "echo",
-      });
-      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
-      await db.insert(toolProfileEntries).values({
-        companyId: company.id,
-        profileId: profile.id,
-        selectorType: "catalog_entry",
-        effect: "include",
-        catalogEntryId: localTool.catalogEntry.id,
-      });
-
-      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
-      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
-
-      const session = await gateway.createSession({
-        companyId: company.id,
-        agentId: agent.id,
-        runId: run.id,
-        issueId: issue.id,
-        projectId: project.id,
-        ttlMs: 60_000,
-      });
-
-      expect(session.token).toMatch(/^pcgt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]+$/i);
-
-      // tools/list via Authorization: Bearer
-      const listRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${session.token}`);
-      expect(listRes.status).toBe(200);
-      expect(listRes.body).toEqual(expect.arrayContaining([
-        expect.objectContaining({ name: expectedToolName }),
-      ]));
-      expect(JSON.stringify(listRes.body)).not.toContain(session.token);
-
-      // tools/call via Authorization: Bearer
-      const callRes = await request(app)
-        .post("/api/tool-gateway/tools/call")
-        .set("Authorization", `Bearer ${session.token}`)
-        .send({
-          tool: expectedToolName,
-          parameters: { message: "hello" },
-        });
-      expect(callRes.status).toBe(200);
-      expect(callRes.body).toMatchObject({
-        status: "completed",
-        result: expect.objectContaining({ content: "local:hello" }),
-      });
-      expect(JSON.stringify(callRes.body)).not.toContain(session.token);
-
-      // tools/list via x-paperclip-tool-gateway-token header
-      const headerListRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("x-paperclip-tool-gateway-token", session.token);
-      expect(headerListRes.status).toBe(200);
-
-      // Controlled clock verification near expiry boundary and after expiry
-      vi.useFakeTimers({ toFake: ["Date"] });
-      try {
-        // 1 second before expiry: success
-        vi.setSystemTime(new Date(session.expiresAt.getTime() - 1_000));
-        const nearExpiryRes = await request(app)
-          .get("/api/tool-gateway/tools")
-          .set("Authorization", `Bearer ${session.token}`);
-        expect(nearExpiryRes.status).toBe(200);
-
-        // 1 second after expiry: rejected with session_expired
-        vi.setSystemTime(new Date(session.expiresAt.getTime() + 1_000));
-        const expiredRes = await request(app)
-          .get("/api/tool-gateway/tools")
-          .set("Authorization", `Bearer ${session.token}`);
-        expect(expiredRes.status).toBe(401);
-        expect(expiredRes.body).toMatchObject({
-          reasonCode: "session_expired",
-        });
-        expect(JSON.stringify(expiredRes.body)).not.toContain(session.token);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("rejects revoked, cross-session, malformed, inactive-run, and cross-protocol tokens with stable reason codes", async () => {
-      const company = await createCompany(db);
-      const agent = await createAgent(db, company.id);
-      const { project, issue, run } = await createIssueAndRun(db, company.id, agent.id);
-      const localTool = await createLocalStdioMcpTool(db, company.id, {
-        applicationKey: "local-demo",
-        connectionName: "Local Demo",
-        toolName: "echo",
-        title: "Local echo",
-      });
-      const expectedToolName = expectedConnectedToolName({
-        applicationKey: "local-demo",
-        connectionId: localTool.connection.id,
-        toolName: "echo",
-      });
-      const profile = await allowToolsForAgent(db, company.id, agent.id, []);
-      await db.insert(toolProfileEntries).values({
-        companyId: company.id,
-        profileId: profile.id,
-        selectorType: "catalog_entry",
-        effect: "include",
-        catalogEntryId: localTool.catalogEntry.id,
-      });
-
-      const gateway = createTestToolGatewayService(db, { runtimeSupervisor: { idleTtlMs: 10_000 } });
-      const app = createGatewayRouteApp(db, gateway, { withActorMiddleware: true });
-
-      const sessionA = await gateway.createSession({
-        companyId: company.id,
-        agentId: agent.id,
-        runId: run.id,
-        issueId: issue.id,
-        projectId: project.id,
-      });
-      const sessionB = await gateway.createSession({
-        companyId: company.id,
-        agentId: agent.id,
-        runId: run.id,
-        issueId: issue.id,
-        projectId: project.id,
-      });
-
-      // 1. Rejection after revocation
-      await gateway.revokeSession({
-        companyId: company.id,
-        sessionId: sessionA.id,
-      });
-      const revokedRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${sessionA.token}`);
-      expect(revokedRes.status).toBe(401);
-      expect(revokedRes.body).toMatchObject({
-        reasonCode: "session_revoked",
-      });
-      expect(JSON.stringify(revokedRes.body)).not.toContain(sessionA.token);
-
-      // 2. Cross-session token (Session A id with Session B secret)
-      const secretB = sessionB.token.split(".")[1];
-      const crossSessionToken = `pcgt_${sessionA.id}.${secretB}`;
-      const crossSessionRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${crossSessionToken}`);
-      expect(crossSessionRes.status).toBe(401);
-      expect(crossSessionRes.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(crossSessionRes.body)).not.toContain(crossSessionToken);
-
-      // 3. Non-existent session ID
-      const nonExistentToken = `pcgt_${randomUUID()}.${secretB}`;
-      const nonExistentRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${nonExistentToken}`);
-      expect(nonExistentRes.status).toBe(401);
-      expect(nonExistentRes.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(nonExistentRes.body)).not.toContain(nonExistentToken);
-
-      // 4. Malformed tokens
-      for (const badToken of [
-        `pcgt_not-a-uuid.${secretB}`,
-        `pcgt_${sessionB.id}`,
-        `pcgt_${sessionB.id}.`,
-        "pcgt_malformed",
-        "not-even-a-prefix",
-      ]) {
-        const malformedRes = await request(app)
-          .get("/api/tool-gateway/tools")
-          .set("Authorization", `Bearer ${badToken}`);
-        expect(malformedRes.status).toBe(401);
-        expect(malformedRes.body).toMatchObject({
-          reasonCode: "session_token_malformed",
-        });
-        expect(JSON.stringify(malformedRes.body)).not.toContain(badToken);
-      }
-
-      // 5. Rejection of pcgw_* on pcgt_*-only routes (tools/list and tools/call)
-      const namedGateway = await gateway.createNamedGateway({
-        companyId: company.id,
-        body: { name: `GW ${randomUUID()}`, profileId: profile.id, defaultProfileMode: "gateway_only" },
-      });
-      const gwToken = await gateway.createNamedGatewayToken({
-        companyId: company.id,
-        gatewayId: namedGateway.id,
-        body: { name: "test-gw-token", clientLabel: "test-gw-token", subjectType: "heartbeat_run", subjectId: run.id },
-      });
-
-      const pcgwOnSessionRoute = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${gwToken.token}`);
-      expect(pcgwOnSessionRoute.status).toBe(401);
-      expect(pcgwOnSessionRoute.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(pcgwOnSessionRoute.body)).not.toContain(gwToken.token);
-
-      const pcgwOnCallRoute = await request(app)
-        .post("/api/tool-gateway/tools/call")
-        .set("Authorization", `Bearer ${gwToken.token}`)
-        .send({ tool: expectedToolName, parameters: { message: "hi" } });
-      expect(pcgwOnCallRoute.status).toBe(401);
-      expect(pcgwOnCallRoute.body).toMatchObject({
-        reasonCode: "session_invalid",
-      });
-      expect(JSON.stringify(pcgwOnCallRoute.body)).not.toContain(gwToken.token);
-
-      // 6. Rejection of pcgt_* on pcgw_* route
-      const pcgtOnNamedGw = await request(app)
-        .post(`/mcp/gateways/${namedGateway.gatewayPublicId}`)
-        .set("Authorization", `Bearer ${sessionB.token}`)
-        .send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
-      expect(pcgtOnNamedGw.status).toBe(401);
-      expect(pcgtOnNamedGw.body).toMatchObject({
-        error: { data: { reasonCode: "gateway_token_invalid" } },
-      });
-      expect(JSON.stringify(pcgtOnNamedGw.body)).not.toContain(sessionB.token);
-
-      // 7. Rejection with session_run_inactive when heartbeat run completes
-      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, run.id));
-      const inactiveRunRes = await request(app)
-        .get("/api/tool-gateway/tools")
-        .set("Authorization", `Bearer ${sessionB.token}`);
-      expect(inactiveRunRes.status).toBe(401);
-      expect(inactiveRunRes.body).toMatchObject({
-        reasonCode: "session_run_inactive",
-      });
-      expect(JSON.stringify(inactiveRunRes.body)).not.toContain(sessionB.token);
-
-      // 8. Verify audit logs do not leak any raw token material
-      const allAudits = await db.select().from(activityLog);
-      const serializedAudits = JSON.stringify(allAudits);
-      expect(serializedAudits).not.toContain(sessionA.token);
-      expect(serializedAudits).not.toContain(sessionB.token);
-      expect(serializedAudits).not.toContain(gwToken.token);
-    });
-  });
 
   it("gates gateway context tools and capabilities by token allowedActions", async () => {
     const company = await createCompany(db);
@@ -7120,3 +7054,4 @@ rl.on("line", (line) => {
     }
   });
 });
+

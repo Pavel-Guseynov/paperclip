@@ -276,10 +276,11 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
             });
           });
         }
+        const reqBody = init?.body ? JSON.parse(String(init.body)) : null;
         return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
-            id: "test",
+            id: reqBody?.id ?? "test",
             result: { content: [{ type: "text", text: "success data" }] },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -462,7 +463,7 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
 
     let mode: "http_500" | "invalid_json" | "rpc_error" = "http_500";
     const gateway = createTestToolGatewayService(db, {
-      remoteHttpRequest: async () => {
+      remoteHttpRequest: async (_url, init) => {
         if (mode === "http_500") {
           return new Response("Internal Server Error", { status: 500 });
         }
@@ -472,10 +473,11 @@ describeEmbeddedPostgres("remote MCP timeout and health resilience", () => {
             headers: { "content-type": "application/json" },
           });
         }
+        const reqBody = init?.body ? JSON.parse(String(init.body)) : null;
         return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
-            id: "test",
+            id: reqBody?.id ?? "test",
             error: { code: -32603, message: "Internal JSON-RPC failure" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },

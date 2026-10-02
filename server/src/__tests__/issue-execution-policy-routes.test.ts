@@ -10,7 +10,7 @@ const mockIssueService = vi.hoisted(() => ({
   assertCheckoutOwner: vi.fn(),
   update: vi.fn(),
   createChild: vi.fn(),
-  addComment: vi.fn(),
+  addComment: vi.fn(async (_id: string, body: string = "") => ({ id: "comment-1", body })),
   findMentionedAgents: vi.fn(),
   getRelationSummaries: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
@@ -77,6 +77,9 @@ const mockRunnerGoalService = vi.hoisted(() => ({
 }));
 
 function registerModuleMocks() {
+  vi.doMock("../services/queued-interaction-response.js", () => ({
+    hasQueuedInteractionResponse: vi.fn(async () => false),
+  }));
   vi.doMock("../services/runner-goals.js", () => ({
     runnerGoalService: () => mockRunnerGoalService,
     RunnerGoalActionError: class RunnerGoalActionError extends Error {},
@@ -218,6 +221,7 @@ describe("issue execution policy routes", () => {
     }));
     mockIssueApprovalService.listApprovalsForIssue.mockResolvedValue([]);
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
+    mockDbInsert.mockImplementation(() => ({ values: vi.fn(async () => []) }));
     mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
     mockDbInsert.mockImplementation(() => ({ values: mockDbInsertValues }));
     mockDbInsertValues.mockImplementation(async () => []);
@@ -1309,7 +1313,6 @@ describe("issue execution policy routes", () => {
       }),
     );
   });
-
   it("auto-skips intermediate self-review stage and advances to approval stage via PATCH", async () => {
     const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
     const authorAgentId = "44444444-4444-4444-8444-444444444444";

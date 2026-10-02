@@ -212,9 +212,11 @@ interface ActorMiddlewareOptions {
   resolveSession?: (req: Request) => Promise<BetterAuthSessionResult | null>;
 }
 
-const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
-const managedMcpGatewayProtocolPath = /^\/api\/tool-gateway\/gateways\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/mcp\/?$/i;
+const publicRoutineWebhookPath = /^\/api\/routine-triggers\/public\/[a-f0-9]{24}\/fire\/?$/i;
 
+const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
+const managedMcpGatewayProtocolPath =
+  /^\/api\/tool-gateway\/gateways\/[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\/mcp\/?$/i;
 const sessionTokenEndpointsPath = /^\/api\/tool-gateway\/tools(?:\/call)?\/?$/i;
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
@@ -232,6 +234,14 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
           }
         : { type: "none", source: "none" };
 
+    // Routine ingress authenticates its own bearer/signature. Never interpret
+    // webhook credentials as agent keys or attach an ambient browser session.
+    if (req.method === "POST" && publicRoutineWebhookPath.test(req.path)) {
+      req.actor = { type: "none", source: "none" };
+      next();
+      return;
+    }
+
     const runIdHeader = req.header("x-paperclip-run-id");
 
     const authHeader = req.header("authorization");
@@ -241,30 +251,16 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     // Public MCP gateway protocol requests carry a pcgw_* bearer that is
     // validated by the gateway service itself. Do not interpret that bearer as
     // a board key or agent JWT here: doing so rejects the MCP handshake before
-    // the protocol route can verify its run-scoped credential. The deployment
-    // default actor is preserved as-is on this unguessable public path.
-    if (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path)) {
-      if (runIdHeader) req.actor.runId = runIdHeader;
-      next();
-      return;
-    }
-
-    // Only the managed protocol POST validates a pcgw_* bearer. Clear implicit
-    // board authority before handing it to the gateway service. Descriptor GETs
-    // and other API requests retain ordinary actor authentication.
+    // the protocol route can verify its run-scoped credential. The internal
+    // managed route gets the same handoff only for an actual pcgw_* bearer;
+    // session token routes (/api/tool-gateway/tools and /tools/call) select the
+    // gateway session verifier so that pcgt_* credentials are not intercepted
+    // as agent JWTs. Every other /api request retains normal actor authentication below.
     if (
-      req.method === "POST"
-      && hasGatewayBearer
-      && managedMcpGatewayProtocolPath.test(req.path)
+      (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path))
+      || (hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path))
+      || sessionTokenEndpointsPath.test(req.path)
     ) {
-      req.actor = { type: "none", source: "none" };
-      if (runIdHeader) req.actor.runId = runIdHeader;
-      next();
-      return;
-    }
-
-    // Session tool endpoints retain their existing gateway-session verifier.
-    if (sessionTokenEndpointsPath.test(req.path)) {
       req.actor = { type: "none", source: "none" };
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();
@@ -557,13 +553,15 @@ export function cloudActorHeaderSourceFromHeaders(
 }
 
 /**
- * postgres.js codes for a connection the server side closed out from under
- * an in-flight query — a pooled Postgres endpoint recycling or suspending
+ * postgres.js codes for connection establishment timing out or for a
+ * connection the server side closed out from under an in-flight query —
+ * a pooled Postgres endpoint recycling or suspending
  * (observed 2026-09-03 with a managed pooler closing the socket mid-INSERT).
  * The driver reconnects transparently on the next query; only the statement
  * that was on the wire is lost.
  */
 const transientDbConnectionCodes = new Set([
+  "CONNECT_TIMEOUT",
   "CONNECTION_CLOSED",
   "CONNECTION_ENDED",
   "CONNECTION_DESTROYED",
@@ -571,7 +569,7 @@ const transientDbConnectionCodes = new Set([
 
 /**
  * True when the error chain (drizzle wraps the driver error as `cause`)
- * carries a postgres.js closed-connection code. Exported for tests.
+ * carries a postgres.js transient connection code. Exported for tests.
  */
 export function isTransientDbConnectionError(error: unknown): boolean {
   for (let current: unknown = error; current instanceof Error; current = current.cause) {
@@ -583,7 +581,7 @@ export function isTransientDbConnectionError(error: unknown): boolean {
 
 /**
  * Runs `run` and retries it up to twice when it fails on a transient
- * closed-connection error. Two replays, not one: when a pooled endpoint
+ * connection error. Two replays, not one: when a pooled endpoint
  * suspends or recycles, EVERY pooled socket is dead at once, so the first
  * replay can draw another stale socket from the pool and fail identically
  * (observed 2026-09-12: retried actor resolution still surfacing
@@ -602,7 +600,7 @@ export async function retryOnTransientDbConnectionError<T>(run: () => Promise<T>
 }
 
 /**
- * Trusted-header actor resolution with a single transient-connection retry.
+ * Trusted-header actor resolution with bounded transient-connection retries.
  * The tenant sync inside is idempotent end to end — every write is an
  * upsert/on-conflict/delete and the write debounce records only after the
  * whole sync succeeds — so replaying it after a dropped connection is safe,

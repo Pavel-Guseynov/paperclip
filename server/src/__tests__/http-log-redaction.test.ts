@@ -25,6 +25,9 @@ import { redactSensitive } from "../middleware/redact-sensitive.js";
 
 describe("HTTP logger redaction", () => {
   it.each([
+    { method: "POST", path: "/api/routine-triggers/public/private-url-canary/fire" },
+    { method: "PUT", path: "/api/routine-triggers/public/private-url-canary/fire" },
+
     {
       method: "POST",
       path: "http://provider.invalid/api/chat-webhooks/../private-url-canary",
@@ -107,7 +110,7 @@ describe("HTTP logger redaction", () => {
       const log = JSON.parse(output.trim());
       expect(log.req).toMatchObject({
         method,
-        url: "/api/chat-webhooks/:publicId/:provider",
+        url: path.includes("routine-triggers") ? "/api/routine-triggers/public/:publicId/fire" : "/api/chat-webhooks/:publicId/:provider",
       });
       expect(log.reqBody).toBe("[REDACTED]");
       expect(log.err.message).toBe("Chat webhook request failed");
