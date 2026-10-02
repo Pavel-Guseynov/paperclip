@@ -1,5 +1,9 @@
 import fs from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import EmbeddedPostgres from "embedded-postgres";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { prepareEmbeddedPostgresNativeRuntime } from "./embedded-postgres-native.js";
 import {
   __embeddedPostgresStartMaxAttemptsForTests as MAX_ATTEMPTS,
   __setEmbeddedPostgresCtorProviderForTests,
@@ -109,5 +113,41 @@ describe("startEmbeddedPostgresWithRetry", () => {
     // The thrown message carries the captured Postgres output, not only the
     // generic "embedded Postgres startup failed" text.
     expect((error as Error).message).toContain("Address already in use");
+  });
+});
+
+async function runInvalidInitdb() {
+  await prepareEmbeddedPostgresNativeRuntime();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-initdb-failure-"));
+  const errors: string[] = [];
+  vi.stubEnv("TMPDIR", root);
+  try {
+    const postgres = new EmbeddedPostgres({
+      databaseDir: path.join(root, "db"),
+      user: "paperclip",
+      password: "paperclip",
+      initdbFlags: ["--paperclip-invalid-option"],
+      onError: (message) => errors.push(String(message)),
+    });
+    const failure = await postgres.initialise().catch((error: unknown) => error);
+    const passwordFiles = fs.readdirSync(root).filter((name) => name.startsWith("pg-password-"));
+    return { failure, errors: errors.join(""), passwordFiles };
+  } finally {
+    vi.unstubAllEnvs();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+describe("embedded Postgres initdb failure", () => {
+  it("reports initdb stderr through onError", async () => {
+    const result = await runInvalidInitdb();
+    expect(result.failure).toBeDefined();
+    expect(result.errors).toContain("--paperclip-invalid-option");
+  });
+
+  it("removes the temporary password file", async () => {
+    const result = await runInvalidInitdb();
+    expect(result.failure).toBeDefined();
+    expect(result.passwordFiles).toEqual([]);
   });
 });

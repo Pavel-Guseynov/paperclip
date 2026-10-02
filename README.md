@@ -283,6 +283,11 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 <br/>
 
+An external MCP client using a standard agent API key can update issues the
+agent is authorized to edit without a heartbeat run. Edits to its own assigned
+in-progress issue require a clear checkout and execution lock. See
+[issue updates](docs/api/issues.md#update-issue) for the API contract.
+
 ## What Paperclip is not
 
 |                              |                                                                                                                      |
@@ -393,7 +398,7 @@ pnpm install
 pnpm dev
 ```
 
-This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically — no setup required.
+This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically — no setup required. If database initialization fails, the startup error includes PostgreSQL's `initdb` diagnostic output and the temporary password file is removed.
 
 > **Requirements:** Node.js 24.11+, pnpm 11.27+
 

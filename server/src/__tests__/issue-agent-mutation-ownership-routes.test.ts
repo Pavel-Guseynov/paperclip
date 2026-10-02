@@ -1110,6 +1110,102 @@ describe("agent issue mutation checkout ownership", () => {
     );
   });
 
+  it("lets an external agent key update blockers on its assigned issue without a heartbeat run", async () => {
+    const blockerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const app = await createApp({
+      type: "agent",
+      agentId: ownerAgentId,
+      companyId,
+      source: "agent_key",
+      keyId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      keyScope: { kind: "standard" },
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issueId}`)
+      .send({ blockedByIssueIds: [blockerId] });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      issueId,
+      expect.objectContaining({
+        actorAgentId: ownerAgentId,
+        blockedByIssueIds: [blockerId],
+      }),
+    );
+    expect(mockIssueService.assertCheckoutOwner).toHaveBeenCalledWith(issueId, ownerAgentId, null);
+  });
+
+  it("lets a standard agent key add a blocker to another agent's issue with management access", async () => {
+    const blockerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
+      allowed: [
+        "issue:read",
+        "issue:mutate",
+        "tasks:manage_active_checkouts",
+      ].includes(input.action),
+      action: input.action,
+      reason: "allow_explicit_grant",
+      explanation: "Allowed by test grant.",
+    }));
+    const app = await createApp({
+      type: "agent",
+      agentId: peerAgentId,
+      companyId,
+      source: "agent_key",
+      keyId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      keyScope: { kind: "standard" },
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issueId}`)
+      .send({ blockedByIssueIds: [blockerId] });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAccessService.decide).toHaveBeenCalledWith(expect.objectContaining({
+      action: "tasks:manage_active_checkouts",
+    }));
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      issueId,
+      expect.objectContaining({ blockedByIssueIds: [blockerId] }),
+    );
+  });
+
+  it("requires a run id for an in-progress issue update from an agent JWT", async () => {
+    const app = await createApp({
+      type: "agent",
+      agentId: ownerAgentId,
+      companyId,
+      source: "agent_jwt",
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issueId}`)
+      .send({ title: "Unattributed edit" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Agent run id required");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps restricted agent keys run-bound for in-progress issue updates", async () => {
+    const app = await createApp({
+      type: "agent",
+      agentId: ownerAgentId,
+      companyId,
+      source: "agent_key",
+      keyScope: { kind: "skill_test", issueId },
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issueId}`)
+      .send({ title: "Restricted edit" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Agent run id required");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
   it("stores the authenticated agent run id when creating work products", async () => {
     const app = await createApp(ownerActor());
 
