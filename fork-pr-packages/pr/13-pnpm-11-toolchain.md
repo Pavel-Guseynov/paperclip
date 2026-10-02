@@ -1,14 +1,14 @@
-# chore(toolchain): migrate repository to pnpm 11.27.0 (#8827)
+# refactor(toolchain): migrate repository to pnpm 11.27.0 (#8827)
 
 | Field | Value |
 | --- | --- |
 | Upstream PR | `paperclipai/paperclip#13894` |
 | Branch | `stable/v2026.916.1/chore/pnpm-11-toolchain` |
-| Head | `e820570dc38fbf14e7126e08df0430c2bcb801bb` |
+| Head | `62cc2cb44f9d733b992eb53deb73f70fe291584e` |
 | Base commit | `8f7baf2f7254cebc7250d775e1e2757269e42666` |
 | Upstream base | `paperclipai/paperclip` master `8f7baf2f7254cebc7250d775e1e2757269e42666` |
 | Stack prerequisite | none (based on upstream master) |
-| Proposed title | `chore(toolchain): migrate repository to pnpm 11.27.0 (#8827)` |
+| Proposed title | `refactor(toolchain): migrate repository to pnpm 11.27.0 (#8827)` |
 
 Own diff (head against its base commit):
 
@@ -55,12 +55,12 @@ Own diff (head against its base commit):
 | `scripts/__tests__/provision-worktree-self-heal.test.mjs` | +29 | -3 |
 | `scripts/acpx-patch-packaging.test.mjs` | +13 | -6 |
 | `scripts/chat-adapter-patch-packaging.test.mjs` | +7 | -4 |
-| `scripts/check-pnpm-version-policy.mjs` | +199 | -0 |
-| `scripts/check-pnpm-version-policy.test.mjs` | +181 | -0 |
+| `scripts/check-pnpm-version-policy.mjs` | +190 | -0 |
+| `scripts/check-pnpm-version-policy.test.mjs` | +216 | -0 |
 | `scripts/prepare-bundled-package.mjs` | +22 | -2 |
 | `scripts/provision-worktree-runtime.sh` | +2 | -3 |
 | `scripts/provision-worktree.sh` | +31 | -12 |
-| `server/src/__tests__/workspace-runtime.test.ts` | +10 | -10 |
+| `server/src/__tests__/workspace-runtime.test.ts` | +5 | -5 |
 | `ui/src/lib/codemirror-single-instance.test.ts` | +4 | -13 |
 | `ui/src/lib/lexical-single-copy.test.ts` | +7 | -3 |
 
@@ -86,7 +86,7 @@ Refs: #13894
 1. **Lockfile Handling (`commitperclip[bot]`):** As requested by upstream bot review, `pnpm-lock.yaml` is excluded from this commit. Upstream's scheduled lockfile-refresh bot will regenerate the lockfile cleanly post-merge, preventing unnecessary merge churn or conflicts across active pull requests.
 2. **Windows Path Escaping (`greptile-apps[bot]`):** `check-clean-consumers.mjs` writes `pnpm-workspace.yaml` using JSON serialization, which safely escapes Windows backslashes and quotes in file paths without YAML syntax errors.
 3. **Policy Job CI Integration (`greptile-apps[bot]`):** `pnpm check:pnpm-version` and its unit tests (`node --test ./scripts/check-pnpm-version-policy.test.mjs`) are wired directly into the trusted policy job in `.github/workflows/pr-trusted.yml` alongside `check:node-version`. The test suite covers valid configurations, invalid versions, missing steps, unescaped patches, and stale non-historical pnpm 9 references.
-4. **Git-Free Exported Tree Policy Validation:** `scripts/check-pnpm-version-policy.mjs` uses pure directory traversal (`walk`) to scan source files, skipping installed/generated directories (`node_modules`, `dist`, `.git`, etc.) without invoking `git ls-files`. This guarantees identical policy verdicts in git checkouts and published source archives without git metadata or `git` on PATH.
+4. **Source Policy Validation & Tracked Reference Scanning:** `scripts/check-pnpm-version-policy.mjs` separates the build-time policy check (manifest, workspace configuration, workflow pins, Dockerfile, and prerequisites) from repository reference scanning. The build-time check requires no Git and runs cleanly from exported source archives, while the pnpm 9 reference scan judges only files Git tracks (`git ls-files -z`), preventing untracked and git-ignored scratch files from failing checkout validation.
 5. **Worktree Patch Fingerprinting on Older Branches (`greptile-apps[bot]`):** `scripts/provision-worktree.sh` computes install fingerprints by hashing patches declared in `pnpm-workspace.yaml` (pnpm 11) and falls back to `package.json#pnpm` for checkouts of pre-migration branches, preventing missing-dependency issues when switching between branch generations.
 6. **Windows Validation & Ecosystem Alignment:** We acknowledge and appreciate @drew1two's independent validation on Windows (using pnpm 11.27.1), which confirmed cross-platform stability and highlighted interoperability with related initiatives (Refs #10627, #13991, #14174).
 
@@ -95,7 +95,7 @@ Refs: #13894
 - **Package Manager Pin:** Updated `packageManager` to `pnpm@11.27.0` in `package.json`; removed obsolete root `pnpm` configuration block.
 - **Workspace Manifest Authority:** Configured `pnpm-workspace.yaml` with `autoInstallPeers: false`, `patchedDependencies`, `overrides`, and an explicit `allowBuilds` policy permitting necessary binaries (`@embedded-postgres/*`, `esbuild`, `opencode-ai`) while denying unneeded compilation scripts.
 - **Workflows & CI:** Pinned `pnpm/action-setup` to `11.27.0` across all 16 GitHub Actions workflow files. Added `check:pnpm-version` and its unit test to the `policy` job in `pr-trusted.yml`.
-- **Policy Check Independence:** Removed git command execution from `scripts/check-pnpm-version-policy.mjs`, enabling seamless policy enforcement in exported source archives and non-git environments.
+- **Policy Check Independence & Tracked Scan:** Separated build-time policy checks in `scripts/check-pnpm-version-policy.mjs` from repository reference scanning. The build-time check operates without Git dependencies on manifests, workflows, and prerequisites, while the reference scan strictly evaluates tracked source files via `git ls-files -z` without traversing git-ignored directories.
 - **Worktree Provisioning:** Enhanced patch fingerprinting in `scripts/provision-worktree.sh` to read from both `pnpm-workspace.yaml` and legacy `package.json#pnpm`. Preserves `--prod=false` across `pnpm install` calls, which is supported by pnpm 11.27.0's CLI parser and ensures devDependencies are retained in production environments.
 - **Dockerfile:** Updated `docker/daytona-runner/Dockerfile` to `corepack prepare pnpm@11.27.0 --activate`.
 - **Packaging Scripts:** Updated `scripts/prepare-bundled-package.mjs` and package contract tests to read patched dependencies from `pnpm-workspace.yaml`.
@@ -104,10 +104,11 @@ Refs: #13894
 ## Verification
 
 Base commit: `8f7baf2f7254cebc7250d775e1e2757269e42666` (upstream master)
-Head commit: `e820570dc38fbf14e7126e08df0430c2bcb801bb`
+Head commit: `62cc2cb44f9d733b992eb53deb73f70fe291584e`
 
 - `node scripts/check-pnpm-version-policy.mjs`: PASSED (exit 0) in git checkout and exported archive without .git
-- `node --test scripts/check-pnpm-version-policy.test.mjs`: PASSED (12/12 tests pass, including tree without .git)
+- `node --test scripts/check-pnpm-version-policy.test.mjs`: PASSED (13/13 tests pass, including git-free tree and git checkout with ignored pnpm 9 files)
+- `pnpm --filter @paperclipai/server exec vitest run src/__tests__/workspace-runtime.test.ts -t "worktree-local pnpm"`: PASSED (4/4 tests pass)
 - `node --test scripts/__tests__/provision-worktree-self-heal.test.mjs`: PASSED (20/20 tests pass, 1 skipped for flock on macOS)
 - `node --test scripts/acpx-patch-packaging.test.mjs scripts/chat-adapter-patch-packaging.test.mjs .github/scripts/tests/lockfile-refresh-cache.test.mjs packages/paperclip-runner/test/acpx-codex-package-contract.test.mjs`: PASSED (35/35 tests pass)
 - `vitest run ui/src/lib/lexical-single-copy.test.ts`: PASSED (3/3 tests pass)
