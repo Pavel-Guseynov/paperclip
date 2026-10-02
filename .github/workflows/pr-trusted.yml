@@ -309,7 +309,7 @@ jobs:
         run: pnpm check:node-version
 
       - name: Validate pnpm version policy
-        run: pnpm check:pnpm-version
+        run: pnpm check:pnpm-version --scan-tracked
 
       - name: Test pnpm version policy check
         run: node --test ./scripts/check-pnpm-version-policy.test.mjs
