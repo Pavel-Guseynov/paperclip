@@ -153,7 +153,7 @@ async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source
   const config = {
     $meta: {
       version: 1,
-      updatedAt: new Date().toISOString(),
+      updatedAt: "2026-01-01T00:00:00.000Z",
       source: "configure",
     },
     database: {

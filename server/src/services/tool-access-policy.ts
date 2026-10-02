@@ -1607,6 +1607,7 @@ export function toolAccessPolicyService(db: Db) {
     const policies = cache
       ? await cache.getPolicies()
       : await db.select().from(toolPolicies).where(and(eq(toolPolicies.companyId, ctx.companyId), eq(toolPolicies.enabled, true))).orderBy(asc(toolPolicies.priority), asc(toolPolicies.createdAt));
+
     for (const policy of policies) {
       const conditions = policyConditions(policy);
       if (conditions && selectorMatches(policy.selectors, ctx)) {
@@ -1699,6 +1700,9 @@ export function toolAccessPolicyService(db: Db) {
         return decision("allow", "allow_trust_rule", policy.description ?? "Tool access allowed by trust rule.", effectiveProfileIds, [policy.id], { redactionPlan: redaction.redactionPlan, policyExplanation });
       }
       if (policy.policyType === "require_approval") {
+        // The connection's Ask first control restricts an existing action grant;
+        // it must never grant access to agents outside that connection's profile.
+        if (policy.config?.source === "app_gallery_finish" && !permittedByProfile) continue;
         return decision("require_approval", "requires_approval_policy", policy.description ?? "Tool access requires approval.", effectiveProfileIds, [policy.id], { redactionPlan: redaction.redactionPlan, policyExplanation });
       }
       if (policy.policyType === "allow") {
