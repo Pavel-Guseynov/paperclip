@@ -218,3 +218,10 @@ export const updateCurrentUserProfileSchema = z.object({
 });
 
 export type UpdateCurrentUserProfile = z.infer<typeof updateCurrentUserProfileSchema>;
+export const replayLifecycleEventsSchema = z.object({
+  companyId: z.string().optional(),
+  since: z.string().optional(),
+  dryRun: z.boolean().optional(),
+});
+export type ReplayLifecycleEvents = z.infer<typeof replayLifecycleEventsSchema>;
+

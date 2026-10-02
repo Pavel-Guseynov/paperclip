@@ -11,7 +11,9 @@ import {
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { reportRunFailure } from "./run-failure-report.js";
+import { transitionHeartbeatRunStatus } from "./heartbeat-run-lifecycle.js";
 import { getNativeReviewAssignment, readNativeReviewAssignmentContext } from "./native-runtime/native-review-participant.js";
+
 
 /** Only newly recorded control deadlines are eligible. Upgrades never replay ambiguous historical runs. */
 export async function reconcileAbandonedExecutionControl(
@@ -173,10 +175,9 @@ export async function reconcileAbandonedExecutionControl(
                 updatedAt: now,
               })
               .where(eq(nativeRunFinalizations.runId, run.id));
-          const [updatedRun] = await tx
-            .update(heartbeatRuns)
-            .set({
-              status: "failed",
+          const updatedRun = await transitionHeartbeatRunStatus(tx, run.id, {
+            toStatus: "failed",
+            patch: {
               executionStatusDeliveryId: randomUUID(),
               finishedAt: now,
               ...(coordinator
@@ -186,9 +187,11 @@ export async function reconcileAbandonedExecutionControl(
               error: nextAction,
               nextAction,
               updatedAt: now,
-            })
-            .where(eq(heartbeatRuns.id, run.id))
-            .returning();
+            },
+            phase: "finished",
+            outcome: "failed",
+            error: { code: cause, message: nextAction },
+          });
           if (updatedRun && updatedRun.status !== run.status) {
             terminalRunToReport = updatedRun;
           }

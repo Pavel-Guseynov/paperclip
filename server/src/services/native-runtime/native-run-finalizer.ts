@@ -42,6 +42,7 @@ import {
 } from "./native-board-response-wait.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
 import { reportRunFailure } from "../run-failure-report.js";
+import { transitionHeartbeatRunStatus } from "../heartbeat-run-lifecycle.js";
 import { resolveExternalChatResponseWaitAuthorization } from "./chat-attachment-reuse.js";
 import {
   authorizeNativeChatReviewPresentation,
@@ -573,11 +574,10 @@ async function projectCommittedRun(input: {
     terminalState as "succeeded" | "failed" | "cancelled",
   );
   const now = new Date();
-  const [updatedRun] = await input.db
-    .update(heartbeatRuns)
-    .set({
+  const updatedRun = await transitionHeartbeatRunStatus(input.db, input.run.id, {
+    toStatus: projectedStatus,
+    patch: {
       executionStatusDeliveryId: randomUUID(),
-      status: projectedStatus,
       finishedAt: input.run.finishedAt ?? now,
       nativePhase: "committed",
       nativePhaseUpdatedAt: now,
@@ -603,39 +603,46 @@ async function projectCommittedRun(input: {
           }
         : {}),
       updatedAt: now,
-    })
-    .where(
-      and(
-        eq(heartbeatRuns.id, input.run.id),
-        eq(heartbeatRuns.runtimeMode, "native"),
-        or(
-          inArray(heartbeatRuns.status, ["queued", "running", "failed"]),
-          and(
-            eq(heartbeatRuns.status, "succeeded"),
-            or(
-              isNotNull(heartbeatRuns.error),
-              isNotNull(heartbeatRuns.errorCode),
-              isNull(heartbeatRuns.finishedAt),
-              sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
-            ),
+    },
+    outcome: projectedStatus === "succeeded" ? "succeeded" : projectedStatus === "failed" ? "failed" : "cancelled",
+    whereCondition: and(
+      eq(heartbeatRuns.runtimeMode, "native"),
+      or(
+        inArray(heartbeatRuns.status, ["queued", "running", "failed"]),
+        and(
+          eq(heartbeatRuns.status, "succeeded"),
+          or(
+            isNotNull(heartbeatRuns.error),
+            isNotNull(heartbeatRuns.errorCode),
+            isNull(heartbeatRuns.finishedAt),
+            sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
+            sql`${heartbeatRuns.resultJson}->>'finalizationPhase' is distinct from 'committed'`,
+            sql`${heartbeatRuns.resultJson}->>'nextAttemptAt' is not null`,
+            sql`${heartbeatRuns.resultJson}->>'failureCode' is not null`,
+            sql`${heartbeatRuns.resultJson}->>'originalFailureCode' is not null`,
           ),
         ),
-        // Reconciliation revisits committed results periodically. Only repair
-        // a changed projection; rewriting an unchanged failed run would mint a
-        // fresh status delivery (and failure toast) on every sweep. Check the
-        // current row so concurrent replays cannot both queue the same repair.
-        or(
-          sql`${heartbeatRuns.status} is distinct from ${projectedStatus}`,
-          isNull(heartbeatRuns.finishedAt),
-          sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
-          ...(terminalState === "succeeded"
-            ? [isNotNull(heartbeatRuns.error), isNotNull(heartbeatRuns.errorCode)]
-            : []),
-        ),
-        nativeRunnerOwnershipNotHeldCondition(),
       ),
-    )
-    .returning();
+      // Reconciliation revisits committed results periodically. Only repair
+      // a changed projection; rewriting an unchanged failed run would mint a
+      // fresh status delivery (and failure toast) on every sweep. Check the
+      // current row so concurrent replays cannot both queue the same repair.
+      or(
+        sql`${heartbeatRuns.status} is distinct from ${projectedStatus}`,
+        isNull(heartbeatRuns.finishedAt),
+        sql`${heartbeatRuns.nativePhase} is distinct from 'committed'`,
+        sql`${heartbeatRuns.resultJson}->>'finalizationPhase' is distinct from 'committed'`,
+        sql`${heartbeatRuns.resultJson}->>'nextAttemptAt' is not null`,
+        sql`${heartbeatRuns.resultJson}->>'failureCode' is not null`,
+        sql`${heartbeatRuns.resultJson}->>'originalFailureCode' is not null`,
+        ...(terminalState === "succeeded"
+          ? [isNotNull(heartbeatRuns.error), isNotNull(heartbeatRuns.errorCode)]
+          : []),
+      ),
+      nativeRunnerOwnershipNotHeldCondition(),
+    ),
+  });
+
   // Metadata repairs can preserve the terminal status. Only a genuine status
   // transition should emit another terminal event.
   if (updatedRun && updatedRun.status !== input.run.status) {

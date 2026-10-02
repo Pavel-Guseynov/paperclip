@@ -2,6 +2,7 @@ import { agentWakeupRequests, heartbeatRuns, issues, type Db } from "@paperclipa
 import { and, eq } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { claimNativeReviewExecutionLock, readNativeReviewAssignmentContext } from "./native-review-participant.js";
+import { transitionHeartbeatRunStatus } from "../heartbeat-run-lifecycle.js";
 
 /** The run, wake, and issue lock form one reviewer admission claim. */
 export async function claimQueuedNativeReviewRun(db: Db, input: {
@@ -38,13 +39,20 @@ export async function claimQueuedNativeReviewRun(db: Db, input: {
       contextSnapshot: context, agentNameKey: input.agentNameKey, claimedAt: input.claimedAt,
     });
     if (!locked) return null;
-    const [claimed] = await tx.update(heartbeatRuns).set({
-      ...input.claimValues, status: "running", startedAt: run.startedAt ?? input.claimedAt,
-      updatedAt: input.claimedAt,
-    }).where(eq(heartbeatRuns.id, run.id)).returning();
+    const claimed = await transitionHeartbeatRunStatus(tx, run.id, {
+      toStatus: "running",
+      patch: {
+        ...input.claimValues,
+        startedAt: run.startedAt ?? input.claimedAt,
+        updatedAt: input.claimedAt,
+      },
+      phase: "started",
+      whereCondition: eq(heartbeatRuns.status, "queued"),
+    });
     if (run.wakeupRequestId) await tx.update(agentWakeupRequests).set({
       status: "claimed", claimedAt: input.claimedAt, updatedAt: input.claimedAt,
     }).where(eq(agentWakeupRequests.id, run.wakeupRequestId));
     return claimed ?? null;
   });
 }
+
