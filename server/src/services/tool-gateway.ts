@@ -1354,7 +1354,10 @@ export function createToolGatewayService(
 
     for (const { catalogEntry, connection, application } of sortedRows) {
       const applicationKey = application.applicationKey ?? null;
-      const rawApp = applicationKey ?? connection.name ?? application.name;
+      const rawApp =
+        applicationKey && !applicationKey.startsWith("app-gallery:")
+          ? applicationKey
+          : (connection.name ?? application.name ?? applicationKey?.split(":")[1]);
       const baseName = formatClientSafeGatewayToolBaseName(
         rawApp,
         catalogEntry.toolName,
