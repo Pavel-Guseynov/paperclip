@@ -216,7 +216,7 @@ const publicRoutineWebhookPath = /^\/api\/routine-triggers\/public\/[a-f0-9]{24}
 
 const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
 const managedMcpGatewayProtocolPath =
-  /^\/api\/tool-gateway\/gateways\/[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\/mcp\/?$/i;
+  /^\/api\/tool-gateway\/gateways\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/mcp\/?$/i;
 const sessionTokenEndpointsPath = /^\/api\/tool-gateway\/tools(?:\/call)?\/?$/i;
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
@@ -256,9 +256,14 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     // session token routes (/api/tool-gateway/tools and /tools/call) select the
     // gateway session verifier so that pcgt_* credentials are not intercepted
     // as agent JWTs. Every other /api request retains normal actor authentication below.
+    if (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path)) {
+      if (runIdHeader) req.actor.runId = runIdHeader;
+      next();
+      return;
+    }
+
     if (
-      (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path))
-      || (hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path))
+      (req.method === "POST" && hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path))
       || sessionTokenEndpointsPath.test(req.path)
     ) {
       req.actor = { type: "none", source: "none" };

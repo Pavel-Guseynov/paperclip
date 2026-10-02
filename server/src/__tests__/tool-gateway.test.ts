@@ -1616,7 +1616,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
         },
         {
           name: "an expired token",
-          invalidate: ({ token }) => db.update(toolMcpGatewayTokens).set({ expiresAt: new Date(0) })
+          invalidate: ({ token }) => db.update(toolMcpGatewayTokens).set({ subjectType: "agent", expiresAt: new Date(0) })
             .where(eq(toolMcpGatewayTokens.id, token.id)),
         },
         {
