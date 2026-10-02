@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CONNECTION_INTENT_AGENT_GUIDANCE } from "@paperclipai/shared";
 import {
@@ -567,6 +568,95 @@ describe("adapter skill snapshots", () => {
 });
 
 describe("runChildProcess", () => {
+  it.each([
+    ["before", "process.stdin.destroy(); process.stdout.write('reader-closed\\n');"],
+    ["during", "process.stdin.once('data', () => { process.stdin.destroy(); process.stdout.write('reader-closed\\n'); }); process.stdin.resume();"],
+  ])("fails only the owning run when the child closes stdin %s the write", async (_phase, childScript) => {
+    const failedRunId = randomUUID();
+    const healthyRunId = randomUUID();
+    const errors: Array<{ runId: string; code: string | undefined; message: string }> = [];
+    let readerClosed!: () => void;
+    const closed = new Promise<void>((resolve) => { readerClosed = resolve; });
+    const failed = runChildProcess(
+      failedRunId,
+      process.execPath,
+      ["-e", childScript],
+      {
+        cwd: process.cwd(),
+        env: {},
+        stdin: "x".repeat(2 * 1024 * 1024),
+        timeoutSec: 0,
+        graceSec: 1,
+        onLog: async (_stream, chunk) => {
+          if (chunk.includes("reader-closed")) readerClosed();
+        },
+        onLogError: (error, runId, message) => {
+          errors.push({ runId, code: (error as NodeJS.ErrnoException).code, message });
+        },
+        ...(_phase === "before" ? { onSpawn: async () => { await closed; } } : {}),
+      },
+    );
+    const healthy = runChildProcess(
+      healthyRunId,
+      process.execPath,
+      ["-e", "process.stdin.on('data', chunk => process.stdout.write(chunk)); process.stdin.on('end', () => process.exit(0));"],
+      {
+        cwd: process.cwd(),
+        env: {},
+        stdin: "healthy",
+        timeoutSec: 0,
+        graceSec: 1,
+        onLog: async () => {},
+      },
+    );
+    const [failure, success] = await Promise.all([failed, healthy]);
+    expect(failure.errorCode).toBe("EPIPE");
+    expect(failure.exitCode).not.toBe(0);
+    expect(errors).toEqual([{ runId: failedRunId, code: "EPIPE", message: "child stdin write failed" }]);
+    expect(success.exitCode).toBe(0);
+    expect(success.stdout).toBe("healthy");
+  });
+
+  it("emits a structured run-attributed EPIPE record by default", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-stdin-error-"));
+    try {
+      const scriptPath = path.join(directory, "driver.mts");
+      const sourceUrl = pathToFileURL(path.resolve("packages/adapter-utils/src/server-utils.ts")).href;
+      await fs.writeFile(scriptPath, `
+import { runChildProcess } from ${JSON.stringify(sourceUrl)};
+let readerClosed;
+const closed = new Promise((resolve) => { readerClosed = resolve; });
+const result = await runChildProcess("diagnostic-run", process.execPath,
+  ["-e", "process.stdin.destroy(); process.stdout.write('reader-closed\\\\n');"], {
+    cwd: process.cwd(), env: {}, stdin: "x".repeat(2 * 1024 * 1024),
+    timeoutSec: 0, graceSec: 1,
+    onSpawn: async () => { await closed; },
+    onLog: async (_stream, chunk) => { if (chunk.includes("reader-closed")) readerClosed(); },
+  });
+process.stdout.write(JSON.stringify({ errorCode: result.errorCode, exitCode: result.exitCode }));
+`);
+      const driver = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [path.resolve("cli/node_modules/tsx/dist/cli.mjs"), scriptPath],
+        { cwd: process.cwd(), env: {}, timeoutSec: 0, graceSec: 1, onLog: async () => {} },
+      );
+      expect(driver.exitCode, driver.stderr).toBe(0);
+      expect(JSON.parse(driver.stdout)).toEqual({ errorCode: "EPIPE", exitCode: 1 });
+      const records = driver.stderr.split("\n").filter((line) => line.includes('"action":"child_process_error"'));
+      expect(records).toHaveLength(1);
+      expect(JSON.parse(records[0]!)).toMatchObject({
+        level: "error",
+        action: "child_process_error",
+        message: "child stdin write failed",
+        attributes: { runId: "diagnostic-run", code: "EPIPE" },
+        error: { message: "write EPIPE" },
+      });
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("does not arm a timeout when timeoutSec is 0", async () => {
     const result = await runChildProcess(
       randomUUID(),

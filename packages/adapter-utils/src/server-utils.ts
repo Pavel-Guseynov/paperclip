@@ -55,8 +55,8 @@ export interface RunProcessResult {
   // The sandbox runner sets them, so the exec span records a true wall time.
   finishedAt?: string | null;
   durationMs?: number | null;
-  // The typed error code of a transport-level failure, or absent when the
-  // process result carries no such code. It follows the same additive-optional
+  // The typed error code of a transport or child-stdin failure, or absent when
+  // the process result carries no such code. It follows the same additive-optional
   // convention as the timing fields: a producer that names no code leaves it
   // absent, so the existing `RunProcessResult` producers stay unchanged. The
   // run-disposition seam sets it to `duplex_channel_lost` when the sandbox
@@ -4599,7 +4599,24 @@ export async function runChildProcess(
 ): Promise<RunProcessResult> {
   const onLogError =
     opts.onLogError ??
-    ((err, id, msg) => console.warn({ err, runId: id }, msg));
+    ((err, id, msg) => {
+      const timestamp = new Date();
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error(JSON.stringify({
+        timestamp: timestamp.toISOString(),
+        time_unix_nano: String(BigInt(timestamp.getTime()) * 1_000_000n),
+        level: "error",
+        service: "paperclip",
+        action: "child_process_error",
+        message: msg,
+        attributes: { runId: id, code: (error as NodeJS.ErrnoException).code ?? null },
+        error: {
+          type: error.name,
+          message: error.message,
+          traceback: error.stack ?? null,
+        },
+      }));
+    });
   return new Promise<RunProcessResult>((resolve, reject) => {
     const rawMerged: NodeJS.ProcessEnv = {
       ...sanitizeInheritedPaperclipEnv(process.env),
@@ -4644,6 +4661,15 @@ export async function runChildProcess(
         }) as ChildProcessWithEvents;
         const startedAt = new Date().toISOString();
         const processGroupId = resolveProcessGroupId(child);
+        let stdinError: NodeJS.ErrnoException | null = null;
+        const stdin = child.stdin;
+        const recordStdinError = (error: Error) => {
+          if (stdinError) return;
+          stdinError = error as NodeJS.ErrnoException;
+          onLogError(error, runId, "child stdin write failed");
+          signalRunningProcess({ child, processGroupId }, "SIGTERM");
+        };
+        if (opts.stdin != null && stdin) stdin.on("error", recordStdinError);
 
         const spawnPersistPromise =
           typeof child.pid === "number" && child.pid > 0 && opts.onSpawn
@@ -4793,12 +4819,17 @@ export async function runChildProcess(
             });
         });
 
-        const stdin = child.stdin;
         if (opts.stdin != null && stdin) {
           void spawnPersistPromise.finally(() => {
-            if (child.killed || stdin.destroyed) return;
-            stdin.write(opts.stdin as string);
-            stdin.end();
+            if (child.killed) return;
+            try {
+              stdin.write(opts.stdin as string, (error) => {
+                if (error) recordStdinError(error);
+              });
+              stdin.end();
+            } catch (error) {
+              recordStdinError(error as Error);
+            }
           });
         }
 
@@ -4831,11 +4862,12 @@ export async function runChildProcess(
                 .then(() => target.cleanup?.())
                 .finally(() => {
                   resolve({
-                    exitCode: code,
+                    exitCode: stdinError && code === 0 ? 1 : code,
                     signal,
                     timedOut,
                     stdout,
                     stderr,
+                    ...(stdinError ? { errorCode: stdinError.code ?? "child_stdin_write_failed" } : {}),
                     pid: child.pid ?? null,
                     startedAt,
                     terminalResultCleanup: terminalCleanupStarted
