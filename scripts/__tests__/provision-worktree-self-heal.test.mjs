@@ -509,7 +509,7 @@ test("every pnpm install call site silences DEP0169 without overwriting NODE_OPT
   assert.equal(repairCallSites.length, 2, "expected the repair pnpm install to carry the flag at both call sites (locked and unlocked)");
   assert.match(provisionSource, /local repair_node_options="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169"/);
   assert.match(provisionSource, appendsToExistingNodeOptions);
-  assert.match(provisionSource, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169" pnpm install "\$@"/);
+  assert.match(provisionSource, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --disable-warning=DEP0169" pnpm install --prod=false "\$@"/);
 
   const runtimeSource = fs.readFileSync(runtimeScript, "utf8");
   const runtimeRepairCallSites = runtimeSource.match(/env -u NODE_ENV CI=true NODE_OPTIONS="\$repair_node_options" "\$\{repair_cmd\[@\]\}"/g) ?? [];
