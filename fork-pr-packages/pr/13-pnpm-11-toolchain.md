@@ -4,7 +4,7 @@
 | --- | --- |
 | Upstream PR | `paperclipai/paperclip#13894` |
 | Branch | `stable/v2026.916.1/chore/pnpm-11-toolchain` |
-| Head | `31bbc8255e2d1d07c4d5d34ffabdf5e20d55e09f` |
+| Head | `e820570dc38fbf14e7126e08df0430c2bcb801bb` |
 | Base commit | `8f7baf2f7254cebc7250d775e1e2757269e42666` |
 | Upstream base | `paperclipai/paperclip` master `8f7baf2f7254cebc7250d775e1e2757269e42666` |
 | Stack prerequisite | none (based on upstream master) |
@@ -52,14 +52,14 @@ Own diff (head against its base commit):
 | `packages/paperclip-runner/scripts/check-clean-consumers.mjs` | +11 | -7 |
 | `packages/paperclip-runner/test/acpx-codex-package-contract.test.mjs` | +14 | -20 |
 | `pnpm-workspace.yaml` | +18 | -2 |
-| `scripts/__tests__/provision-worktree-self-heal.test.mjs` | +31 | -5 |
+| `scripts/__tests__/provision-worktree-self-heal.test.mjs` | +29 | -3 |
 | `scripts/acpx-patch-packaging.test.mjs` | +13 | -6 |
 | `scripts/chat-adapter-patch-packaging.test.mjs` | +7 | -4 |
 | `scripts/check-pnpm-version-policy.mjs` | +199 | -0 |
 | `scripts/check-pnpm-version-policy.test.mjs` | +181 | -0 |
 | `scripts/prepare-bundled-package.mjs` | +22 | -2 |
-| `scripts/provision-worktree-runtime.sh` | +3 | -4 |
-| `scripts/provision-worktree.sh` | +33 | -14 |
+| `scripts/provision-worktree-runtime.sh` | +2 | -3 |
+| `scripts/provision-worktree.sh` | +31 | -12 |
 | `server/src/__tests__/workspace-runtime.test.ts` | +10 | -10 |
 | `ui/src/lib/codemirror-single-instance.test.ts` | +4 | -13 |
 | `ui/src/lib/lexical-single-copy.test.ts` | +7 | -3 |
@@ -88,8 +88,7 @@ Refs: #13894
 3. **Policy Job CI Integration (`greptile-apps[bot]`):** `pnpm check:pnpm-version` and its unit tests (`node --test ./scripts/check-pnpm-version-policy.test.mjs`) are wired directly into the trusted policy job in `.github/workflows/pr-trusted.yml` alongside `check:node-version`. The test suite covers valid configurations, invalid versions, missing steps, unescaped patches, and stale non-historical pnpm 9 references.
 4. **Git-Free Exported Tree Policy Validation:** `scripts/check-pnpm-version-policy.mjs` uses pure directory traversal (`walk`) to scan source files, skipping installed/generated directories (`node_modules`, `dist`, `.git`, etc.) without invoking `git ls-files`. This guarantees identical policy verdicts in git checkouts and published source archives without git metadata or `git` on PATH.
 5. **Worktree Patch Fingerprinting on Older Branches (`greptile-apps[bot]`):** `scripts/provision-worktree.sh` computes install fingerprints by hashing patches declared in `pnpm-workspace.yaml` (pnpm 11) and falls back to `package.json#pnpm` for checkouts of pre-migration branches, preventing missing-dependency issues when switching between branch generations.
-6. **Removal of `--prod=false` Incompatibility:** In pnpm 11 (the Rust-based CLI using clap), `--prod` is a boolean flag taking no value. Passing `--prod=false` fails with `error: unexpected value 'false' for '--prod' found; no more were expected` (exit 2). `--prod=false` is therefore removed from `pnpm install` calls in `scripts/provision-worktree.sh`.
-7. **Windows Validation & Ecosystem Alignment:** We acknowledge and appreciate @drew1two's independent validation on Windows (using pnpm 11.27.1), which confirmed cross-platform stability and highlighted interoperability with related initiatives (Refs #10627, #13991, #14174).
+6. **Windows Validation & Ecosystem Alignment:** We acknowledge and appreciate @drew1two's independent validation on Windows (using pnpm 11.27.1), which confirmed cross-platform stability and highlighted interoperability with related initiatives (Refs #10627, #13991, #14174).
 
 ## What Changed
 
@@ -97,7 +96,7 @@ Refs: #13894
 - **Workspace Manifest Authority:** Configured `pnpm-workspace.yaml` with `autoInstallPeers: false`, `patchedDependencies`, `overrides`, and an explicit `allowBuilds` policy permitting necessary binaries (`@embedded-postgres/*`, `esbuild`, `opencode-ai`) while denying unneeded compilation scripts.
 - **Workflows & CI:** Pinned `pnpm/action-setup` to `11.27.0` across all 16 GitHub Actions workflow files. Added `check:pnpm-version` and its unit test to the `policy` job in `pr-trusted.yml`.
 - **Policy Check Independence:** Removed git command execution from `scripts/check-pnpm-version-policy.mjs`, enabling seamless policy enforcement in exported source archives and non-git environments.
-- **Worktree Provisioning:** Removed incompatible `--prod=false` flag from `scripts/provision-worktree.sh` and `scripts/provision-worktree-runtime.sh`. Enhanced patch fingerprinting to read from both `pnpm-workspace.yaml` and legacy `package.json#pnpm`.
+- **Worktree Provisioning:** Enhanced patch fingerprinting in `scripts/provision-worktree.sh` to read from both `pnpm-workspace.yaml` and legacy `package.json#pnpm`. Preserves `--prod=false` across `pnpm install` calls, which is supported by pnpm 11.27.0's CLI parser and ensures devDependencies are retained in production environments.
 - **Dockerfile:** Updated `docker/daytona-runner/Dockerfile` to `corepack prepare pnpm@11.27.0 --activate`.
 - **Packaging Scripts:** Updated `scripts/prepare-bundled-package.mjs` and package contract tests to read patched dependencies from `pnpm-workspace.yaml`.
 - **Documentation:** Updated prerequisite references in `README.md`, `cli/README.md`, `doc/DEVELOPING.md`, `docs/start/*`, and runner tutorial guides from pnpm 9 to pnpm 11.27+.
@@ -105,7 +104,7 @@ Refs: #13894
 ## Verification
 
 Base commit: `8f7baf2f7254cebc7250d775e1e2757269e42666` (upstream master)
-Head commit: `31bbc8255e2d1d07c4d5d34ffabdf5e20d55e09f`
+Head commit: `e820570dc38fbf14e7126e08df0430c2bcb801bb`
 
 - `node scripts/check-pnpm-version-policy.mjs`: PASSED (exit 0) in git checkout and exported archive without .git
 - `node --test scripts/check-pnpm-version-policy.test.mjs`: PASSED (12/12 tests pass, including tree without .git)
@@ -158,7 +157,7 @@ Thank you very much for taking the time to test and validate this independently 
 
 We've rebased this branch cleanly onto the latest master and incorporated all feedback:
 1. `check-clean-consumers.mjs` now outputs `pnpm-workspace.yaml` using JSON serialization to safely escape Windows path backslashes and prevent YAML parsing issues.
-2. `scripts/provision-worktree.sh` has been updated so that patch fingerprinting handles both `pnpm-workspace.yaml` (pnpm 11) and legacy `package.json#pnpm` (pre-migration branches), and the unsupported `--prod=false` flag has been removed.
+2. `scripts/provision-worktree.sh` has been updated so that patch fingerprinting handles both `pnpm-workspace.yaml` (pnpm 11) and legacy `package.json#pnpm` (pre-migration branches).
 3. `pnpm-lock.yaml` has been left untouched in this PR so that upstream's automated lockfile-refresh bot can regenerate it cleanly post-merge without manual churn.
 4. `check:pnpm-version` is now wired directly into CI next to `check:node-version`, backed by unit tests covering version pins and policy checks.
 
