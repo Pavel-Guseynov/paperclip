@@ -855,9 +855,17 @@ describeEmbeddedPostgres("recovery sweepStaleIssueLocks", () => {
     // Make only the audit-event insert fail. The run update commits the
     // terminal status first, so the audit write is best-effort. The sweep must
     // catch the failure and still clear the lock.
+    let txCount = 0;
+    const realTransaction = db.transaction.bind(db);
     const transactionSpy = vi
       .spyOn(db, "transaction")
-      .mockRejectedValueOnce(new Error("simulated audit write failure"));
+      .mockImplementation((async (cb: any, ...rest: any[]) => {
+        txCount += 1;
+        if (txCount === 2) {
+          throw new Error("simulated audit write failure");
+        }
+        return realTransaction(cb, ...rest);
+      }) as any);
 
     try {
       const heartbeat = heartbeatService(db);
