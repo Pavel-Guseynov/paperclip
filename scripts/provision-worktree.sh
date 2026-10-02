@@ -90,7 +90,7 @@ repair_base_workspace_install() {
   # --force guarantees relinking even when pnpm's up-to-date heuristics would
   # otherwise skip the dangling symlinks; --frozen-lockfile keeps the repair
   # from mutating the shared base workspace's lockfile.
-  local repair_cmd=(pnpm install --force --frozen-lockfile --config.confirmModulesPurge=false)
+  local repair_cmd=(pnpm install --prod=false --force --frozen-lockfile --config.confirmModulesPurge=false)
   # Node 24 reports url.parse() as DEP0169. Keep this flag while any
   # toolchain install path may call url.parse().
   local repair_node_options="${NODE_OPTIONS:-} --disable-warning=DEP0169"
@@ -804,7 +804,7 @@ if [[ -f "$worktree_cwd/package.json" && -f "$worktree_cwd/pnpm-lock.yaml" ]]; t
         cd "$worktree_cwd"
         # Node 24 reports url.parse() as DEP0169. Keep this flag while any
         # toolchain install path may call url.parse().
-        NODE_OPTIONS="${NODE_OPTIONS:-} --disable-warning=DEP0169" pnpm install "$@"
+        NODE_OPTIONS="${NODE_OPTIONS:-} --disable-warning=DEP0169" pnpm install --prod=false "$@"
       ) >"$stdout_path" 2>"$stderr_path"; then
         cat "$stdout_path"
         cat "$stderr_path" >&2
