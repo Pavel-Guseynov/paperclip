@@ -215,8 +215,7 @@ interface ActorMiddlewareOptions {
 const publicRoutineWebhookPath = /^\/api\/routine-triggers\/public\/[a-f0-9]{24}\/fire\/?$/i;
 
 const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
-const managedMcpGatewayProtocolPath =
-  /^\/api\/tool-gateway\/gateways\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/mcp\/?$/i;
+const managedMcpGatewayProtocolPath = /^\/api\/tool-gateway\/gateways\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/mcp\/?$/i;
 const sessionTokenEndpointsPath = /^\/api\/tool-gateway\/tools(?:\/call)?\/?$/i;
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
@@ -251,17 +250,19 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     // Public MCP gateway protocol requests carry a pcgw_* bearer that is
     // validated by the gateway service itself. Do not interpret that bearer as
     // a board key or agent JWT here: doing so rejects the MCP handshake before
-    // the protocol route can verify its run-scoped credential. The internal
-    // managed route gets the same handoff only for an actual pcgw_* bearer;
-    // session token routes (/api/tool-gateway/tools and /tools/call) select the
-    // gateway session verifier so that pcgt_* credentials are not intercepted
-    // as agent JWTs. Every other /api request retains normal actor authentication below.
+    // the protocol route can verify its run-scoped credential. The deployment
+    // default actor is preserved as-is on this unguessable public path.
     if (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path)) {
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();
       return;
     }
 
+    // Only the managed protocol POST validates a pcgw_* bearer. Clear implicit
+    // board authority before handing it to the gateway service. Descriptor GETs
+    // and other API requests retain ordinary actor authentication. Session token
+    // routes (/api/tool-gateway/tools and /tools/call) select the gateway session
+    // verifier so that pcgt_* credentials are not intercepted as agent JWTs.
     if (
       (req.method === "POST" && hasGatewayBearer && managedMcpGatewayProtocolPath.test(req.path))
       || sessionTokenEndpointsPath.test(req.path)
