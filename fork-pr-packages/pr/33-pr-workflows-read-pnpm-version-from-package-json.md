@@ -4,7 +4,7 @@
 | --- | --- |
 | Upstream PR | Drafted prerequisite for `paperclipai/paperclip#13894` |
 | Branch | `pr/33-pr-workflows-read-pnpm-version-from-package-json` |
-| Head | `6ca13025d5069a5e8b4e723521b44ecb22f03f7e` |
+| Head | `6ca13025d4807154135cdd9d985d6a1b6ce5d1f3` |
 | Base commit | `78e003449827540175e2441c05bac9eeec8dae98` |
 | Upstream base | `paperclipai/paperclip` master `78e003449827540175e2441c05bac9eeec8dae98` |
 | Stack prerequisite | none (based on upstream master) |
@@ -85,7 +85,7 @@ Therefore, `pr-trusted.yml` is the sole workflow that must be updated on `master
 ## Verification
 
 Base commit: `78e003449827540175e2441c05bac9eeec8dae98` (upstream master)
-Head commit: `6ca13025d5069a5e8b4e723521b44ecb22f03f7e`
+Head commit: `6ca13025d4807154135cdd9d985d6a1b6ce5d1f3`
 
 - **Action implementation verification:** Inspected `src/install-pnpm/run.ts` in `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86`, confirming that `readTargetVersion` throws on version mismatches and resolves `package.json#packageManager` when `version` is omitted.
 - **Workflow test suite:** Ran `node --test .github/scripts/tests/*.test.mjs scripts/__tests__/release-verify-workflow.test.mjs` — exactly 395 tests ran, 395 passed, 0 failed.
