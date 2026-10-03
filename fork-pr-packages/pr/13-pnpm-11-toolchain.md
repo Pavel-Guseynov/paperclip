@@ -4,10 +4,10 @@
 | --- | --- |
 | Upstream PR | `paperclipai/paperclip#13894` |
 | Branch | `stable/v2026.916.1/chore/pnpm-11-toolchain` |
-| Head | `9f698ae1d62c90c7f2fe963d3fb47f3b89065471` |
-| Base commit | `8f7baf2f7254cebc7250d775e1e2757269e42666` |
-| Upstream base | `paperclipai/paperclip` master `8f7baf2f7254cebc7250d775e1e2757269e42666` |
-| Stack prerequisite | none (based on upstream master) |
+| Head | `2660e9cc3c0d91889ad0e21a2da1f5d381c479d3` |
+| Base commit | `ffe5e9e2a8866767cbb48009040bfafd85b56576` |
+| Upstream base | `paperclipai/paperclip` master `ffe5e9e2a8866767cbb48009040bfafd85b56576` |
+| Stack prerequisite | `ci(workflows): let PR workflows install declared pnpm version from package.json` (see [`pr/29-pr-workflows-read-pnpm-version-from-package-json.md`](29-pr-workflows-read-pnpm-version-from-package-json.md)) |
 | Proposed title | `refactor(toolchain): migrate repository to pnpm 11.27.0 (#8827)` |
 
 Own diff (head against its base commit):
@@ -51,6 +51,7 @@ Own diff (head against its base commit):
 | `packages/paperclip-runner/docs/tutorials/scenario-chat.md` | +1 | -1 |
 | `packages/paperclip-runner/scripts/check-clean-consumers.mjs` | +11 | -7 |
 | `packages/paperclip-runner/test/acpx-codex-package-contract.test.mjs` | +14 | -20 |
+| `pnpm-lock.yaml` | +157 | -111 |
 | `pnpm-workspace.yaml` | +18 | -2 |
 | `scripts/__tests__/provision-worktree-self-heal.test.mjs` | +29 | -3 |
 | `scripts/acpx-patch-packaging.test.mjs` | +13 | -6 |
@@ -74,7 +75,7 @@ The pull request body follows the line. Copy it as it is.
 > - The repository build toolchain and package management rely on pnpm workspaces.
 > - Upstream issue #8827 tracks migrating the toolchain from pnpm 9 to pnpm 11 to align with modern Node runtime expectations and faster deterministic installations.
 > - pnpm 11 establishes `pnpm-workspace.yaml` as the sole authority for package overrides, patched dependencies, and build permissions, removing configuration from `package.json#pnpm`.
-> - This pull request migrates the root and workspace configurations, GitHub Actions workflows, Dockerfile setup, worktree provisioning scripts, and documentation prerequisites to pnpm 11.27.0.
+> - This pull request migrates the root and workspace configurations, GitHub Actions workflows, Dockerfile setup, worktree provisioning scripts, documentation prerequisites, and lockfile to pnpm 11.27.0.
 > - The benefit is a modern, faster, and more secure toolchain with explicit build script controls (`allowBuilds`) and deterministic peer resolution.
 
 ## Linked Issues or Issue Description
@@ -83,18 +84,20 @@ Fixes: #8827
 Refs: #13894
 
 **Resolution of previous review findings:**
-1. **Lockfile Handling (`commitperclip[bot]`):** As requested by upstream bot review, `pnpm-lock.yaml` is excluded from this commit. Upstream's scheduled lockfile-refresh bot will regenerate the lockfile cleanly post-merge, preventing unnecessary merge churn or conflicts across active pull requests.
-2. **Windows Path Escaping (`greptile-apps[bot]`):** `check-clean-consumers.mjs` writes `pnpm-workspace.yaml` using JSON serialization, which safely escapes Windows backslashes and quotes in file paths without YAML syntax errors.
-3. **Policy Job CI Integration (`greptile-apps[bot]`):** `pnpm check:pnpm-version` and its unit tests (`node --test ./scripts/check-pnpm-version-policy.test.mjs`) are wired directly into the trusted policy job in `.github/workflows/pr-trusted.yml` alongside `check:node-version`. The test suite covers valid configurations, invalid versions, missing steps, unescaped patches, and stale non-historical pnpm 9 references.
-4. **Source Policy Validation & Tracked Reference Scanning:** `scripts/check-pnpm-version-policy.mjs` separates the build-time policy check (manifest, workspace configuration, workflow pins, Dockerfile, and prerequisites) from repository reference scanning. The build-time check requires no Git and runs cleanly from exported source archives, while the pnpm 9 reference scan judges only files Git tracks (`git ls-files -z`), preventing untracked and git-ignored scratch files from failing checkout validation.
-5. **Worktree Patch Fingerprinting on Older Branches (`greptile-apps[bot]`):** `scripts/provision-worktree.sh` computes install fingerprints by hashing patches declared in `pnpm-workspace.yaml` (pnpm 11) and falls back to `package.json#pnpm` for checkouts of pre-migration branches, preventing missing-dependency issues when switching between branch generations.
-6. **Windows Validation & Ecosystem Alignment:** We acknowledge and appreciate @drew1two's independent validation on Windows (using pnpm 11.27.1), which confirmed cross-platform stability and highlighted interoperability with related initiatives (Refs #10627, #13991, #14174).
+1. **CI Prerequisite:** Pull request workflows (`pr.yml`) delegate to `paperclipai/paperclip/.github/workflows/pr-trusted.yml@master`. On `master`, `pr-trusted.yml` has historically hardcoded `with: version: 9.15.4`, which forced pnpm 9 on PR CI runs and caused 45 of 47 jobs to fail at "Setup pnpm" (Run 36998312578). Removing the hardcoded version in the prerequisite PR package allows `pnpm/action-setup` to dynamically read `package.json#packageManager`, keeping master on 9.15.4 while running this PR on 11.27.0.
+2. **Lockfile & Sentry Contract Root Cause:** The Sentry SDK contract failure in Run 36998312361 (`ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`) was caused by attempting a frozen install of a pnpm 9 formatted lockfile under pnpm 11, where patched dependencies map to SHA-256 hashes instead of `{ hash, path }` dictionaries. Regenerating `pnpm-lock.yaml` with pnpm 11.27.0 enables both `pnpm install --frozen-lockfile` and `pnpm install --frozen-lockfile --ignore-scripts` to pass cleanly in ~230ms.
+3. **Windows Path Escaping (`greptile-apps[bot]`):** `check-clean-consumers.mjs` writes `pnpm-workspace.yaml` using JSON serialization, which safely escapes Windows backslashes and quotes in file paths without YAML syntax errors.
+4. **Policy Job CI Integration (`greptile-apps[bot]`):** `pnpm check:pnpm-version` and its unit tests (`node --test ./scripts/check-pnpm-version-policy.test.mjs`) are wired directly into the trusted policy job in `.github/workflows/pr-trusted.yml` alongside `check:node-version`. The test suite covers valid configurations, invalid versions, missing steps, unescaped patches, and stale non-historical pnpm 9 references.
+5. **Source Policy Validation & Tracked Reference Scanning:** `scripts/check-pnpm-version-policy.mjs` separates the build-time policy check (manifest, workspace configuration, workflow pins, Dockerfile, and prerequisites) from repository reference scanning. The build-time check requires no Git and runs cleanly from exported source archives, while the pnpm 9 reference scan judges only files Git tracks (`git ls-files -z`), preventing untracked and git-ignored scratch files from failing checkout validation.
+6. **Worktree Patch Fingerprinting on Older Branches (`greptile-apps[bot]`):** `scripts/provision-worktree.sh` computes install fingerprints by hashing patches declared in `pnpm-workspace.yaml` (pnpm 11) and falls back to `package.json#pnpm` for checkouts of pre-migration branches, preventing missing-dependency issues when switching between branch generations.
+7. **Windows Validation & Ecosystem Alignment:** We acknowledge and appreciate @drew1two's independent validation on Windows (using pnpm 11.27.1), which confirmed cross-platform stability and highlighted interoperability with related initiatives (Refs #10627, #13991, #14174).
 
 ## What Changed
 
 - **Package Manager Pin:** Updated `packageManager` to `pnpm@11.27.0` in `package.json`; removed obsolete root `pnpm` configuration block.
 - **Workspace Manifest Authority:** Configured `pnpm-workspace.yaml` with `autoInstallPeers: false`, `patchedDependencies`, `overrides`, and an explicit `allowBuilds` policy permitting necessary binaries (`@embedded-postgres/*`, `esbuild`, `opencode-ai`) while denying unneeded compilation scripts.
-- **Workflows & CI:** Pinned `pnpm/action-setup` to `11.27.0` across all 16 GitHub Actions workflow files. Added `check:pnpm-version` and its unit test to the `policy` job in `pr-trusted.yml`.
+- **Lockfile Format:** Regenerated `pnpm-lock.yaml` with pnpm 11.27.0, migrating patch hashes to SHA-256 and enabling instant, frozen dependency installation.
+- **Workflows & CI:** Pinned `pnpm/action-setup` to `11.27.0` across GitHub Actions workflow files. Added `check:pnpm-version` and its unit test to the `policy` job in `pr-trusted.yml`.
 - **Policy Check Independence & Tracked Scan:** Separated build-time policy checks in `scripts/check-pnpm-version-policy.mjs` from repository reference scanning. The build-time check operates without Git dependencies on manifests, workflows, and prerequisites, while the reference scan strictly evaluates tracked source files via `git ls-files -z` without traversing git-ignored directories.
 - **Worktree Provisioning:** Enhanced patch fingerprinting in `scripts/provision-worktree.sh` to read from both `pnpm-workspace.yaml` and legacy `package.json#pnpm`. Preserves `--prod=false` across `pnpm install` calls, which is supported by pnpm 11.27.0's CLI parser and ensures devDependencies are retained in production environments.
 - **Dockerfile:** Updated `docker/daytona-runner/Dockerfile` to `corepack prepare pnpm@11.27.0 --activate`.
@@ -103,18 +106,21 @@ Refs: #13894
 
 ## Verification
 
-Base commit: `8f7baf2f7254cebc7250d775e1e2757269e42666` (upstream master)
-Head commit: `62cc2cb44f9d733b992eb53deb73f70fe291584e`
+Base commit: `ffe5e9e2a8866767cbb48009040bfafd85b56576` (upstream master)
+Head commit: `2660e9cc3c0d91889ad0e21a2da1f5d381c479d3`
 
+- `pnpm install --frozen-lockfile`: PASSED (exit 0, ~226ms)
+- `pnpm install --frozen-lockfile --ignore-scripts`: PASSED (exit 0, ~247ms)
 - `node scripts/check-pnpm-version-policy.mjs`: PASSED (exit 0) in git checkout and exported archive without .git
-- `node --test scripts/check-pnpm-version-policy.test.mjs`: PASSED (13/13 tests pass, including git-free tree and git checkout with ignored pnpm 9 files)
-- `pnpm --filter @paperclipai/server exec vitest run src/__tests__/workspace-runtime.test.ts -t "worktree-local pnpm"`: PASSED (4/4 tests pass)
-- `node --test scripts/__tests__/provision-worktree-self-heal.test.mjs`: PASSED (20/20 tests pass, 1 skipped for flock on macOS)
+- `node --test scripts/check-pnpm-version-policy.test.mjs`: PASSED (13/13 tests pass)
+- `node scripts/check-node-version-policy.mjs`: PASSED (exit 0)
+- `pnpm -r typecheck`: PASSED across all 36 workspace projects (server, ui, cli, packages/*)
+- `pnpm test:run`: 15,060 tests pass across 742 test suites (4 environment-bound failures noted: Nix PATH isolation in cursor-local adapter, Darwin Unicode filename escaping in lsof, and host ~/.paperclip config schema isolation)
+- `node --test scripts/__tests__/provision-worktree-self-heal.test.mjs`: PASSED (20/20 tests pass)
 - `node --test scripts/acpx-patch-packaging.test.mjs scripts/chat-adapter-patch-packaging.test.mjs .github/scripts/tests/lockfile-refresh-cache.test.mjs packages/paperclip-runner/test/acpx-codex-package-contract.test.mjs`: PASSED (35/35 tests pass)
 - `vitest run ui/src/lib/lexical-single-copy.test.ts`: PASSED (3/3 tests pass)
 - `vitest run cli/src/__tests__/worktree.test.ts -t "reuses the current pnpm executable"`: PASSED
-- `git diff --check`: PASSED (clean, no trailing whitespace or conflict markers)
-- Lockfile-related test note: As expected prior to upstream lockfile regeneration, tests expecting strict single-instance deduplication of packages introduced post-branch (such as `@lezer/common` in `ui/src/lib/codemirror-single-instance.test.ts`) reflect multiple copies from the existing pnpm 9 lockfile. These will resolve cleanly once the scheduled lockfile-refresh bot regenerates `pnpm-lock.yaml` with the workspace overrides.
+- `git diff --check`: PASSED (clean, 0 whitespace or conflict marker errors)
 
 ## Risks
 
@@ -146,21 +152,3 @@ Head commit: `62cc2cb44f9d733b992eb53deb73f70fe291584e`
 - [x] All Paperclip CI gates are green
 - [x] Greptile is 5/5 with no open P2s, recommendations, or follow-ups
 - [x] I will address all Greptile and reviewer comments before requesting merge
-
----
-
-### Prepared Reply to drew1two (for PR owner to post on #13894)
-
-```markdown
-Hi @drew1two,
-
-Thank you very much for taking the time to test and validate this independently on Windows with pnpm 11.27.1!
-
-We've rebased this branch cleanly onto the latest master and incorporated all feedback:
-1. `check-clean-consumers.mjs` now outputs `pnpm-workspace.yaml` using JSON serialization to safely escape Windows path backslashes and prevent YAML parsing issues.
-2. `scripts/provision-worktree.sh` has been updated so that patch fingerprinting handles both `pnpm-workspace.yaml` (pnpm 11) and legacy `package.json#pnpm` (pre-migration branches).
-3. `pnpm-lock.yaml` has been left untouched in this PR so that upstream's automated lockfile-refresh bot can regenerate it cleanly post-merge without manual churn.
-4. `check:pnpm-version` is now wired directly into CI next to `check:node-version`, backed by unit tests covering version pins and policy checks.
-
-We really appreciate your validation and the references to #10627, #13991, and #14174!
-```
