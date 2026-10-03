@@ -1413,6 +1413,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
 
     it.each([
       { boundary: "the descriptor GET", method: "get", path: (endpoint: string) => endpoint },
+      { boundary: "an unsupported DELETE", method: "delete", path: (endpoint: string) => endpoint },
       { boundary: "a lookalike path suffix", method: "post", path: (endpoint: string) => `${endpoint}/extra` },
       { boundary: "a malformed gateway ID", method: "post", path: () => "/api/tool-gateway/gateways/not-a-uuid/mcp" },
       { boundary: "an unrelated API route", method: "post", path: () => "/api/tool-gateway/sessions" },
