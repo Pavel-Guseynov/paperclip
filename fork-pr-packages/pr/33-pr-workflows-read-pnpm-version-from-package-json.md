@@ -3,21 +3,22 @@
 | Field | Value |
 | --- | --- |
 | Upstream PR | Drafted prerequisite for `paperclipai/paperclip#13894` |
-| Branch | `chore/pr-workflows-read-pnpm-version-from-package-json` |
-| Head | Drafted prerequisite |
-| Base commit | `ffe5e9e2a8866767cbb48009040bfafd85b56576` |
-| Upstream base | `paperclipai/paperclip` master `ffe5e9e2a8866767cbb48009040bfafd85b56576` |
+| Branch | `pr/33-pr-workflows-read-pnpm-version-from-package-json` |
+| Head | `b451ed8edc35e4d1262cb0a041d7a9ae7924563e` |
+| Base commit | `78e003449827540175e2441c05bac9eeec8dae98` |
+| Upstream base | `paperclipai/paperclip` master `78e003449827540175e2441c05bac9eeec8dae98` |
 | Stack prerequisite | none (based on upstream master) |
 | Proposed title | `ci(workflows): let PR workflows install declared pnpm version from package.json` |
 
-Proposed diff (on upstream master):
+Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `.github/workflows/pr-trusted.yml` | +0 | -8 |
-| `.github/workflows/sentry-contract.yml` | +0 | -2 |
 | `.github/workflows/docker-runner-check.yml` | +0 | -2 |
 | `.github/workflows/e2e.yml` | +0 | -2 |
+| `.github/workflows/pr-trusted.yml` | +0 | -15 |
+| `.github/workflows/sentry-contract.yml` | +0 | -2 |
+| `.github/workflows/storybook-visual.yml` | +0 | -2 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -27,68 +28,56 @@ The pull request body follows the line. Copy it as it is.
 
 > - Paperclip is the open source app people use to manage AI agents for work.
 > - The repository's trusted pull request workflow (`.github/workflows/pr.yml`) invokes `.github/workflows/pr-trusted.yml@master` for security isolation.
-> - In `pr-trusted.yml` (and other PR workflows such as `sentry-contract.yml`, `docker-runner-check.yml`, and `e2e.yml`), `pnpm/action-setup` currently hardcodes `version: 9.15.4`.
-> - Because GitHub Actions executes the workflow definition from `master`, any PR attempting to migrate or test against another pnpm version (specifically #13894 migrating to pnpm 11) is forced to run with pnpm 9.15.4, causing 45 of 47 jobs to fail at the "Setup pnpm" step.
-> - `pnpm/action-setup` natively supports omitting the `version` input, falling back to reading the `packageManager` field from `package.json` in accordance with Corepack standards.
-> - By removing the explicit `version: 9.15.4` input from PR workflows, upstream `master` remains strictly on 9.15.4 (because its `package.json` declares `"packageManager": "pnpm@9.15.4"`), while PR branches like #13894 are free to run CI on their declared pnpm version (e.g. 11.27.0).
-> - The benefit is that toolchain migration PRs can be verified with green CI before merge, eliminating the chicken-and-egg problem.
+> - In `pr-trusted.yml` and related PR workflows, `pnpm/action-setup` currently hardcodes `version: 9.15.4` (or `version: 9`).
+> - Because GitHub Actions executes PR workflows from `master`, pull requests that update the toolchain (specifically #13894 migrating to pnpm 11) run under pnpm 9.15.4, causing 45 of 47 jobs to fail at "Setup pnpm".
+> - `pnpm/action-setup` natively supports omitting the `version` parameter, falling back to reading `package.json#packageManager`.
+> - This pull request removes the hardcoded pnpm versions from PR workflows executed from master.
+> - The benefit is that `master` continues to run pnpm 9.15.4 while pull requests like #13894 run under their declared pnpm version.
 
 ## Linked Issues or Issue Description
 
 Refs: #8827, #13894
 
-**What happened**
-When pull requests are submitted, `pr.yml` delegates execution to `paperclipai/paperclip/.github/workflows/pr-trusted.yml@master`. The definition of `pr-trusted.yml` on `master` explicitly pins `with: version: 9.15.4` across 8 jobs. As observed in PR workflow run `36998312578` on #13894, 45 of 47 jobs failed at "Setup pnpm" because pnpm 9.15.4 was installed into an environment configured for pnpm 11.27.0.
+**Why #13894 depends on this PR:**
+Pull request #13894 migrates Paperclip from pnpm 9 to pnpm 11.27.0. However, when #13894 runs CI, GitHub Actions invokes `.github/workflows/pr-trusted.yml@master`. Because `pr-trusted.yml` on `master` explicitly pins `with: version: 9.15.4`, CI forces pnpm 9.15.4 into an environment configured with pnpm 11 workspace settings. This caused 45 of 47 jobs to fail at the "Setup pnpm" step on Run 36998312578 and Run 37118859727.
 
-Similarly, `sentry-contract.yml` and `docker-runner-check.yml` pin `version: 9.15.4`, and `e2e.yml` pins `version: 9`.
+PR workflows cannot test or verify a toolchain upgrade until `master` allows the workflow to install the pnpm version declared by the pull request's own `package.json`.
 
-**Why omitting `version` is safe and effective**
-1. **Documentation Authority:**
-   The official documentation for `pnpm/action-setup` (`https://github.com/pnpm/action-setup/blob/v4/README.md#inputs`) states:
-   > **`version`**
-   > Version of pnpm to install.
-   > **Optional** when there is a `packageManager` field in the `package.json`.
-2. **Action Contract:**
-   In `action.yml` of `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86` (`v6`):
-   ```yaml
-   inputs:
-     version:
-       description: Version of pnpm to install
-       required: false
-     package_json_file:
-       description: File path to the package.json to read "packageManager" configuration...
-       required: false
-       default: 'package.json'
-   ```
-3. **Implementation Authority:**
-   In the bundled runtime of `pnpm/action-setup` (`dist/index.js`):
-   ```javascript
-   if (s?.packageManager?.name === "pnpm" && s.packageManager.version) {
-     return s.packageManager.version;
-   }
-   if (o) return o;
-   ```
-   When `version` (`o`) is omitted, the action reads and parses `packageManager` from the workspace `package.json` (via Corepack formatting conventions).
-4. **Behavioral Invariant:**
-   - On `master`, `package.json` contains `"packageManager": "pnpm@9.15.4"`. Thus `pnpm/action-setup` continues to install pnpm 9.15.4 identically.
-   - On PR branches (like #13894), `package.json` contains `"packageManager": "pnpm@11.27.0"`. `pnpm/action-setup` installs pnpm 11.27.0.
+**How `pnpm/action-setup` resolves the version:**
+In `pnpm/action-setup` (pinned at `0977fd99725f1db4007ccb2928dbb4e90d06cc86`), the `version` input is optional. Its runtime implementation checks:
+```javascript
+if (s?.packageManager?.name === "pnpm" && s.packageManager.version)
+  return s.packageManager.version;
+if (o) return o;
+```
+When `version` (`o`) is omitted, the action inspects `package.json` in the checked-out workspace and parses the `packageManager` field:
+- On `master`, `package.json` declares `"packageManager": "pnpm@9.15.4"`, so `master` workflows continue installing pnpm 9.15.4.
+- On #13894, `package.json` declares `"packageManager": "pnpm@11.27.0"`, so PR workflows install pnpm 11.27.0.
+
+Every PR workflow executed from master (`pr-trusted.yml`, `sentry-contract.yml`, `docker-runner-check.yml`, `storybook-visual.yml`) runs `actions/checkout` before `pnpm/action-setup`, ensuring `package.json` is always present on disk.
 
 ## What Changed
 
-- In `.github/workflows/pr-trusted.yml`, removed `version: 9.15.4` from all 8 jobs running `pnpm/action-setup` (`policy`, `build`, `server-unit-1`, `server-unit-2`, `server-unit-3`, `server-integration`, `ui-test`, `cli-test`).
-- In `.github/workflows/sentry-contract.yml`, removed `version: 9.15.4` from `pnpm/action-setup`.
-- In `.github/workflows/docker-runner-check.yml`, removed `version: 9.15.4` from `pnpm/action-setup`.
-- In `.github/workflows/e2e.yml`, removed `version: 9` from `pnpm/action-setup`.
+- In `.github/workflows/pr-trusted.yml`, removed hardcoded `version: 9.15.4` from all 8 jobs running `pnpm/action-setup` (`policy`, `typecheck_release_registry`, `general_tests`, `verify_paperclip_runner`, `build`, `verify_serialized_server`, `canary_dry_run`, `e2e_shards`).
+- In `.github/workflows/sentry-contract.yml`, removed `with: version: 9.15.4` from `Setup pnpm`.
+- In `.github/workflows/docker-runner-check.yml`, removed `with: version: 9.15.4` from `manual_image`.
+- In `.github/workflows/storybook-visual.yml`, removed `with: version: 9.15.4` from `Setup pnpm`.
+- In `.github/workflows/e2e.yml`, removed `with: version: 9` from `Setup pnpm`.
 
 ## Verification
 
-- **Local inspection of `dist/index.js` in `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86`:** Verified that omitting `version` triggers automatic resolution of `package.json#packageManager`.
-- **Before evidence:** PR run `36998312578` (45/47 jobs failed at "Setup pnpm" due to forced pnpm 9.15.4).
-- **After evidence:** Omission of `version` lets `pnpm/action-setup` read `packageManager: "pnpm@9.15.4"` on master and `packageManager: "pnpm@11.27.0"` on #13894.
+Base commit: `78e003449827540175e2441c05bac9eeec8dae98` (upstream master)
+Head commit: `b451ed8edc35e4d1262cb0a041d7a9ae7924563e`
+
+- **Action implementation verification:** Inspected `pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86` (`dist/index.js`), confirming that omitting `version` triggers automatic resolution of `package.json#packageManager`.
+- **Workflow test suite:** Ran `node --test .github/scripts/tests/*.test.mjs scripts/__tests__/release-verify-workflow.test.mjs` (395/395 tests pass).
+- **Node policy check:** Ran `node scripts/check-node-version-policy.mjs` (passes).
+- **Checkout ordering verification:** Confirmed that all 8 jobs in `pr-trusted.yml`, `sentry-contract.yml`, `docker-runner-check.yml`, and `storybook-visual.yml` execute `actions/checkout` before `pnpm/action-setup`, guaranteeing that `package.json` is readable by the action.
+- **Unverified until merge:** Live execution of PR CI on upstream PR #13894 cannot be verified until a maintainer merges this change into `master`, because GitHub Actions executes `.github/workflows/pr-trusted.yml@master`.
 
 ## Risks
 
-- Minimal. As long as `package.json` maintains a valid `packageManager` field (enforced by `check-pnpm-version-policy.mjs`), `pnpm/action-setup` guarantees deterministic version selection.
+- Minimal. When `version` is omitted, `pnpm/action-setup` requires `package.json` with a valid `packageManager` field. Both `master` and feature branches define `packageManager`. Workflows not triggered by PRs (e.g. tag releases) remain pinned.
 
 ## Model Used
 
@@ -103,9 +92,11 @@ Similarly, `sentry-contract.yml` and `docker-runner-check.yml` pin `version: 9.1
 - [x] I have searched GitHub for duplicate or related PRs and linked them above
 - [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template
 - [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)
-- [x] My branch name describes the change and contains no internal Paperclip ticket id or instance-derived details
+- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
 - [x] I have run tests locally and they pass
-- [x] I have added or updated tests where applicable
-- [x] I have updated relevant documentation to reflect my changes
+- [ ] I have added or updated tests where applicable (existing 395 workflow tests cover all PR workflows)
+- [ ] I have updated relevant documentation to reflect my changes (no documentation impacted)
 - [x] I have considered and documented any risks above
-- [x] All Paperclip CI gates are green
+- [ ] All Paperclip CI gates are green (pending PR submission)
+- [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups (pending PR review)
+- [x] I will address all Greptile and reviewer comments before requesting merge
