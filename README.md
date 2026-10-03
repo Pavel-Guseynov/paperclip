@@ -399,6 +399,21 @@ This starts the API server at `http://localhost:3100`. An embedded PostgreSQL da
 
 <br/>
 
+### Managed MCP authentication
+
+Managed MCP clients send their gateway bearer to
+`POST /api/tool-gateway/gateways/:gatewayId/mcp`. Paperclip validates it against
+that gateway and its current token and run state; it does not grant the bearer
+board or agent API access. Other API paths and the gateway descriptor GET keep
+their existing authentication requirements.
+
+Clients send `initialize`, then `notifications/initialized`, before using tools.
+The notification verifies the credential and returns an empty HTTP 202 on
+success. It does not consume another protocol-action allowance or update token
+usage or run identity. Invalid credentials remain subject to gateway failure
+throttling and auditing. The same notification behavior applies to the public
+MCP gateway endpoint. No new configuration option is required.
+
 ## FAQ
 
 **What does a typical setup look like?**
@@ -508,7 +523,8 @@ Telemetry is **enabled by default** and can be disabled with any of the followin
 
 ## Contributing
 
-We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for details.
+We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for details
+and [AGENTS.md](AGENTS.md) for contributor commands and verification requirements.
 
 <br/>
 
