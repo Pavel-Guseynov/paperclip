@@ -146,3 +146,43 @@ Head commit: `4a4d2e1624c7025ca2cd51b6dd5a12a4907410eb`
 - [ ] All Paperclip CI gates are green (45 jobs fail at "Setup pnpm" until the prerequisite workflow PR is merged)
 - [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups (its three findings are answered above with file:line evidence)
 - [x] I will address all Greptile and reviewer comments before requesting merge
+
+---
+
+## Post-Prerequisite Follow-Up Plan (After PR #33 Merges)
+
+Once PR #33 (`ci(workflows): let PR workflows install declared pnpm version from package.json`) is merged into upstream `master`, PR #13894 requires the following coordinated updates:
+
+### 1. Merge Conflict Resolution in `.github/workflows/pr-trusted.yml`
+- **Conflict origin:** PR #33 deletes `version: 9.15.4` (and `with:` where empty) across all 8 `pnpm/action-setup` jobs in `pr-trusted.yml` to allow dynamic `packageManager` resolution. Branch #13894 currently edits those same 8 lines to `version: 11.27.0`.
+- **Resolution:** Accept `master`'s deletion of `version:` in all 8 jobs of `pr-trusted.yml`, leaving `pr-trusted.yml` unpinned so that Corepack/action-setup reads the PR's `packageManager` dynamically. Keep the two steps added by #13894 in the `policy` job:
+  ```yaml
+        - name: Validate pnpm version policy
+          run: pnpm check:pnpm-version --scan-tracked
+
+        - name: Test pnpm version policy
+          run: node --test ./scripts/check-pnpm-version-policy.test.mjs
+  ```
+
+### 2. Policy Scanner Update in `scripts/check-pnpm-version-policy.mjs`
+- **Problem:** `check-pnpm-version-policy.mjs` currently scans every `.github/workflows/*.yml` file and requires every `pnpm/action-setup` step to pin `version: 11.27.0`. On an unpinned `pr-trusted.yml`, it fails with:
+  `.github/workflows/pr-trusted.yml:<line>: pnpm action-setup version must be 11.27.0, found none`.
+- **Adjustment:** Update step 3 of `scripts/check-pnpm-version-policy.mjs` to specifically require or permit `.github/workflows/pr-trusted.yml` to omit the `version:` pin:
+  ```javascript
+  if (entry.name === "pr-trusted.yml") {
+    if (version !== null) {
+      failures.push(`${relative(filePath)}:${index + 1}: pr-trusted.yml must not pin pnpm version, found ${version}`);
+    }
+  } else if (version !== expectedPnpmVersion) {
+    failures.push(`${relative(filePath)}:${index + 1}: pnpm action-setup version must be ${expectedPnpmVersion}, found ${version ?? "none"}`);
+  }
+  ```
+
+### 3. Unit Test Alignment in `scripts/check-pnpm-version-policy.test.mjs`
+- Update unit tests for `check-pnpm-version-policy.mjs` to verify:
+  1. A fixture repository with unpinned `pr-trusted.yml` and pinned release/merge workflows passes.
+  2. A fixture repository where `pr-trusted.yml` contains a hardcoded `version:` pin fails with an explicit error.
+
+### 4. CI Verification on Master
+- With `pr-trusted.yml` unpinned on `master`, PR #13894's CI run will execute `readTargetVersion` without mismatch errors, installing pnpm 11.27.0 dynamically from `package.json#packageManager`.
+- Sentry SDK contract already passes on head `4a4d2e162`; all remaining 45 jobs in `pr-trusted.yml` will run under pnpm 11.27.0.
