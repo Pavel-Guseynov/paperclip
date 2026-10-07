@@ -317,6 +317,8 @@ function buildManagedMcpBlock(input: {
       `[mcp_servers.${tomlString(managedName)}]`,
       `url = ${tomlString(url)}`,
       `http_headers = { Authorization = ${tomlString(`Bearer ${gateway.bearerToken}`)} }`,
+      // The gateway owns live per-tool approval decisions, including human cards.
+      'default_tools_approval_mode = "approve"',
     );
   });
   lines.push(MANAGED_MCP_BLOCK_END);
