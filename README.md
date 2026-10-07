@@ -435,6 +435,14 @@ usage or run identity. Invalid credentials remain subject to gateway failure
 throttling and auditing. The same notification behavior applies to the public
 MCP gateway endpoint. No new configuration option is required.
 
+Paperclip-managed Codex MCP entries set native
+`default_tools_approval_mode = "approve"` so calls reach the gateway under
+noninteractive execution. The gateway applies current tool policies, denies
+unauthorized calls and creates a human approval card when review is required.
+The shared configuration renderer applies this setting for CLI and ACPX runs
+and removes it with the managed block. Unmanaged MCP entries retain their own
+approval settings. See [execution semantics](doc/execution-semantics.md).
+
 ## FAQ
 
 **What does a typical setup look like?**
