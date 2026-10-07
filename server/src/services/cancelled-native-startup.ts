@@ -1,3 +1,4 @@
+import { isPreDispatchReviewWait, isPreDispatchReviewWaitVerified } from "./pre-dispatch-review-wait.js";
 import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { environmentLeases, heartbeatRunEvents, heartbeatRuns, nativeRunFinalizations, type Db } from "@paperclipai/db";
 import { claimedAdapterType } from "./conversation-continuation.js";
@@ -14,6 +15,8 @@ export async function isCancelledNativeStartup(db: Db, run: Run, coordinator: Co
   if (run.status !== "cancelled" || !run.finishedAt || run.processPid || run.processGroupId ||
       run.processStartedAt || run.sessionIdAfter) return false;
   const cancellation = run.resultJson?.startupCancellation as Record<string, unknown> | undefined;
+  const beforeReviewDispatch = isPreDispatchReviewWait(run) && !coordinator;
+  if (beforeReviewDispatch) return isPreDispatchReviewWaitVerified(db, run);
   const beforeSelection = run.runtimeMode === "legacy" && !run.runtimeModeResolvedAt &&
     !run.nativeSessionId && !coordinator && claimedAdapterType(run) === "paperclip_runner" &&
     cancellation?.beforeNativeSelection === true;
