@@ -5,15 +5,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import {
-  approvals, issueApprovals, issueThreadInteractions,
+  approvals, issueApprovals, issueThreadInteractions, applyPendingMigrations, closeRegisteredClients,
   agentWakeupRequests, agents, companies, createDb, heartbeatRunEvents, heartbeatRuns, issueComments, issueRecoveryActions,
   issues, nativeRunFinalizations, nativeRunResults, completionContracts, environmentLeases, environments, issueRelations, issueTreeHolds, issueTreeHoldMembers,
 } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase, getEmbeddedPostgresTestSupport } from "../__tests__/helpers/embedded-postgres.js";
 import { admitExplicitNativeContinuation } from "./explicit-native-continuation.js";
+import { legacyExecutionNeedsReconciliationWithEvidence } from "./legacy-execution-recovery.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
 import { heartbeatService, persistHeartbeatRunProcessMetadata, type HeartbeatEnvironmentRuntime } from "./heartbeat.js";
 import { getExecutionBlocker } from "./execution-blocker.js";
@@ -22,8 +23,33 @@ const support = await getEmbeddedPostgresTestSupport();
 (support.supported ? describe : describe.skip)("explicit native conversation continuation", () => {
   let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
   let db: ReturnType<typeof createDb>;
-  beforeAll(async () => { database = await startEmbeddedPostgresTestDatabase("explicit-native-message-"); db = createDb(database.connectionString); }, 30000);
-  afterAll(async () => { await database?.cleanup(); });
+  let asciiDb: ReturnType<typeof createDb>;
+  let asciiConnectionString: string;
+  beforeAll(async () => {
+    database = await startEmbeddedPostgresTestDatabase("explicit-native-message-");
+    db = createDb(database.connectionString);
+    await db.execute(sql`create database paperclip_ascii encoding 'SQL_ASCII' lc_collate 'C' lc_ctype 'C' template template0`);
+    const asciiUrl = new URL(database.connectionString);
+    asciiUrl.pathname = "/paperclip_ascii";
+    asciiConnectionString = asciiUrl.toString();
+    await applyPendingMigrations(asciiConnectionString);
+    asciiDb = createDb(asciiConnectionString);
+  }, 30000);
+  afterAll(async () => {
+    if (asciiConnectionString) await closeRegisteredClients(asciiConnectionString);
+    await database?.cleanup();
+  });
+  async function withDatabaseEncoding(ascii: boolean, action: () => Promise<void>) {
+    const primaryDb = db;
+    if (ascii) db = asciiDb;
+    try {
+      const [encoding] = await db.execute(sql`select current_setting('server_encoding') as server_encoding`);
+      expect(encoding.server_encoding).toBe(ascii ? "SQL_ASCII" : "UTF8");
+      await action();
+    } finally {
+      db = primaryDb;
+    }
+  }
   async function seed() {
     const companyId = randomUUID(), agentId = randomUUID(), issueId = randomUUID();
     const sourceRunId = randomUUID(), successorRunId = randomUUID();
@@ -494,6 +520,109 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(await admit(f)).toMatchObject({ previousRunId: f.sourceRunId });
   });
 
+  async function seedCancelledReviewWait() {
+    const f = await seedCancelledStartup();
+    await db.delete(nativeRunFinalizations).where(eq(nativeRunFinalizations.runId, f.sourceRunId));
+    await db.delete(environmentLeases).where(eq(environmentLeases.heartbeatRunId, f.sourceRunId));
+    await db.update(issueRecoveryActions).set({ cause: "legacy_execution_requires_reconciliation" })
+      .where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+    await db.update(heartbeatRuns).set({ runtimeMode: "legacy", runtimeModeResolvedAt: null, nativeIssueId: null, nativeSessionId: null,
+      startedAt: null, executionStage: null,
+      controllerBootId: null, controllerLeaseExpiresAt: null, runnerProfileJson: null,
+      errorCode: "issue_continuation_waiting_on_review",
+      resultJson: { stopReason: "issue_continuation_waiting_on_review", timeoutSource: "stale_queued_run_gate" },
+    }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    return f;
+  }
+
+  it("keeps provider diagnostics out of admission evidence and preserves absent results", async () => {
+    const f = await seedCancelledReviewWait();
+    const heartbeat = heartbeatService(db);
+    await db.update(heartbeatRuns).set({ resultJson: {
+      stopReason: "issue_continuation_waiting_on_review", timeoutSource: "stale_queued_run_gate",
+      summary: "private provider output", providerPayload: "large provider output".repeat(10000),
+    } }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    const projected = await heartbeat.getRun(f.sourceRunId, { includeExecutionEvidence: true });
+    expect(projected?.resultJson).toMatchObject({ stopReason: "issue_continuation_waiting_on_review", timeoutSource: "stale_queued_run_gate" });
+    expect(projected?.resultJson).not.toHaveProperty("summary");
+    expect(projected?.resultJson).not.toHaveProperty("providerPayload");
+    await db.update(heartbeatRuns).set({ resultJson: null }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    expect((await heartbeat.getRun(f.sourceRunId, { includeExecutionEvidence: true }))?.resultJson).toBeNull();
+    await db.update(heartbeatRuns).set({ resultJson: { unrecognizedReceipt: true } }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    expect((await heartbeat.getRun(f.sourceRunId, { includeExecutionEvidence: true }))?.resultJson).not.toBeNull();
+  });
+
+  it.each([false, true].flatMap(ascii => ["message", "retry"].map(kind => ({ ascii, kind }))))(
+    "recovers a pre-dispatch review wait through an explicit $kind (SQL_ASCII: $ascii)", async ({ ascii, kind }) => withDatabaseEncoding(ascii, async () => {
+    const f = await seedCancelledReviewWait();
+    const heartbeat = heartbeatService(db);
+    if (ascii) expect((await heartbeat.getRun(f.sourceRunId))?.resultJson).toBeNull();
+    const notice = await getExecutionBlocker(db, f.companyId, f.issueId);
+    expect(notice).toMatchObject({ runId: f.sourceRunId, cause: "legacy_execution_requires_reconciliation" });
+    expect(notice?.nextAction).not.toContain("Inspect the run before sending a new message");
+    await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
+    const successor = await heartbeat.wakeup(f.agentId, { source: kind === "retry" ? "on_demand" : "automation", triggerDetail: "manual",
+      reason: kind === "retry" ? "retry_failed_run" : "issue_commented",
+      ...(kind === "retry" ? { failedRunId: f.sourceRunId } : {}), requestedByActorType: "user", requestedByActorId: "board",
+      payload: { issueId: f.issueId, ...(kind === "message" ? { commentId: f.commentId } : {}) },
+      contextSnapshot: { issueId: f.issueId, ...(kind === "message" ? { wakeCommentId: f.commentId } : {}) },
+    });
+    expect(successor).toMatchObject({ status: "queued", contextSnapshot: { forceFreshSession: true,
+      previousRunId: f.sourceRunId, explicitUserContinuation: { commentId: kind === "message" ? f.commentId : null } } });
+    expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toBeNull();
+    expect((await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, f.sourceRunId)))[0].status).toBe("cancelled");
+  }));
+
+  it.each([false, true])("reconsiders saved input after a pre-dispatch review wait exactly once (SQL_ASCII: %s)", async ascii => withDatabaseEncoding(ascii, async () => {
+    const f = await seedCancelledReviewWait();
+    const heartbeat = heartbeatService(db);
+    if (ascii) expect((await heartbeat.getRun(f.sourceRunId))?.resultJson).toBeNull();
+    await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
+    const leaseId = randomUUID();
+    await db.insert(environmentLeases).values({ id: leaseId, companyId: f.companyId,
+      heartbeatRunId: f.sourceRunId, provider: "local", status: "pending_cleanup", cleanupStatus: "failed" });
+    await heartbeat.wakeup(f.agentId, { source: "automation", reason: "issue_commented",
+      requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
+      contextSnapshot: { issueId: f.issueId, wakeCommentId: f.commentId } });
+    const [waiting] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, f.companyId));
+    expect(waiting.status).toBe("deferred_issue_execution");
+    await db.update(environmentLeases).set({ status: "released", releasedAt: new Date(), cleanupStatus: "succeeded" })
+      .where(eq(environmentLeases.id, leaseId));
+    await db.update(agentWakeupRequests).set({ updatedAt: new Date(0) }).where(eq(agentWakeupRequests.id, waiting.id));
+    await Promise.all([heartbeat.resumeExecutionWaitComments(), heartbeat.resumeExecutionWaitComments()]);
+    const successors = await db.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.companyId, f.companyId), eq(heartbeatRuns.status, "queued")));
+    expect(successors).toHaveLength(1);
+    expect(successors[0].contextSnapshot).toMatchObject({ wakeCommentIds: [f.commentId],
+      explicitUserContinuation: { commentId: f.commentId }, forceFreshSession: true });
+    expect((await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, waiting.id)))[0])
+      .toMatchObject({ status: "coalesced", runId: successors[0].id });
+    expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toBeNull();
+  }));
+
+  it.each(["launch", "provider", "adapter_invocation", "cleanup", "coordinator", "remote"])("retains a pre-dispatch review wait with contradictory %s evidence", async kind => {
+    const f = await seedCancelledReviewWait();
+    const [receipt] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, f.sourceRunId));
+    if (kind === "cleanup") await db.insert(environmentLeases).values({ companyId: f.companyId,
+      heartbeatRunId: f.sourceRunId, provider: "local", status: "pending_cleanup", cleanupStatus: "failed" });
+    else if (kind === "remote") await db.insert(environmentLeases).values({ companyId: f.companyId,
+      heartbeatRunId: f.sourceRunId, provider: "daytona", status: "released", releasedAt: new Date(), cleanupStatus: "succeeded" });
+    else if (kind === "coordinator") {
+      await db.update(heartbeatRuns).set({ nativeIssueId: f.issueId }).where(eq(heartbeatRuns.id, f.sourceRunId));
+      await db.insert(nativeRunFinalizations).values({ companyId: f.companyId,
+        issueId: f.issueId, runId: f.sourceRunId, phase: "observed", attempt: 0 });
+    }
+    else await db.insert(heartbeatRunEvents).values({ companyId: f.companyId, runId: f.sourceRunId,
+      agentId: f.agentId, seq: 1, eventType: kind === "launch" ? PROCESS_START_REQUESTED : kind === "adapter_invocation" ? "adapter.invoke" : "provider.event",
+      stream: "system", level: "info", message: "Contradictory execution evidence" });
+    try {
+      // A snapshot read before a new claim must not hide current ownership or execution evidence.
+      expect(await legacyExecutionNeedsReconciliationWithEvidence(db, receipt)).toBe(true);
+      expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toMatchObject({ runId: f.sourceRunId });
+      expect(await admit(f)).toBeNull();
+    } finally {
+      await db.delete(environmentLeases).where(eq(environmentLeases.heartbeatRunId, f.sourceRunId));
+    }
+  });
   it.each(["attempt", "generation", "controller", "lease", "process", "launch", "provider", "cleanup", "remote", "preparing", "closed", "reassigned"])(
     "retains cancellation safeguards with %s evidence", async kind => {
       const f = await seedCancelledStartup();

@@ -9184,16 +9184,25 @@ export function issueRoutes(
           lockedIssue.id,
           tx,
         );
+        const selectedActionId = actionId ?? (
+          !activeRecoveryAction && executionReconciliation
+            ? (await getExecutionBlocker(
+                tx as unknown as Db,
+                lockedIssue.companyId,
+                lockedIssue.id,
+              ))?.recoveryActionId
+            : null
+        );
         if (
-          actionId &&
-          (!activeRecoveryAction || activeRecoveryAction.id !== actionId)
+          selectedActionId &&
+          (!activeRecoveryAction || activeRecoveryAction.id !== selectedActionId)
         ) {
           const [settled] = await tx
             .select()
             .from(issueRecoveryActions)
             .where(
               and(
-                eq(issueRecoveryActions.id, actionId),
+                eq(issueRecoveryActions.id, selectedActionId),
                 eq(issueRecoveryActions.companyId, lockedIssue.companyId),
                 eq(issueRecoveryActions.sourceIssueId, lockedIssue.id),
                 inArray(issueRecoveryActions.status, ["resolved", "cancelled"]),
@@ -9238,7 +9247,7 @@ export function issueRoutes(
         }
         if (
           !activeRecoveryAction ||
-          (actionId && activeRecoveryAction.id !== actionId)
+          (selectedActionId && activeRecoveryAction.id !== selectedActionId)
         ) {
           throw notFound("Active recovery action not found");
         }

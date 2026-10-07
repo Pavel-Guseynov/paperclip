@@ -1,5 +1,6 @@
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
 import { isCancelledNativeStartup } from "./cancelled-native-startup.js";
+import { isPreDispatchReviewWait } from "./pre-dispatch-review-wait.js";
 import { hasNativeLocalProcessStop, hasHistoricalSuspendedNativeSession } from "./native-local-process-stop.js";
 import { completeTerminatedRemoteNativeSessionCleanup } from "../vendor/paperclip-runner/index.js";
 import { hasRemoteTerminationReceipt, remoteLeaseCleanupScope } from "./remote-execution-termination.js";
@@ -162,14 +163,15 @@ export async function admitExplicitNativeContinuation(input: {
     const unusedAdmission = run.status === "cancelled" && !run.startedAt &&
       run.errorCode === "execution_reconciliation_required" &&
       !run.processPid && !run.processGroupId && !run.nativeSessionId;
+    const preDispatchReviewWait = isPreDispatchReviewWait(run);
     const legacyUserTurn = run.runtimeMode === "legacy" &&
       action.cause === "legacy_execution_requires_reconciliation" &&
       isConversationAdapter(agent.adapterType);
-    if ((queuedInterrupt || queuedRequest) && !legacyUserTurn && !unusedAdmission &&
+    if ((queuedInterrupt || queuedRequest) && !legacyUserTurn && !unusedAdmission && !preDispatchReviewWait &&
         !(queuedInterrupt && response?.source.requiresFreshSession && run.runtimeMode === "native")) return null;
     // Saved input is a request for a new turn, never permission to undo an
     // operator Stop or redeliver a message already consumed by this run.
-    if (queuedRequest && !queuedInterrupt && ((run.status === "cancelled" && !unusedAdmission) ||
+    if (queuedRequest && !queuedInterrupt && ((run.status === "cancelled" && !unusedAdmission && !preDispatchReviewWait) ||
         run.contextSnapshot?.wakeCommentId === commentId ||
         (Array.isArray(run.contextSnapshot?.wakeCommentIds) && run.contextSnapshot.wakeCommentIds.includes(commentId)))) return null;
     if (legacyUserTurn) {
@@ -193,6 +195,7 @@ export async function admitExplicitNativeContinuation(input: {
         lockedRun.finishedAt?.getTime() !== run.finishedAt.getTime()) return null;
     run = lockedRun;
     const cancelledStartup = await isCancelledNativeStartup(db, run, coordinator);
+    if (preDispatchReviewWait && !cancelledStartup) return null;
     if (cancelledStartup) cancelledStartupIds.add(run.id);
     if (run.runtimeMode !== "native" && !unusedAdmission && !legacyUserTurn && !cancelledStartup) return null;
     // A provider failure can finish the normal result/assessment commit path.
