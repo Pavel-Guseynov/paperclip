@@ -5957,8 +5957,12 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       expect(result.waitingOnReviewResolved).toBe(0);
       expect(result.escalated).toBe(1);
       expect(await getExecutionBlocker(db, companyId, issueId)).toMatchObject({
-        cause: "legacy_execution_requires_reconciliation", runId, canRetry: false,
+        cause: "legacy_execution_requires_reconciliation", runId,
       });
+      expect(await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(and(
+        eq(heartbeatRuns.companyId, companyId),
+        inArray(heartbeatRuns.status, ["queued", "running", "scheduled_retry"]),
+      ))).toEqual([]);
       return;
     }
     expect(result.waitingOnReviewResolved).toBe(1);

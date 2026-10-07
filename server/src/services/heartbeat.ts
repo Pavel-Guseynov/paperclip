@@ -1,4 +1,5 @@
 import { publicChatTaskUrl } from "./chat-task-url.js";
+import { isPreDispatchReviewWaitVerified } from "./pre-dispatch-review-wait.js";
 import { toolActionDeliveryService } from "./tool-action-delivery.js";
 import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
@@ -10298,8 +10299,10 @@ export function heartbeatService(
 
   async function resumeRemoteStopComments(run: typeof heartbeatRuns.$inferSelect, requestId?: string) {
     if (!isHeartbeatRunTerminalStatus(run.status) || adapterExecutionControls.has(run.id)) return;
+    const preDispatchReviewWait = await isPreDispatchReviewWaitVerified(db, run);
     if (run.runtimeMode !== "native" &&
         parseObject(run.resultJson?.startupCancellation).beforeNativeSelection !== true &&
+        !preDispatchReviewWait &&
         !(await remoteExecutionHasStopped(db, run.companyId, run.id))) return;
     const issueId = run.nativeIssueId ?? (typeof run.contextSnapshot?.issueId === "string" ? run.contextSnapshot.issueId : null);
     if (!issueId) return;
@@ -10369,6 +10372,7 @@ export function heartbeatService(
         const admitted = await admitExplicitNativeContinuation({ db, companyId: run.companyId, issueId,
           agentId: run.agentId, actorType: wake.requestedByActorType, actorId: requestedByActorId,
           reason, commentId, successorRunId: randomUUID(), dryRun: true,
+          ...(preDispatchReviewWait ? { queuedCommentRequestId: wake.id } : {}),
           onBlocked: (reason, message) => { wait = { reason, message }; },
         });
         if (!admitted) {
@@ -10386,7 +10390,7 @@ export function heartbeatService(
       await enqueueWakeup(run.agentId, { source: wake.source as WakeupOptions["source"], triggerDetail: (wake.triggerDetail ?? undefined) as WakeupOptions["triggerDetail"],
         reason, payload, contextSnapshot: context,
         requestedByActorType: "user", requestedByActorId,
-        ...(stoppedNativeContinuation ? { queuedCommentRequestId: wake.id } : {}),
+        ...(stoppedNativeContinuation || preDispatchReviewWait ? { queuedCommentRequestId: wake.id } : {}),
         idempotencyKey: `remote-stop-comment:${run.id}:${wake.id}` }, wake.id);
       break;
     }
@@ -26320,7 +26324,7 @@ export function heartbeatService(
       if (opts.requestedByActorType !== "user" || !opts.requestedByActorId ||
           reason !== "retry_failed_run" || source !== "on_demand" || triggerDetail !== "manual" ||
           !failed || failed.companyId !== agent.companyId || failed.agentId !== agentId ||
-          !["failed", "timed_out"].includes(failed.status) ||
+          (!["failed", "timed_out"].includes(failed.status) && !await isPreDispatchReviewWaitVerified(db, failed)) ||
           (failed.nativeIssueId ?? readNonEmptyString(failed.contextSnapshot?.issueId)) !== issueId) {
         throw conflict("The selected failed run cannot be retried for this task.");
       }

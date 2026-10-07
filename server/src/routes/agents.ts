@@ -9,6 +9,7 @@ import { assertAiConnectionCreateAccess, canInstallSharedAiConnectionForNewAgent
 import { isAiConnectionCompatible } from "@paperclipai/shared";
 import { applyConnectorSkills, resolveConnectorAssignments, annotateConnectorSkills, isConnectorSkill } from "../services/connector-runtime.js";
 import { getExecutionBlocker } from "../services/execution-blocker.js";
+import { isPreDispatchReviewWaitVerified } from "../services/pre-dispatch-review-wait.js";
 import { paperclipRunnerTransitionConfig, normalizeLegacyRunnerProvider, isPaperclipRunnerProvider } from "@paperclipai/adapter-utils";
 import { executionProjectionForRun, executionProjectionsForRuns } from "../services/execution-projection.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
@@ -5775,7 +5776,7 @@ export function agentRoutes(
       ) {
         throw notFound("Failed run not found");
       }
-      if (!["failed", "timed_out"].includes(failedRun.status)) {
+      if (!["failed", "timed_out"].includes(failedRun.status) && !await isPreDispatchReviewWaitVerified(db, failedRun)) {
         throw conflict("Only a failed run can be retried.");
       }
       const failedContext = asRecord(failedRun.contextSnapshot) ?? {};

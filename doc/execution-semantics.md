@@ -925,6 +925,13 @@ future execution until Resume, and missing stop proof still blocks continuation.
 
 A permanently unusable native runner session may be replaced only with evidence that its predecessor is stopped and fenced, completed results and workspace state are preserved, required task history is available, and pending effects have been reconciled. A provider-native shell command or external write without a reliable outcome receipt is unknown. Unknown effects, integrity failures, and unverified process ownership never authorize speculative replay. Once automatic recovery is ruled out, Paperclip selects a conservative default: preserve recorded work, stop the affected task, and retain a durable no-replay hold. Unknown action outcomes remain unknown. No reconciliation form or user diagnosis is required.
 
+The canonical recovery-resolution API can accept new board-owned execution
+evidence for that settled hold. When no active recovery action remains and the
+request carries `executionReconciliation`, the server selects the current
+`executionBlocker.recoveryActionId` under the issue lock. The same source,
+ownership, termination and action-outcome validation applies as for an explicit
+`actionId`; rejected evidence leaves the settled record and hold intact.
+
 Local Codex crash replacement can use a complete interrupted-turn inventory,
 authenticated process-stop evidence, and unchanged retained-state fingerprints.
 Only text and an exactly receipted task-completion call qualify for this path;

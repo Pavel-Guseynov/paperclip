@@ -405,6 +405,21 @@ This starts the API server at `http://localhost:3100`. An embedded PostgreSQL da
 Source development also builds the native Paperclip Runner when enabled (the self-hosted default). Install a Rust toolchain, set `PAPERCLIP_RUNNER_BINARY` to a compatible prebuilt runner, or set `PAPERCLIP_SKIP_RUNNER_BINARY=1` to skip building the native runner binary (native-runtime providers require the binary at runtime).
 <br/>
 
+### Execution recovery
+
+A continuation cancelled before dispatch while waiting for review has no
+provider work to reconcile. Paperclip verifies the dispatch receipt against
+retained execution, coordinator and cleanup evidence before admitting Retry,
+a new user message, or previously saved input. Ordinary operator cancellations
+keep their existing stop safeguards.
+
+For a run that started, the canonical
+`POST /api/issues/:id/recovery-actions/resolve` endpoint accepts board-owned
+`executionReconciliation` evidence for the current settled hold without an
+`actionId`. It verifies the source run, owner, process and leases before clearing
+the hold. Unknown action outcomes remain blocked. This changes no configuration
+option. See [execution semantics](doc/execution-semantics.md).
+
 ### Managed MCP authentication
 
 Managed MCP clients send their gateway bearer to

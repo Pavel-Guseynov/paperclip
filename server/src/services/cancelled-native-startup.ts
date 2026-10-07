@@ -1,4 +1,4 @@
-import { isPreDispatchReviewWait } from "./pre-dispatch-review-wait.js";
+import { isPreDispatchReviewWait, isPreDispatchReviewWaitVerified } from "./pre-dispatch-review-wait.js";
 import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { environmentLeases, heartbeatRunEvents, heartbeatRuns, nativeRunFinalizations, type Db } from "@paperclipai/db";
 import { claimedAdapterType } from "./conversation-continuation.js";
@@ -16,7 +16,8 @@ export async function isCancelledNativeStartup(db: Db, run: Run, coordinator: Co
       run.processStartedAt || run.sessionIdAfter) return false;
   const cancellation = run.resultJson?.startupCancellation as Record<string, unknown> | undefined;
   const beforeReviewDispatch = isPreDispatchReviewWait(run) && !coordinator;
-  const beforeSelection = beforeReviewDispatch || run.runtimeMode === "legacy" && !run.runtimeModeResolvedAt &&
+  if (beforeReviewDispatch) return isPreDispatchReviewWaitVerified(db, run);
+  const beforeSelection = run.runtimeMode === "legacy" && !run.runtimeModeResolvedAt &&
     !run.nativeSessionId && !coordinator && claimedAdapterType(run) === "paperclip_runner" &&
     cancellation?.beforeNativeSelection === true;
   const neverClaimed = run.runtimeMode === "native" && coordinator &&
@@ -25,7 +26,7 @@ export async function isCancelledNativeStartup(db: Db, run: Run, coordinator: Co
     !coordinator.controllerPid && !coordinator.leaseOwner && !coordinator.leaseExpiresAt &&
     !coordinator.resultId && !coordinator.failureDetail?.successorRunId;
   if (!beforeSelection && !neverClaimed) return false;
-  const settled = beforeReviewDispatch || typeof run.resultJson?.startupPreparationSettledAt === "string";
+  const settled = typeof run.resultJson?.startupPreparationSettledAt === "string";
   // The old preparer can still be unwinding even though the run is terminal.
   if (!settled && run.controllerLeaseExpiresAt && run.controllerLeaseExpiresAt > new Date()) return false;
   const leases = await db.select().from(environmentLeases).where(and(
