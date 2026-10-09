@@ -234,7 +234,7 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 <tr>
 <td>
 
-**Workspaces & Runtime** — Project workspaces, isolated execution workspaces (git worktrees, operator branches), and runtime services (dev servers, preview URLs). Agents work in the right directory with the right context every time.
+**Workspaces & Runtime** — Project workspaces, isolated execution workspaces (git worktrees, operator branches), and runtime services (dev servers, preview URLs). Reused task worktrees retain their original repository and workspace binding when project sources change. Source conflicts or incomplete Git inspection stop preparation before the agent starts, preserving retained work for explicit recovery.
 
 </td>
 <td>
