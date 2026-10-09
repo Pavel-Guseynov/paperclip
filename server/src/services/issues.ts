@@ -2350,6 +2350,7 @@ async function listPendingFinalizeBlockerIssueIds(
   }>,
 ): Promise<Set<string>> {
   const pending = new Set<string>();
+  const pendingRunIdByBlocker = new Map<string, string | null>();
   const blockerIssueIds = [
     ...new Set(blockerWorkspacePairs.map((pair) => pair.blockerIssueId)),
   ];
@@ -2371,6 +2372,7 @@ async function listPendingFinalizeBlockerIssueIds(
       phase: workspaceOperations.phase,
       status: workspaceOperations.status,
       startedAt: workspaceOperations.startedAt,
+      heartbeatRunId: workspaceOperations.heartbeatRunId,
     })
     .from(workspaceOperations)
     .where(
@@ -2385,11 +2387,21 @@ async function listPendingFinalizeBlockerIssueIds(
 
   const latestAttributedByBlockerWorkspace = new Map<
     string,
-    { phase: string; status: string; startedAt: Date }
+    {
+      phase: string;
+      status: string;
+      startedAt: Date;
+      heartbeatRunId: string | null;
+    }
   >();
   const latestUnattributedByWorkspace = new Map<
     string,
-    { phase: string; status: string; startedAt: Date }
+    {
+      phase: string;
+      status: string;
+      startedAt: Date;
+      heartbeatRunId: string | null;
+    }
   >();
   const latestSuccessfulFinalizeByWorkspace = new Map<string, Date>();
   for (const row of rows) {
@@ -2414,6 +2426,7 @@ async function listPendingFinalizeBlockerIssueIds(
           phase: row.phase,
           status: row.status,
           startedAt: row.startedAt,
+          heartbeatRunId: row.heartbeatRunId,
         });
       }
       continue;
@@ -2425,6 +2438,7 @@ async function listPendingFinalizeBlockerIssueIds(
         phase: row.phase,
         status: row.status,
         startedAt: row.startedAt,
+        heartbeatRunId: row.heartbeatRunId,
       });
     }
   }
@@ -2442,7 +2456,32 @@ async function listPendingFinalizeBlockerIssueIds(
     );
     if (laterSuccessfulFinalize && laterSuccessfulFinalize > latest.startedAt)
       continue;
-    pending.add(pair.blockerIssueId);
+    pendingRunIdByBlocker.set(pair.blockerIssueId, latest.heartbeatRunId);
+  }
+
+  // A done blocker whose last run on the workspace is terminal can make no
+  // further finalize progress, so it must not hold its dependents. A run that is
+  // still alive keeps holding; an operation with no run attribution does too.
+  const runIds = [
+    ...new Set(
+      [...pendingRunIdByBlocker.values()].filter(
+        (runId): runId is string => runId !== null,
+      ),
+    ),
+  ];
+  const liveRunIds = new Set<string>();
+  if (runIds.length > 0) {
+    const runRows = await dbOrTx
+      .select({ id: heartbeatRuns.id, status: heartbeatRuns.status })
+      .from(heartbeatRuns)
+      .where(inArray(heartbeatRuns.id, runIds));
+    for (const run of runRows) {
+      if (!TERMINAL_HEARTBEAT_RUN_STATUSES.has(run.status)) liveRunIds.add(run.id);
+    }
+  }
+  for (const [blockerIssueId, runId] of pendingRunIdByBlocker) {
+    if (runId !== null && !liveRunIds.has(runId)) continue;
+    pending.add(blockerIssueId);
   }
 
   return pending;
