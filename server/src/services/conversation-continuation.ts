@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or, sql, type AnyColumn } from "drizzle-orm";
 import { environmentLeases, heartbeatRunEvents, heartbeatRuns, issueRecoveryActions, type Db } from "@paperclipai/db";
 import { readProcessStartedAt } from "./hot-restart.js";
 import { findActiveServerAdapter, listServerAdapters } from "../adapters/index.js";
@@ -49,7 +49,32 @@ export function claimedAdapterType(run: Pick<typeof heartbeatRuns.$inferSelect, 
   return typeof dispatch?.adapterType === "string" ? dispatch.adapterType : null;
 }
 
-function conversationRunPredicate() {
+const UUID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
+
+/**
+ * The run belongs to `issueId`: its native issue id, or the issue id in its
+ * context snapshot when it has no native id. This is the same condition as
+ * `coalesce(native_issue_id::text, context_snapshot->>'issueId') = issueId`,
+ * written as an OR so the native-id index and the context-issue index both
+ * apply. The coalesce form matched neither index, so every call scanned all
+ * runs and, through the per-run event lookup, all run events.
+ */
+export function runBelongsToIssue(issueId: string | AnyColumn) {
+  const text = typeof issueId === "string" ? sql`${issueId}` : sql`${issueId}::text`;
+  const native = typeof issueId !== "string"
+    ? sql`${heartbeatRuns.nativeIssueId} = ${issueId}`
+    : new RegExp(UUID_PATTERN, "i").test(issueId)
+      ? sql`${heartbeatRuns.nativeIssueId} = ${issueId}::uuid`
+      : sql`false`;
+  return sql`(${native} or (${heartbeatRuns.nativeIssueId} is null and ${heartbeatRuns.contextSnapshot}->>'issueId' = ${text}))`;
+}
+
+/** The run id a recovery action recorded in its evidence, as a uuid so `heartbeat_runs.id` stays indexable; null when absent or not a uuid. */
+export function evidenceRunId() {
+  return sql`(case when ${issueRecoveryActions.evidence}->>'runId' ~* ${UUID_PATTERN} then (${issueRecoveryActions.evidence}->>'runId')::uuid end)`;
+}
+
+export function conversationRunPredicate() {
   const types = getConversationAdapterTypes();
   return or(
     inArray(sql`${heartbeatRuns.runnerProfileJson}->'adapterDispatch'->>'adapterType'`, types),
@@ -92,8 +117,8 @@ export function conversationRecoveryActionPredicate() {
     sql`exists (
       select 1 from ${heartbeatRuns}
       where ${heartbeatRuns.companyId} = ${issueRecoveryActions.companyId}
-        and ${heartbeatRuns.id}::text = ${issueRecoveryActions.evidence}->>'runId'
-        and coalesce(${heartbeatRuns.nativeIssueId}::text, ${heartbeatRuns.contextSnapshot}->>'issueId') = ${issueRecoveryActions.sourceIssueId}::text
+        and ${heartbeatRuns.id} = ${evidenceRunId()}
+        and ${runBelongsToIssue(issueRecoveryActions.sourceIssueId)}
         and ${heartbeatRuns.runtimeMode} = 'legacy'
         and ${inArray(heartbeatRuns.status, ['failed', 'timed_out', 'interrupted', 'cancelled'])}
         and ${conversationRunPredicate()}
@@ -117,6 +142,20 @@ function processMayBeAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Terminal legacy runs of one issue. Whether they were conversation runs is
+ * decided afterwards for just these runs (see `getConversationOwnershipBlocker`):
+ * as one predicate the run-event lookup became a hashed subplan that scanned
+ * every adapter.invoke event. Exported so its query plan can be asserted.
+ */
+export function conversationOwnershipRunFilter(companyId: string, issueId: string) {
+  return and(
+    eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.runtimeMode, "legacy"),
+    runBelongsToIssue(issueId),
+    inArray(heartbeatRuns.status, ["failed", "timed_out", "interrupted", "cancelled"]),
+  );
+}
+
 /** A terminal conversation row does not prove that its execution authority ended.
  * Other adapters keep their existing bootstrap and ownership protocols.
  */
@@ -127,14 +166,16 @@ export async function getConversationOwnershipBlocker(db: Db, companyId: string,
       and (${environmentLeases.releasedAt} is null
         or ${environmentLeases.status} = 'pending_cleanup'
         or ${environmentLeases.cleanupStatus} = 'failed'))`;
-  const candidates = await db.select({ run: heartbeatRuns, activeLease }).from(heartbeatRuns)
+  const issueRuns = await db.select({ run: heartbeatRuns, activeLease }).from(heartbeatRuns)
     .where(and(
-      eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.runtimeMode, "legacy"),
-      conversationRunPredicate(),
-      sql`coalesce(${heartbeatRuns.nativeIssueId}::text, ${heartbeatRuns.contextSnapshot}->>'issueId') = ${issueId}`,
-      inArray(heartbeatRuns.status, ["failed", "timed_out", "interrupted", "cancelled"]),
+      conversationOwnershipRunFilter(companyId, issueId),
       or(isNotNull(heartbeatRuns.processPid), isNotNull(heartbeatRuns.processGroupId), activeLease),
     )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id));
+  if (issueRuns.length === 0) return null;
+  const conversationRunIds = new Set((await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns)
+    .where(and(inArray(heartbeatRuns.id, issueRuns.map(({ run }) => run.id)), conversationRunPredicate())))
+    .map((row) => row.id));
+  const candidates = issueRuns.filter(({ run }) => conversationRunIds.has(run.id));
   for (const { run, activeLease: leaseHeld } of candidates) {
     let pidAlive = run.processPid !== null && processMayBeAlive(run.processPid);
     if (pidAlive && run.processStartedAt) {
