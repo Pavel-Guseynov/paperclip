@@ -677,6 +677,12 @@ Local adapters require their corresponding CLI/session setup on the machine runn
 
 ## Project Repository Checkouts
 
+Reusing a persisted Git worktree resolves its original source from company/project-scoped workspace state and managed repository paths. Complete Git registration, shared storage, the worktree backlink, and the single recorded origin must agree. A changed primary source cannot replace that owner, and a deleted project-workspace row remains a null binding. Explicit conflicting selections, independent clones, redirected managed paths, changed origins, or lost registration stop preparation with a coded workspace validation failure before provider launch. Preserve retained files before intentionally changing a task's binding.
+
+Failed or truncated `git worktree list` inspection reports `git_inspection_failed`, with an allowlisted command/failure and exit or spawn code in the run's `workspaceValidation.inspectionDiagnostic`. It does not prove `not_registered`. The run result and setup-failure log retain this diagnostic; command output and arbitrary error properties are excluded from it. Current source configuration still participates in config freshness, even while the existing worktree retains its original source.
+
+This stable fork backports the runtime portions of upstream [#15525](https://github.com/paperclipai/paperclip/pull/15525) and [#15528](https://github.com/paperclipai/paperclip/pull/15528). The stable heartbeat needs the anchor-selection option introduced on upstream; Git identity reads omit subprocess kill timeouts. The later upstream Sentry diagnostics collector is outside this backport. Real Git/PostgreSQL regressions live in `managed-worktree-inspection.test.ts` and `persisted-workspace-reuse.test.ts` and run through the normal Vitest gate.
+
 Tasks use every distinct repository attached to their project, including repository-only sources with no local folder. Paperclip creates a managed checkout when no local folder is configured. The selected repository remains at the task workspace root. Other project repositories have editable, independent Git checkouts under `.paperclip-repositories/<name>-<key>`. Workspace hints expose each checkout path to the agent.
 
 When an additional repository has a configured local checkout, Paperclip seeds the task copy from its current commit and uncommitted files. Git-ignored files stay out of that copy. Subsequent task edits stay in the task copy. They do not overwrite the configured source folder. Existing task copies retain their work across runs.
