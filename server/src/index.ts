@@ -4,6 +4,8 @@
 // instrumentationReady before opening DB connections or constructing the
 // HTTP server, so trace coverage does not depend on incidental timing.
 import { instrumentationReady, shutdownInstrumentation } from "./instrumentation.js";
+import { metrics } from "@opentelemetry/api";
+import { createBackgroundTaskMetrics } from "./background-task-metrics.js";
 import { sentryReady, shutdownSentry, captureException } from "./sentry.js";
 import { waitForPendingRunFailureReports } from "./services/run-failure-report.js";
 import { verifyStoppedNativeSessionForReplacement } from "./services/native-runtime/native-session-executor.js";
@@ -1155,7 +1157,9 @@ async function startServerWithDatabaseTeardown(
   let heartbeatSchedulerStopped = false;
   let heartbeatSchedulerInterval: ReturnType<typeof setInterval> | null = null;
   const heartbeatSchedulerInFlight = new Set<Promise<void>>();
-  const trackHeartbeatSchedulerWork = (work: Promise<unknown>) => {
+  const backgroundTaskMetrics = createBackgroundTaskMetrics(metrics.getMeter("paperclip.background"));
+  const trackHeartbeatSchedulerWork = (task: string, work: Promise<unknown>) => {
+    backgroundTaskMetrics.track(task, work);
     let tracked: Promise<void>;
     tracked = Promise.resolve(work)
       .then(() => undefined, () => undefined)
@@ -1185,7 +1189,7 @@ async function startServerWithDatabaseTeardown(
     for (const [queue, work] of executionControlSweeps) {
       if (executionControlSweepsInFlight.has(queue)) continue;
       executionControlSweepsInFlight.add(queue);
-      trackHeartbeatSchedulerWork(Promise.resolve().then(async () => { await work(); })
+      trackHeartbeatSchedulerWork(`execution_control.${queue}`, Promise.resolve().then(async () => { await work(); })
         .catch(err => logger.error({ err, queue }, "execution control reconciliation failed"))
         .finally(() => { executionControlSweepsInFlight.delete(queue); }));
     }
@@ -1203,7 +1207,7 @@ async function startServerWithDatabaseTeardown(
   });
   const scheduleExternalObjectRefreshSweep = (now = new Date()) => {
     if (heartbeatSchedulerStopped) return;
-    trackHeartbeatSchedulerWork(externalObjects
+    trackHeartbeatSchedulerWork("external_objects.refresh_sweep", externalObjects
       .refreshDueObjectsForActiveCompanies(50, now)
       .then((result) => {
         if (result.checked > 0 || result.refreshed > 0) {
@@ -1257,7 +1261,7 @@ async function startServerWithDatabaseTeardown(
       });
   const scheduleEnvironmentLeaseCleanupSweep = () => {
     if (heartbeatSchedulerStopped) return;
-    trackHeartbeatSchedulerWork(runEnvironmentLeaseCleanupSweep(ENVIRONMENT_LEASE_CLEANUP_SWEEP_BACKOFF_MS));
+    trackHeartbeatSchedulerWork("environment_lease.cleanup_sweep", runEnvironmentLeaseCleanupSweep(ENVIRONMENT_LEASE_CLEANUP_SWEEP_BACKOFF_MS));
   };
   const githubConnectionEvents = githubConnectionEventService(db as any, {
     wakeup: environmentLeaseCleanupHeartbeat.wakeup,
@@ -1271,7 +1275,7 @@ async function startServerWithDatabaseTeardown(
   });
   const scheduleGitHubConnectionEventPoll = () => {
     if (heartbeatSchedulerStopped) return;
-    trackHeartbeatSchedulerWork(githubConnectionEvents.pollOnce()
+    trackHeartbeatSchedulerWork("github_connection.event_poll", githubConnectionEvents.pollOnce()
       .then((result) => {
         if (result.leased > 0 || result.failed > 0) {
           logger.info(result, "GitHub connection event poll completed");
@@ -1283,7 +1287,7 @@ async function startServerWithDatabaseTeardown(
   };
   const scheduleGitHubConnectionContinuitySweep = () => {
     if (heartbeatSchedulerStopped) return;
-    trackHeartbeatSchedulerWork(tools.sweepGitHubConnectionContinuity()
+    trackHeartbeatSchedulerWork("github_connection.continuity_sweep", tools.sweepGitHubConnectionContinuity()
       .then((result) => {
         if (result.due > 0 || result.failed > 0) {
           logger.info(result, "GitHub connection continuity sweep completed");
@@ -1331,7 +1335,7 @@ async function startServerWithDatabaseTeardown(
     });
     const scheduleMergedPullRequestConfirmationSweep = () => {
       if (heartbeatSchedulerStopped) return;
-      trackHeartbeatSchedulerWork(mergedPullRequestConfirmations
+      trackHeartbeatSchedulerWork("merged_pull_requests.sweep", mergedPullRequestConfirmations
         .sweepMergedPullRequestConfirmations()
         .then((result) => {
           if (result.accepted > 0) {
@@ -1349,7 +1353,7 @@ async function startServerWithDatabaseTeardown(
     const terminalWorkspaceSkipLogIntervalMs = 10 * 60 * 1000;
     const scheduleTerminalWorkspaceSweep = () => {
       if (heartbeatSchedulerStopped) return;
-      trackHeartbeatSchedulerWork(terminalWorkspaces
+      trackHeartbeatSchedulerWork("terminal_workspaces.sweep", terminalWorkspaces
         .sweepTerminalWorkspaces()
         .then((result) => {
           if (result.archived > 0 || result.cleanupFailed > 0) {
@@ -1400,7 +1404,7 @@ async function startServerWithDatabaseTeardown(
     };
     const scheduleAdapterLoginReaperSweep = () => {
       if (heartbeatSchedulerStopped) return;
-      trackHeartbeatSchedulerWork(adapterLoginReaper
+      trackHeartbeatSchedulerWork("adapter_login.reaper", adapterLoginReaper
         .sweep()
         .then(logAdapterLoginReaperResult)
         .catch((err) => {
@@ -1426,7 +1430,7 @@ async function startServerWithDatabaseTeardown(
     };
     const scheduleSetupTokenReaperSweep = () => {
       if (heartbeatSchedulerStopped) return;
-      trackHeartbeatSchedulerWork(setupTokenReaper
+      trackHeartbeatSchedulerWork("setup_token.reaper", setupTokenReaper
         .sweep()
         .then(logSetupTokenReaperResult)
         .catch((err) => {
@@ -1582,7 +1586,7 @@ async function startServerWithDatabaseTeardown(
         logger.error({ err }, "startup heartbeat recovery failed");
         throw err;
       });
-      trackHeartbeatSchedulerWork(startupHeartbeatRecovery);
+      trackHeartbeatSchedulerWork("heartbeat.startup_recovery", startupHeartbeatRecovery);
       await startupHeartbeatRecovery;
     }
 
@@ -1642,12 +1646,12 @@ async function startServerWithDatabaseTeardown(
       // Track the outer async callback as well as the work it starts. Shutdown
       // can then wait through an already-running suppression check before it
       // captures the authoritative set of running heartbeat rows.
-      trackHeartbeatSchedulerWork((async () => {
+      trackHeartbeatSchedulerWork("scheduler.tick", (async () => {
         if (heartbeatSchedulerStopped) return;
-        trackHeartbeatSchedulerWork(decisionExecutor.sweepExpired().catch((err: unknown) => {
+        trackHeartbeatSchedulerWork("decision.expiry_sweep", decisionExecutor.sweepExpired().catch((err: unknown) => {
           logger.error({ err }, "decision expiry sweep failed");
         }));
-        trackHeartbeatSchedulerWork(runRetentionSweep().catch((err: unknown) => {
+        trackHeartbeatSchedulerWork("decision.retention_sweep", runRetentionSweep().catch((err: unknown) => {
           logger.error({ err }, "decision retention sweep failed");
         }));
         const sweptRuntimeStatuses = heartbeat.sweepExpiredRuntimeStatuses();
@@ -1659,7 +1663,7 @@ async function startServerWithDatabaseTeardown(
         }
 
         if (!(await heartbeat.resolveSchedulingSuppression()).suppressed) {
-          trackHeartbeatSchedulerWork(heartbeat
+          trackHeartbeatSchedulerWork("heartbeat.tick_timers", heartbeat
             .tickTimers(new Date())
             .then((result) => {
               if (result.enqueued > 0) {
@@ -1684,7 +1688,7 @@ async function startServerWithDatabaseTeardown(
         scheduleEnvironmentLeaseCleanupSweep();
 
         if (heartbeatSchedulerStopped) return;
-        trackHeartbeatSchedulerWork(routines
+        trackHeartbeatSchedulerWork("routines.tick_scheduled_triggers", routines
           .tickScheduledTriggers(new Date())
           .then((result) => {
             if (result.triggered > 0) {
@@ -1696,7 +1700,7 @@ async function startServerWithDatabaseTeardown(
           }));
 
         if (heartbeatSchedulerStopped) return;
-        trackHeartbeatSchedulerWork((async () => {
+        trackHeartbeatSchedulerWork("status_cards.tick", (async () => {
           const experimental = await instanceSettingsService(db).getExperimental();
           if (experimental.enableStatusCards !== true) return;
           const result = await statusCards.tickDueStatusCards(new Date());
@@ -1725,7 +1729,7 @@ async function startServerWithDatabaseTeardown(
         }));
 
         if (heartbeatSchedulerStopped) return;
-        trackHeartbeatSchedulerWork(environmentCustomImages
+        trackHeartbeatSchedulerWork("environment_custom_images.cleanup_setup_sessions", environmentCustomImages
           .cleanupExpiredSetupSessions()
           .then((result) => {
             if (result.timedOut > 0 || result.failed > 0) {
@@ -1737,7 +1741,7 @@ async function startServerWithDatabaseTeardown(
           }));
 
         if (heartbeatSchedulerStopped) return;
-        trackHeartbeatSchedulerWork(tools
+        trackHeartbeatSchedulerWork("tools.connection_health_sweep", tools
           .sweepConnectionHealth()
           .then((swept) => {
             if (swept.failed > 0) {
@@ -1748,7 +1752,7 @@ async function startServerWithDatabaseTeardown(
             logger.error({ err }, "periodic tool connection health sweep failed");
           }));
 
-        trackHeartbeatSchedulerWork(secretProposals.sweepExpired()
+        trackHeartbeatSchedulerWork("secret_proposals.expiry_sweep", secretProposals.sweepExpired()
           .then((expired) => {
             if (expired > 0) logger.warn({ expired }, "periodic secret proposal expiry scrubbed proposals");
           })
@@ -1756,10 +1760,10 @@ async function startServerWithDatabaseTeardown(
             logger.error({ err }, "periodic secret proposal expiry sweep failed");
           }));
 
-        trackHeartbeatSchedulerWork(connectionDeliveries.sweepPending().catch((err) => logger.error({ err }, "connection continuation delivery failed")));
-        trackHeartbeatSchedulerWork(app.locals.toolGateway.sweepActionReviews().catch((err: unknown) => logger.error({ err }, "tool review recovery failed")));
-        trackHeartbeatSchedulerWork(app.locals.toolActionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "tool review delivery sweep failed")));
-        trackHeartbeatSchedulerWork(questionResponseDeliveries.sweepPending()
+        trackHeartbeatSchedulerWork("connection_deliveries.sweep_pending", connectionDeliveries.sweepPending().catch((err) => logger.error({ err }, "connection continuation delivery failed")));
+        trackHeartbeatSchedulerWork("tool_gateway.review_recovery", app.locals.toolGateway.sweepActionReviews().catch((err: unknown) => logger.error({ err }, "tool review recovery failed")));
+        trackHeartbeatSchedulerWork("tool_actions.delivery_sweep", app.locals.toolActionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "tool review delivery sweep failed")));
+        trackHeartbeatSchedulerWork("question_response.sweep_pending", questionResponseDeliveries.sweepPending()
           .then((result) => {
             if (result.scanned > 0) {
               logger.info(result, "periodic question-response delivery sweep completed");
@@ -1773,7 +1777,7 @@ async function startServerWithDatabaseTeardown(
         if (!(await heartbeat.resolveSchedulingSuppression()).suppressed) {
           // Periodically reap orphaned runs (5-min staleness threshold) and make sure
           // persisted queued work is still being driven forward.
-          trackHeartbeatSchedulerWork(heartbeat
+          trackHeartbeatSchedulerWork("heartbeat.reap_orphaned_runs", heartbeat
             .reapOrphanedRuns({ staleThresholdMs: 5 * 60 * 1000 })
             .then(() => heartbeat.promoteDueScheduledRetries())
             .then(async (promotion) => {

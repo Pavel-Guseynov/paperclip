@@ -7,8 +7,8 @@ instrumentation contracts; see the
 separate first-party event system.
 
 Paperclip ships with **opt-in** OpenTelemetry auto-instrumentation for the
-server process. When activated it produces **traces only** — no metrics and no
-logs are exported by this integration.
+server process. When activated it exports **traces and metrics** over OTLP.
+Logs are not exported by this integration.
 
 `@opentelemetry/api` is a normal dependency of `@paperclipai/server`. Every
 install includes it. It stays a no-op interface until an SDK registers a
@@ -122,11 +122,77 @@ diagnostic line on boot and continues without tracing — your server stays up.
 
 ## Scope
 
-The OpenTelemetry export carries **traces only**. Metrics and log exporters
-are out of scope and intentionally not configured here. Auto-instrumentations
-for `fs`, `dns`, and `net` are disabled by default because they are too chatty
-for this workload; everything else from
-`@opentelemetry/auto-instrumentations-node` is on (HTTP, Express, PG, etc.).
+The OpenTelemetry export carries **traces and metrics**. Logs are out of scope.
+Auto-instrumentations for `fs`, `dns`, and `net` are disabled by default
+because they are too chatty for this workload; everything else from
+`@opentelemetry/auto-instrumentations-node` is on (HTTP, Express, runtime
+metrics, etc.).
+
+### Metrics export
+
+The SDK exports metrics to the same endpoint and with the same protocol as
+traces. The Node SDK reads the standard metric variables, and the exporters
+ship with `@opentelemetry/sdk-node`, so no extra package is needed:
+
+| Variable | Effect |
+| --- | --- |
+| `OTEL_METRICS_EXPORTER` | Unset or `otlp` exports metrics. `none` turns metrics off and keeps traces. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Export interval in milliseconds. The SDK default is 60000. |
+
+The runtime instrumentation in the bundle reports event-loop delay
+(`nodejs.eventloop.delay.*`) and utilization (`nodejs.eventloop.utilization`),
+and V8 heap metrics (`v8js.memory.heap.*`).
+
+### Database statements and pool state
+
+Paperclip talks to PostgreSQL through postgres.js. The bundle's database
+instrumentation targets the `pg` package, so it does not see these queries.
+When the SDK starts, the server installs a database observer
+(`server/src/db-telemetry.ts`) that reads every statement through the
+`DatabaseObserver` seam in `packages/db/src/query-observer.ts`. With OTel off
+no observer is installed and the DB client is not wrapped.
+
+Each statement becomes a `CLIENT` span named `<OPERATION> <table>`, a child of
+the active request span:
+
+| Span attribute | Value |
+| --- | --- |
+| `db.system.name` | `postgresql` |
+| `db.operation.name` | Leading SQL keyword, e.g. `SELECT` |
+| `db.collection.name` | Main table, without schema or quotes |
+| `db.query.text` | Statement with whitespace collapsed; `IN` and `VALUES` parameter lists folded to `($…)`. It holds placeholders only, never parameter values. Text over 4096 characters is cut. |
+| `db.response.returned_rows` | Rows returned or affected |
+| `paperclip.db.queue_wait_ms` | Time the statement waited for a free pooled connection |
+| `error.type` | Error class name; the span status is `ERROR` |
+
+Metrics, by name:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `db.client.operation.duration` (s) | histogram | Queue wait plus execution, by operation and table |
+| `db.client.connection.wait_time` (s) | histogram | Wait for a free pooled connection |
+| `db.client.response.returned_rows` | histogram | Rows per statement |
+| `db.client.connection.max` | gauge | Configured pool size (`DATABASE_POOL_MAX`, default 10) |
+| `db.client.connection.used` | gauge | Statements running on a connection |
+| `db.client.connection.pending_requests` | gauge | Statements waiting for a connection |
+
+postgres.js exposes no pool statistics, so `used` and `pending_requests` are
+derived from statement start and finish events, and the idle connection count is
+not reported. Queue wait is measured from the call into the driver to the
+moment the driver starts the statement on a connection.
+
+### Background tasks
+
+Scheduler, recovery and sweep ticks pass through `trackHeartbeatSchedulerWork`
+in `server/src/index.ts`:
+
+| Metric | Type | Attributes |
+| --- | --- | --- |
+| `paperclip.background.task.duration` (s) | histogram | `task`, `outcome` (`completed` or `rejected`) |
+| `paperclip.background.task.in_flight` | gauge | `task` |
+
+Several tasks catch and log their own errors, so their `outcome` is
+`completed` even when the work failed; the error is in the run log.
 
 This document also holds three local instrumentation contracts: native runner
 traces, sandbox startup traces, and sandbox duplex transport instrumentation.
