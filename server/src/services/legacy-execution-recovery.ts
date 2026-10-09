@@ -2,7 +2,7 @@ import { isPreDispatchReviewWaitVerified } from "./pre-dispatch-review-wait.js";
 import { normalizeMaxTurnStopReason } from "./heartbeat-stop-metadata.js";
 import { hasConversationContinuationPolicy } from "./conversation-continuation.js";
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { heartbeatRuns, issueRecoveryActions, issues, type Db } from "@paperclipai/db";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
@@ -140,12 +140,21 @@ export async function terminalizeLegacyExecution(input: {
     ) {
       // Periodic stranded-work checks may revisit this terminal run before its
       // reconciled continuation is dispatched. Preserve the recorded decision.
+      // A hold for this exact run that was already resolved, including one folded
+      // away because the run was a conversation turn, is that decision too: opening
+      // it again every revisit made a new row per tick.
       const [reconciled] = await tx.select({ id: issueRecoveryActions.id })
         .from(issueRecoveryActions).where(and(
           eq(issueRecoveryActions.companyId, run.companyId),
           eq(issueRecoveryActions.sourceIssueId, task.id),
           eq(issueRecoveryActions.status, "resolved"),
-          sql`${issueRecoveryActions.evidence}->'executionReconciliation'->>'runId' = ${run.id}`,
+          or(
+            sql`${issueRecoveryActions.evidence}->'executionReconciliation'->>'runId' = ${run.id}`,
+            and(
+              eq(issueRecoveryActions.cause, LEGACY_RECOVERY_CAUSE),
+              eq(issueRecoveryActions.fingerprint, `legacy-execution:${run.id}`),
+            ),
+          ),
         )).limit(1);
       if (reconciled) return updated;
       await issueRecoveryActionService(tx as unknown as Db).upsertSourceScoped({
