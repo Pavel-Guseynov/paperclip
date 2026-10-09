@@ -152,6 +152,10 @@ Notes:
 
 ## 7. Verification Before Hand-off
 
+Read the Vitest evidence contract in `README.md`. Preserve the invocation's
+manifest, safe output records and fixture snapshots with failed-test evidence;
+an unchanged rerun does not replace an incomplete original failure record.
+
 Default local/agent test path:
 
 ```sh

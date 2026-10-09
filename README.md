@@ -491,6 +491,38 @@ pnpm db:migrate       # Apply migrations
 
 `pnpm test` does not run Playwright. Browser suites stay separate and are typically run only when working on those flows or in CI.
 
+The existing Vitest gate retains each Vitest invocation under
+`test-results/vitest/<invocation>/`. Its `*.output.jsonl` contains ordered
+JSON-RPC output notifications with the execution ID, channel and complete safe
+line, including a final unterminated line. `*.manifest.json` records the child's
+original exit/signal, received byte counts, safe byte/record counts and SHA-256
+per channel, source revision and tracked-diff hash, and completion or original
+launch/retention errors. The gate uses the existing adapter-utils diagnostic
+redactor before forwarding or saving recognized credential forms; it never
+persists the child environment. Invalid UTF-8 or failed evidence delivery fails
+acceptance. A native SIGINT/SIGTERM is forwarded once, and the parent awaits the
+child's completion and evidence flush without a kill timeout. Preflight commands
+before the Vitest gate are outside this capture. Each channel preserves its
+line order; the shared sequence orders complete-line delivery, rather than
+reconstructing cross-channel byte interleaving.
+
+The gate sets `PAPERCLIP_TEST_EVIDENCE_DIR` and its source-identity metadata for
+fixtures. The issue-reconciliation fixture saves a repeatable-read lifecycle
+snapshot before cleanup: test, issue, comment, wake, run, decision and recovery
+IDs; admission state; safe native errors/events; counts and a payload digest.
+Comment bodies, credentials, configuration and arbitrary wake payloads are
+excluded. Direct editing runs retain these snapshots in
+`test-results/vitest/direct/`. Local artifacts remain until explicitly removed;
+PR and release test shards upload them even on failure with 14-day retention.
+Read the manifest and referenced records/snapshot before diagnosing a failed
+test; a missing or incomplete artifact does not establish its cause.
+
+Comment wake decisions remain asynchronous. The heartbeat drain now includes
+the complete decision before its first wake is enqueued, and waits for all its
+enqueue/audit results. The decision's start, completion or original failure is
+logged with company, issue and comment IDs. This completion contract supports
+graceful shutdown and deterministic database-fixture teardown without polling.
+
 See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 <br/>

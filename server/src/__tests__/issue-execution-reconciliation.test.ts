@@ -1,6 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createInterface } from "node:readline";
 import express from "express";
 import request from "supertest";
 import { and, eq, sql } from "drizzle-orm";
@@ -17,8 +21,10 @@ import { issueRoutes } from "../routes/issues.js";
 import { agentRoutes } from "../routes/agents.js";
 import { createPostgresRunDispatchAdapter } from "../modules/run-dispatch/adapters/postgres.js";
 import { heartbeatService } from "../services/heartbeat.js";
+import { trackWakeupDecision } from "../services/heartbeat-wake-lifecycle.js";
 import { settleUnrecoverableExecutions } from "../services/execution-recovery-resolution.js";
 import { terminalizeLegacyExecution } from "../services/legacy-execution-recovery.js";
+import { preserveIssueWakeEvidence } from "./helpers/issue-wake-evidence.js";
 
 describe("issue execution reconciliation with real routes and Postgres", () => {
   let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -32,27 +38,31 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     heartbeat = heartbeatService(db);
   }, 90_000);
 
-  afterEach(async () => {
-    await heartbeat.drainActiveRunExecutions();
-    for (const { child, closed } of children.splice(0)) {
-      child.stdin.end();
-      await closed;
+  afterEach(async ({ task }) => {
+    try {
+      await preserveIssueWakeEvidence(db, { id: task.id, name: task.name, file: task.file.filepath });
+    } finally {
+      await heartbeat.drainActiveRunExecutions();
+      for (const { child, closed } of children.splice(0)) {
+        child.stdin.end();
+        await closed;
+      }
+      await db.delete(activityLog);
+      await db.delete(issueRecoveryActions);
+      await db.delete(issueComments);
+      await db.delete(issueDocuments);
+      await db.delete(documentRevisions);
+      await db.delete(documents);
+      await db.delete(heartbeatRunEvents);
+      await db.delete(issueRelations);
+      await db.delete(issues);
+      await db.delete(heartbeatRuns);
+      await db.delete(agentWakeupRequests);
+      await db.delete(agentRuntimeState);
+      await db.delete(agents);
+      await db.delete(companies);
+      await db.delete(authUsers);
     }
-    await db.delete(activityLog);
-    await db.delete(issueRecoveryActions);
-    await db.delete(issueComments);
-    await db.delete(issueDocuments);
-    await db.delete(documentRevisions);
-    await db.delete(documents);
-    await db.delete(heartbeatRunEvents);
-    await db.delete(issueRelations);
-    await db.delete(issues);
-    await db.delete(heartbeatRuns);
-    await db.delete(agentWakeupRequests);
-    await db.delete(agentRuntimeState);
-    await db.delete(agents);
-    await db.delete(companies);
-    await db.delete(authUsers);
   });
 
   afterAll(async () => {
@@ -98,6 +108,74 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
       invocationSource: "on_demand", status: "running", startedAt: provider.startedAt,
       processPid: provider.child.pid });
   }
+
+  it("drain waits for an unfinished wake decision before its first heartbeat wake is registered", async () => {
+    const f = await fixture();
+    await occupyDispatchSlot(f);
+    const provider = await startProvider();
+    const control = createInterface({ input: provider.child.stdout });
+    const received = once(control, "line");
+    const decision = trackWakeupDecision((async () => {
+      const [line] = await received;
+      expect(JSON.parse(line)).toMatchObject({ jsonrpc: "2.0", method: "paperclip.test.release_wake_decision" });
+      return heartbeat.wakeup(f.agent.id, { source: "on_demand", reason: "issue_commented",
+        payload: { issueId: f.issue.id }, requestedByActorType: "user",
+        requestedByActorId: f.company.defaultResponsibleUserId! });
+    })());
+    let drained = false;
+    const draining = heartbeat.drainActiveRunExecutions().then(() => { drained = true; });
+    try {
+      await db.select({ id: issues.id }).from(issues);
+      expect(drained).toBe(false);
+    } finally {
+      provider.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "paperclip.test.release_wake_decision" })}\n`);
+      try {
+        await decision;
+        await draining;
+      } finally {
+        control.close();
+      }
+    }
+    expect(drained).toBe(true);
+    expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.status, "queued"))).toHaveLength(1);
+  });
+
+  it("retains correlated safe fixture state after the test-owned database rows are deleted", async () => {
+    const f = await fixture();
+    const [comment] = await db.insert(issueComments).values({ companyId: f.company.id,
+      issueId: f.issue.id, body: "A body excluded from diagnostics" }).returning();
+    const [run] = await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id,
+      invocationSource: "on_demand", status: "failed", errorCode: "known_failure",
+      error: "original fixture cause; TOKEN=fixture-only-private-value",
+      contextSnapshot: { issueId: f.issue.id, wakeCommentId: comment!.id } }).returning();
+    const [wake] = await db.insert(agentWakeupRequests).values({ companyId: f.company.id,
+      agentId: f.agent.id, source: "on_demand", status: "failed", runId: run!.id,
+      payload: { issueId: f.issue.id, commentId: comment!.id, token: "fixture-only-private-value" } }).returning();
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "issue-wake-evidence-"));
+    try {
+      const file = await preserveIssueWakeEvidence(db, { id: "retention-proof", name: "known failure", file: import.meta.url }, directory);
+      await db.delete(issueComments);
+      await db.delete(agentWakeupRequests);
+      await db.delete(heartbeatRuns);
+      await db.delete(issues);
+      const raw = await fs.readFile(file, "utf8");
+      const evidence = JSON.parse(raw);
+      expect(evidence.complete).toBe(true);
+      expect(evidence.counts).toMatchObject({ issues: 1, comments: 1, wakes: 1, runs: 1 });
+      expect(evidence.snapshot.wakes).toEqual([expect.objectContaining({ id: wake!.id,
+        runId: run!.id, context: { issueId: f.issue.id, commentId: comment!.id } })]);
+      expect(evidence.snapshot.runs[0]).toMatchObject({ id: run!.id, status: "failed",
+        errorCode: "known_failure", error: "original fixture cause; TOKEN=***REDACTED***",
+        context: { issueId: f.issue.id, wakeCommentId: comment!.id } });
+      const encoded = JSON.stringify(evidence.snapshot);
+      expect(evidence.snapshotUtf8Bytes).toBe(Buffer.byteLength(encoded));
+      expect(evidence.snapshotSha256).toBe(createHash("sha256").update(encoded).digest("hex"));
+      expect(raw).not.toContain("fixture-only-private-value");
+      expect(raw).not.toContain("A body excluded from diagnostics");
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
 
   it("a queued review continuation cancelled before process start has no executionBlocker and the next board comment queues a run", async () => {
     const f = await fixture();
