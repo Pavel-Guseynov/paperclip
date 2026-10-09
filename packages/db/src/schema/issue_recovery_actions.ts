@@ -58,6 +58,11 @@ export const issueRecoveryActions = pgTable(
       table.companyId,
       table.recoveryIssueId,
     ),
+    // Serves getExecutionBlocker: the issue's open or replay-blocked records, newest first.
+    // The predicate is the one executionBlockerPredicate() applies, written with literals so the planner can match it.
+    blockerLookupIdx: index("issue_recovery_actions_blocker_lookup_idx")
+      .on(table.companyId, table.sourceIssueId, table.updatedAt.desc(), table.id.desc())
+      .where(sql`${table.status} in ('active', 'escalated') or ${table.evidence}->'automaticRecovery'->>'replay' = 'blocked'`),
     activeSourceIdx: uniqueIndex("issue_recovery_actions_active_source_uq")
       .on(table.companyId, table.sourceIssueId)
       .where(sql`${table.status} in ('active', 'escalated')`),

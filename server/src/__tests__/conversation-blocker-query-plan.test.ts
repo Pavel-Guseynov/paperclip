@@ -3,6 +3,7 @@ import {
   agents,
   companies,
   createDb,
+  issues,
   heartbeatRunEvents,
   heartbeatRuns,
   issueRecoveryActions,
@@ -14,6 +15,7 @@ import {
   conversationRunPredicate,
   getConversationOwnershipBlocker,
 } from "../services/conversation-continuation.js";
+import { EXECUTION_RECONCILIATION_CAUSES } from "@paperclipai/shared";
 import { executionBlockerPredicate } from "../services/execution-blocker.js";
 import {
   getEmbeddedPostgresTestSupport,
@@ -34,6 +36,7 @@ describeDatabase("execution blocker query plans", () => {
 
   afterEach(async () => {
     await db.delete(issueRecoveryActions);
+    await db.delete(issues);
     await db.delete(heartbeatRunEvents);
     await db.delete(heartbeatRuns);
     await db.delete(agents);
@@ -144,6 +147,48 @@ describeDatabase("execution blocker query plans", () => {
     );
 
     expect(plan).not.toMatch(/Seq Scan on heartbeat_runs/);
+  });
+
+
+  it("reads an issue's open or replay-blocked recovery records through the partial index, not its whole history", async () => {
+    const { companyId } = await seedCompany();
+    const issueId = randomUUID();
+    await db.insert(issues).values({ id: issueId, companyId, title: "Stranded", status: "in_progress", priority: "medium" });
+    const base = {
+      companyId,
+      sourceIssueId: issueId,
+      kind: "active_run_watchdog",
+      cause: EXECUTION_RECONCILIATION_CAUSES[0],
+      nextAction: "Review",
+      evidence: { filler: "x".repeat(600) },
+    };
+    for (let offset = 0; offset < 800; offset += 200) {
+      await db.insert(issueRecoveryActions).values(
+        Array.from({ length: 200 }, (_, index) => ({
+          ...base,
+          status: "resolved",
+          fingerprint: "resolved-" + (offset + index),
+        })),
+      );
+    }
+    await db.insert(issueRecoveryActions).values({ ...base, status: "active", fingerprint: "open" });
+    await db.execute(sql`analyze issue_recovery_actions`);
+
+    const plan = await explain(
+      sql`select * from ${issueRecoveryActions}
+        where ${issueRecoveryActions.companyId} = ${companyId}
+          and ${issueRecoveryActions.sourceIssueId} = ${issueId}
+          and ${executionBlockerPredicate()}
+        order by ${issueRecoveryActions.updatedAt} desc, ${issueRecoveryActions.id} desc
+        limit 1`,
+    );
+
+    // The index holds only open or replay-blocked records, so the scan reads a handful of
+    // rows however long the resolved history is (801 rows here).
+    expect(plan).not.toMatch(/Seq Scan/);
+    const indexScan = /Index Scan using issue_recovery_actions_blocker_lookup_idx[^\n]*rows=(\d+)/.exec(plan);
+    expect(indexScan).not.toBeNull();
+    expect(Number(indexScan![1])).toBeLessThan(50);
   });
 
   it("still blocks on a terminal conversation run recorded by native issue id or by context snapshot", async () => {
