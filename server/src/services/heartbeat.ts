@@ -119,7 +119,7 @@ import {
   configuredPaperclipApiBaseUrl,
   buildPaperclipRuntimeMcpServers,
   createAdapterRuntimeToolAccess,
-  paperclipApiBaseUrl,
+  paperclipRuntimeApiBaseUrl,
   createAdapterRuntimeMcpAccess,
   createManagedMcpRunConfig,
   revokeHeartbeatRunGatewayTokens,
@@ -589,6 +589,7 @@ import {
   realizeExecutionWorkspace,
   releaseRuntimeServicesForRun,
   isUnresolvedWorkspaceBaseRefError,
+  readUnresolvedWorkspaceBaseRefDiagnostic,
   type ExecutionWorkspaceInput,
   type RealizedExecutionWorkspace,
   type RuntimeServiceRef,
@@ -850,9 +851,11 @@ function buildUnresolvedWorkspaceBaseRefResultJson(
   error: UnresolvedWorkspaceBaseRefError,
 ): Record<string, unknown> {
   const context = parseObject(run.contextSnapshot);
+  const diagnostic = readUnresolvedWorkspaceBaseRefDiagnostic(error);
   return {
     configurationIncomplete: {
       reason: "workspace_base_ref_unresolved",
+      ...(diagnostic ? { baseRefDiagnostic: diagnostic } : {}),
       companyId: run.companyId,
       agentId: run.agentId,
       issueId: readNonEmptyString(context.issueId) ?? null,
@@ -8239,7 +8242,7 @@ export function heartbeatService(
               });
             }
             if (authToken && configuredPaperclipApiBaseUrl() && issueRef) {
-              runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipApiBaseUrl()}/api/mcp/project-tools`,
+              runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipRuntimeApiBaseUrl()}/api/mcp/project-tools`,
                 token: authToken, connectionId: "paperclip-project-tools" });
             }
             const runtimeMcp = createAdapterRuntimeMcpAccess(runtimeMcpServers);
