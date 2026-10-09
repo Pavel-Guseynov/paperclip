@@ -23,6 +23,47 @@ function asDatabaseDate(value: string | Date | null) {
   return typeof value === "string" ? new Date(value) : value;
 }
 
+function asEvidenceRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Merge the evidence of a repeated upsert onto the active action.
+ *
+ * Every key keeps the established semantics: a `preserveExistingOwner` write
+ * merges shallowly onto the recorded evidence, any other write replaces it
+ * wholesale. Within a preserving write, `workspaceValidation` is the one key
+ * merged one level deeper. It holds the typed physical diagnosis (expected and
+ * actual branch, HEAD provenance, safe-repair verdict) that only the failing
+ * run can produce, and a later sweep rebuilds it from whatever the newest run
+ * still carries. A shallow merge would let that partial rebuild replace the
+ * complete diagnosis, so this key merges field by field instead.
+ *
+ * A replacing write is deliberately left alone: it declares a new evidence
+ * record for a new owner, and silently carrying the prior diagnosis into it
+ * would attach a stale workspace claim to an unrelated failure.
+ */
+function mergeRecoveryActionEvidence(input: {
+  existing: Record<string, unknown> | null | undefined;
+  incoming: Record<string, unknown> | undefined;
+  preserveExistingOwner: boolean;
+}): Record<string, unknown> {
+  if (!input.preserveExistingOwner) return input.incoming ?? input.existing ?? {};
+  const base = { ...(input.existing ?? {}), ...(input.incoming ?? {}) };
+  const existingWorkspaceValidation = asEvidenceRecord(input.existing?.workspaceValidation);
+  const incomingWorkspaceValidation = asEvidenceRecord(input.incoming?.workspaceValidation);
+  if (!existingWorkspaceValidation || !incomingWorkspaceValidation) return base;
+  return {
+    ...base,
+    workspaceValidation: {
+      ...existingWorkspaceValidation,
+      ...incomingWorkspaceValidation,
+    },
+  };
+}
+
 function isRecoveryBudgetExhausted(evidence: Record<string, unknown>) {
   const budget = evidence.recoveryBudget;
   return Boolean(
@@ -359,6 +400,24 @@ export function issueRecoveryActionService(db: Db) {
     const now = new Date();
     const ownerType = input.ownerType ?? (input.ownerAgentId ? "agent" : "board");
     if (existing) {
+      // A workspace-validation action carries a typed, physical diagnosis and
+      // the operator guidance that belongs to it. The periodic stranded sweeps
+      // only ever observe "this issue is stuck": they name no cause of their
+      // own, so letting them rewrite the active action would replace the exact
+      // diagnosis with a generic one. Hold the diagnosis and leave the sweep a
+      // no-op. This suppresses the *generic* causes only; a later failure that
+      // names its own cause (provider quota, configuration incomplete, a lost
+      // process, a legacy reconciliation) is a distinct identity and still
+      // supersedes or updates the action through the branches below.
+      const isExistingWorkspaceValidation =
+        existing.cause === "workspace_validation_failed" ||
+        existing.kind === "workspace_validation";
+      const isIncomingGenericSweep =
+        input.cause === "stranded_assigned_issue" ||
+        input.cause === "execution_review_participant_recovery";
+      if (isExistingWorkspaceValidation && isIncomingGenericSweep) {
+        return existing;
+      }
       // A distinct failure identity must not overwrite the active action of a
       // prior identity. Resolve the prior action and insert a new one, so the
       // operator gets a new notice for the new failure.
@@ -468,12 +527,11 @@ export function issueRecoveryActionService(db: Db) {
             : input.returnOwnerAgentId ?? existing.returnOwnerAgentId,
           cause: input.preserveExistingOwner ? existing.cause : input.cause,
           fingerprint: input.preserveExistingOwner ? existing.fingerprint : input.fingerprint,
-          evidence: input.preserveExistingOwner
-            ? {
-              ...(existing.evidence ?? {}),
-              ...(input.evidence ?? {}),
-            }
-            : input.evidence ?? existing.evidence,
+          evidence: mergeRecoveryActionEvidence({
+            existing: existing.evidence,
+            incoming: input.evidence,
+            preserveExistingOwner: input.preserveExistingOwner === true,
+          }),
           nextAction: input.preserveExistingOwner ? existing.nextAction : input.nextAction,
           wakePolicy: input.preserveExistingOwner
             ? existing.wakePolicy
