@@ -1982,6 +1982,13 @@
       "when": 1790018362080,
       "tag": "0284_rapid_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 285,
+      "version": "7",
+      "when": 1791583603972,
+      "tag": "0285_kind_pandemic",
+      "breakpoints": true
     }
   ]
 }

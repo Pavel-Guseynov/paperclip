@@ -9,8 +9,9 @@ export function executionBlockerPredicate() {
   return and(
     not(conversationRecoveryActionPredicate()!),
     inArray(issueRecoveryActions.cause, [...EXECUTION_RECONCILIATION_CAUSES]),
-    or(inArray(issueRecoveryActions.status, ["active", "escalated"]),
-      sql`${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'blocked'`),
+    // Literals, not parameters: the planner can only match this against issue_recovery_actions_blocker_lookup_idx
+    // when the predicate is constant.
+    sql`(${issueRecoveryActions.status} in ('active', 'escalated') or ${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'blocked')`,
   );
 }
 

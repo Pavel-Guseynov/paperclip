@@ -1,0 +1,1 @@
+CREATE INDEX "issue_recovery_actions_blocker_lookup_idx" ON "issue_recovery_actions" USING btree ("company_id","source_issue_id","updated_at" DESC NULLS LAST,"id" DESC NULLS LAST) WHERE "issue_recovery_actions"."status" in ('active', 'escalated') or "issue_recovery_actions"."evidence"->'automaticRecovery'->>'replay' = 'blocked';
