@@ -621,6 +621,15 @@ jobs:
             pnpm test:run:general -- --group '${{ matrix.group }}'
           fi
 
+      - name: Retain Vitest evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vitest-general-${{ matrix.group }}-${{ matrix.shard_index }}
+          path: test-results/vitest/
+          if-no-files-found: error
+          retention-days: 14
+
   docker_context_integrity:
     name: Docker context integrity
     needs: gate
@@ -1039,6 +1048,15 @@ jobs:
 
       - name: Run serialized server test shard
         run: pnpm test:run:serialized -- --shard-index ${{ matrix.shard_index }} --shard-count ${{ matrix.shard_count }}
+
+      - name: Retain Vitest evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vitest-serialized-${{ matrix.shard_index }}
+          path: test-results/vitest/
+          if-no-files-found: error
+          retention-days: 14
 
   canary_dry_run:
     name: Canary Dry Run

@@ -1,4 +1,5 @@
 import { publicChatTaskUrl } from "./chat-task-url.js";
+import { activeWakeupPromises, trackWakeupDecision } from "./heartbeat-wake-lifecycle.js";
 import { isPreDispatchReviewWaitVerified } from "./pre-dispatch-review-wait.js";
 import { toolActionDeliveryService } from "./tool-action-delivery.js";
 import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
@@ -1287,16 +1288,6 @@ const failedProcessRunCancellations = new Map<
 // that must guarantee no run write is still in flight (graceful shutdown, and
 // tests tearing down a shared database) can await drainActiveRunExecutions().
 const activeRunExecutionPromises = new Set<Promise<void>>();
-// Routes dispatch a wakeup fire-and-forget (void heartbeat.wakeup(...)). The
-// wakeup promise stays pending through its asynchronous prologue, and it
-// resolves only after it inserts the queued run and registers the run
-// execution in activeRunExecutionPromises. Before that point neither
-// activeRunExecutionPromises nor the run table shows the pending run, so a
-// caller cannot observe the wake. Track each wakeup promise here — shared
-// across service instances like the two sets above — so drainActiveRunExecutions
-// can await a wake that is still before run registration. A caller that tears
-// down a shared database (a test afterEach) then cannot race a late wake.
-const activeWakeupPromises = new Set<Promise<unknown>>();
 const nativeSessionResumeDispatchTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
@@ -20153,14 +20144,7 @@ export function heartbeatService(
     agentId: string,
     opts: WakeupOptions = {},
   ): ReturnType<typeof enqueueWakeup> {
-    const promise = enqueueWakeup(agentId, opts);
-    activeWakeupPromises.add(promise);
-    void promise
-      .catch(() => {})
-      .finally(() => {
-        activeWakeupPromises.delete(promise);
-      });
-    return promise;
+    return trackWakeupDecision(enqueueWakeup(agentId, opts));
   }
 
   async function executeRun(

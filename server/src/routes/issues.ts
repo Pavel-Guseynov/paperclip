@@ -1,4 +1,5 @@
 import { queuedInteractionId, readQueuedInteractionResponse, hasQueuedInteractionResponse } from "../services/queued-interaction-response.js";
+import { trackWakeupDecision } from "../services/heartbeat-wake-lifecycle.js";
 import { deliverConversationComments, isConversation } from "../services/agent-conversations.js";
 import { issueRecoveryActionReadModel } from "../services/issue-recovery-actions.js";
 import { getExecutionBlocker } from "../services/execution-blocker.js";
@@ -17960,7 +17961,11 @@ export function issueRoutes(
       });
 
       // Merge all wakeups from this comment into one enqueue per agent to avoid duplicate runs.
-      void (async () => {
+      const commentWakeCorrelation = { companyId: currentIssue.companyId,
+        issueId: currentIssue.id, commentId: comment.id, runId: actor.runId };
+      void trackWakeupDecision((async () => {
+        logger.info({ ...commentWakeCorrelation, action: "issue_comment_wake_decision_started" },
+          "issue comment wake decision started");
         type WakeupRequest = NonNullable<
           Parameters<typeof heartbeat.wakeup>[1]
         >;
@@ -18259,10 +18264,12 @@ export function issueRoutes(
           }
         }
 
-        for (const { agentId, wakeup } of wakeups.values()) {
-          heartbeat
+        const wakeOutcomes = await Promise.allSettled([...wakeups.values()].map(async ({ agentId, wakeup }) => {
+          let wakeRunId: string | null = null;
+          await heartbeat
             .wakeup(agentId, wakeup)
             .then((wakeRun) => {
+              wakeRunId = wakeRun?.id ?? null;
               if (wakeup.reason !== ISSUE_BLOCKERS_RESOLVED_WAKE_REASON) return;
               const payload =
                 wakeup.payload && typeof wakeup.payload === "object"
@@ -18296,14 +18303,22 @@ export function issueRoutes(
                 },
               });
             })
-            .catch((err) =>
-              logger.warn(
-                { err, issueId: currentIssue.id, agentId },
-                "failed to wake agent on issue comment",
-              ),
-            );
-        }
-      })();
+            .catch((err) => {
+              logger.warn({ err, ...commentWakeCorrelation, agentId,
+                action: "issue_comment_wake_failed" }, "failed to wake agent on issue comment");
+              throw err;
+            });
+          return { agentId, reason: wakeup.reason ?? null, runId: wakeRunId };
+        }));
+        const failure = wakeOutcomes.find(outcome => outcome.status === "rejected");
+        if (failure?.status === "rejected") throw failure.reason;
+        const wakeResults = wakeOutcomes.flatMap(outcome => outcome.status === "fulfilled" ? [outcome.value] : []);
+        logger.info({ ...commentWakeCorrelation, action: "issue_comment_wake_decision_finished", wakeResults },
+          "issue comment wake decision finished");
+      })()).catch(err => {
+        logger.warn({ err, ...commentWakeCorrelation, action: "issue_comment_wake_decision_failed" },
+          "issue comment wake decision failed");
+      });
 
       await queueTaskWatchdogEvaluation(currentIssue, actor.runId);
       res.status(201).json(comment);
