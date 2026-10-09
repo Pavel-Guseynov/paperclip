@@ -5,6 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import * as schema from "./schema/index.js";
+import { createQueryTracker, getDatabaseObserver } from "./query-observer.js";
 import { withTransientWriteRetry } from "./transient-write-retry.js";
 
 const MIGRATIONS_FOLDER = fileURLToPath(new URL("./migrations", import.meta.url));
@@ -166,6 +167,8 @@ export interface DatabaseClientOptions {
  * to restore the driver default.
  */
 export const DEFAULT_DATABASE_IDLE_TIMEOUT_SECONDS = 60;
+/** postgres.js pool size when `maxConnections` is unset. */
+const DRIVER_DEFAULT_POOL_MAX = 10;
 /** `application_name` reported to PostgreSQL unless `DATABASE_APPLICATION_NAME` overrides it. */
 export const DEFAULT_DATABASE_APPLICATION_NAME = "paperclip";
 
@@ -307,13 +310,18 @@ export function installPostCommitHooks<T extends { transaction: (...args: any[])
 
 export function createDb(url: string, options?: DatabaseClientOptions) {
   const resolved = resolveDatabaseClientOptions(options ?? databaseClientOptionsFromEnv());
-  const sql = postgres(url, postgresJsOptions(resolved));
+  const observer = getDatabaseObserver();
+  const tracker = observer ? createQueryTracker(observer, resolved.maxConnections ?? DRIVER_DEFAULT_POOL_MAX) : null;
+  const sql = postgres(url, { ...postgresJsOptions(resolved), ...(tracker ? { debug: tracker.debug } : {}) });
   const key = hostPortKeyOrNull(url);
   if (key) registerClient(key, sql);
+  if (observer && tracker) observer.observePool(tracker.snapshot);
   // The registry keeps the real client (teardown must end the actual pool);
   // drizzle gets the retrying face so a pooler-recycled socket replays the
-  // query instead of failing the request that happened to draw it.
-  const db = drizzlePg(withTransientWriteRetry(sql), { schema });
+  // query instead of failing the request that happened to draw it. The
+  // observer, when one is installed, sits between the two so each replayed
+  // attempt is its own observed statement.
+  const db = drizzlePg(withTransientWriteRetry(tracker ? tracker.instrument(sql) : sql), { schema });
   installPostCommitHooks(db);
   return db;
 }

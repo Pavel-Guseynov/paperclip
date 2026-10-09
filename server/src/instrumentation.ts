@@ -531,6 +531,10 @@ async function bootstrapOtel(endpoint: string): Promise<void> {
       return;
     }
 
+    // The SDK is up, so statements and pool state can be reported. The import is
+    // lazy to keep this module free of the DB package until tracing is on.
+    (await import("./db-telemetry.js")).installDatabaseTelemetry();
+
     sdkShutdown = () =>
       Promise.race([
         sdk.shutdown(),

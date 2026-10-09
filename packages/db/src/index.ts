@@ -17,6 +17,14 @@ export {
   type PostCommitHook,
 } from "./client.js";
 export {
+  setDatabaseObserver,
+  type DatabaseObserver,
+  type DatabasePoolSnapshot,
+  type DatabaseStatementInfo,
+  type DatabaseStatementObservation,
+  type DatabaseStatementOutcome,
+} from "./query-observer.js";
+export {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
   EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
