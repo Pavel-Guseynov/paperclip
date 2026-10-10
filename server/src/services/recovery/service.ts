@@ -5276,13 +5276,22 @@ export function recoveryService(
         continue;
       }
 
+      // A run stopped because the issue changed owner did not fail, so no retry or native
+      // recovery owns its continuation. The issue is assigned to this agent now, so start it
+      // afresh instead of treating the stop as a failed predecessor that someone else resumes.
+      const stoppedForReassignment =
+        latestRun?.status === "cancelled" &&
+        latestRun.errorCode === "issue_reassigned" &&
+        latestRun.agentId === agentId;
       const queued = await enqueueStrandedIssueRecovery({
         issueId: issue.id,
         agentId,
         reason: "issue_continuation_needed",
         retryReason: "issue_continuation_needed",
         source: "issue.continuation_recovery",
-        retryOfRunId: latestRun?.id ?? issue.checkoutRunId ?? null,
+        retryOfRunId: stoppedForReassignment
+          ? null
+          : (latestRun?.id ?? issue.checkoutRunId ?? null),
       });
       if (queued) {
         result.continuationRequeued += 1;
