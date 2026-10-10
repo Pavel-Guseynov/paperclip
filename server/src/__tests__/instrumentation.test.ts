@@ -3,9 +3,11 @@ import { createRequire } from "node:module";
 
 /**
  * Tests for the opt-in OpenTelemetry bootstrap. The @opentelemetry/* packages
- * are optional peer dependencies and are NOT installed in CI, which is itself
- * part of the contract under test: with the endpoint set but packages absent,
- * the module must warn and settle instead of crashing the server.
+ * are optional dependencies, so an install may or may not have them. The
+ * contract under test: with the endpoint set but packages absent, the module
+ * must warn and settle instead of crashing the server. Tests of that contract
+ * state the absence themselves (`importFreshInstrumentationWithoutPackages`)
+ * instead of relying on what the workspace installed.
  *
  * The module reads OTEL_* env vars at import time, so each test resets the
  * module registry and imports a fresh copy.
@@ -22,6 +24,24 @@ async function importFreshInstrumentation() {
   return await import("../instrumentation.js");
 }
 
+/**
+ * Fresh copy of the module whose exact-version gate finds none of the packages
+ * it is asked about. The names passed to the gate are what the bootstrap chose
+ * to check, so tests can still assert which exporter it selected.
+ */
+async function importFreshInstrumentationWithoutPackages() {
+  vi.resetModules();
+  vi.doMock("../peer-version-check.js", () => ({
+    checkExactPeerVersions: (names: readonly string[]) => ({
+      ok: false,
+      diagnostic:
+        `[paperclip] OTEL_EXPORTER_OTLP_ENDPOINT is set but the @opentelemetry/* packages are not installed: ${names.join(", ")}. Continuing without tracing.`,
+      detail: { missing: [...names], mismatched: [] },
+    }),
+  }));
+  return await import("../instrumentation.js");
+}
+
 beforeEach(() => {
   delete process.env[ENDPOINT_ENV];
   delete process.env[PROTOCOL_ENV];
@@ -33,6 +53,7 @@ afterEach(() => {
   if (originalProtocol === undefined) delete process.env[PROTOCOL_ENV];
   else process.env[PROTOCOL_ENV] = originalProtocol;
   vi.restoreAllMocks();
+  vi.doUnmock("../peer-version-check.js");
 });
 
 describe("resolveProtocol", () => {
@@ -76,7 +97,7 @@ describe("instrumentationReady", () => {
     process.env[ENDPOINT_ENV] = "http://collector:4318";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const { instrumentationReady } = await importFreshInstrumentation();
+    const { instrumentationReady } = await importFreshInstrumentationWithoutPackages();
 
     // Bootstrap must absorb the failed dynamic imports — the server keeps
     // booting without tracing rather than crashing on an opt-in feature.
@@ -137,11 +158,10 @@ describe("bootstrapOtel exact-version gate", () => {
     process.env[PROTOCOL_ENV] = "http/json";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const { instrumentationReady } = await importFreshInstrumentation();
+    const { instrumentationReady } = await importFreshInstrumentationWithoutPackages();
     await instrumentationReady;
 
-    // The OTel packages are absent in this test environment, so the gate
-    // reports every checked package as missing. It must have checked the
+    // The gate reports every checked package as missing. It must have checked the
     // selected exporter (http/json → exporter-trace-otlp-http) and skipped
     // the two the protocol did not select.
     const diagnosticCall = warn.mock.calls.find((call) =>
@@ -158,7 +178,7 @@ describe("bootstrapOtel exact-version gate", () => {
     process.env[ENDPOINT_ENV] = "http://collector:4318";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const { instrumentationReady } = await importFreshInstrumentation();
+    const { instrumentationReady } = await importFreshInstrumentationWithoutPackages();
     await instrumentationReady;
 
     const diagnosticCalls = warn.mock.calls.filter((call) =>
