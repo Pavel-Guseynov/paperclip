@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
   aiProviderDefaults,
@@ -17,6 +17,8 @@ import {
   heartbeatRuns,
   issueThreadInteractions,
   issues,
+  runIdentityContexts,
+  setDatabaseObserver,
   toolApplications,
   toolCatalogEntries,
   connectionIntentDeliveries,
@@ -170,6 +172,63 @@ describeEmbeddedPostgres("connectionIntentService", () => {
     }
     return false;
   }
+
+  describe("validating a run token", () => {
+    // Every runtime-tools call validates the run. Taking the task and run row locks there put a
+    // lock-order inversion (task then run) on the hot path and deadlocked against run writers.
+    async function lockStatementsOf(action: (observedDb: ReturnType<typeof createDb>) => Promise<unknown>) {
+      const statements: string[] = [];
+      setDatabaseObserver({
+        startStatement(info) {
+          statements.push(info.statement);
+          return { started() {}, finish() {} };
+        },
+        observePool() {},
+      });
+      try {
+        await action(createDb(connectionString));
+      } finally {
+        setDatabaseObserver(null);
+      }
+      return statements.filter((statement) => /for update/i.test(statement));
+    }
+
+    async function giveRunIdentity(status: "accepted" | "pending") {
+      const [context] = await db.insert(runIdentityContexts).values({
+        companyId: claims.company_id, runId, revision: status === "accepted" ? 1 : 2,
+        responsibleUserId: "responsible-user", cause: "test", correlationId: `validate-${randomUUID()}`,
+        status, acceptedAt: status === "accepted" ? new Date() : null,
+      }).returning();
+      if (status === "accepted") {
+        await db.update(heartbeatRuns).set({ activeIdentityContextId: context!.id }).where(eq(heartbeatRuns.id, runId));
+      }
+      return context!;
+    }
+
+    afterEach(async () => {
+      await db.update(heartbeatRuns).set({ activeIdentityContextId: null }).where(eq(heartbeatRuns.id, runId));
+      await db.delete(runIdentityContexts).where(eq(runIdentityContexts.runId, runId));
+    });
+
+    it("takes no row lock when no steered identity is pending", async () => {
+      await giveRunIdentity("accepted");
+
+      const locks = await lockStatementsOf((observedDb) => connectionIntentService(observedDb).validate(claims));
+
+      expect(locks).toEqual([]);
+    });
+
+    it("still takes the task and run locks to accept a pending steered identity", async () => {
+      await giveRunIdentity("accepted");
+      await giveRunIdentity("pending");
+
+      const locks = await lockStatementsOf(async (observedDb) => {
+        await connectionIntentService(observedDb).validate(claims).catch(() => undefined);
+      });
+
+      expect(locks.length).toBeGreaterThan(0);
+    });
+  });
 
   it("searches first-party definitions without leaking run identity", async () => {
     const result = await connectionIntentService(db).search(claims, "notion");

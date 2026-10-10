@@ -422,6 +422,16 @@ export async function acceptSteeredIdentity(
   if (accepted) await activate(executor, accepted);
 }
 
+/** Whether a steered identity is waiting to be accepted for the run. Reads only; takes no lock. */
+export async function hasPendingRunIdentity(db: Pick<Db, "select">, runId: string) {
+  const [pending] = await db
+    .select({ id: runIdentityContexts.id })
+    .from(runIdentityContexts)
+    .where(and(eq(runIdentityContexts.runId, runId), eq(runIdentityContexts.status, "pending")))
+    .limit(1);
+  return Boolean(pending);
+}
+
 export async function captureRunIdentity(
   db: Db,
   input: { companyId: string; runId: string; agentId: string },
