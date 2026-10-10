@@ -31,7 +31,7 @@ import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import type { RuntimeToolsTokenClaims } from "../runtime-tools-token.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import { toolAccessService } from "./tool-access.js";
-import { captureRunIdentity } from "./run-identity.js";
+import { captureRunIdentity, hasPendingRunIdentity } from "./run-identity.js";
 import { resolveManagedGitHubIdentitySelection } from "./git-credentials.js";
 
 type ConnectionRunClaims = Pick<RuntimeToolsTokenClaims, "sub" | "company_id" | "run_id" | "responsible_user_id">;
@@ -154,7 +154,10 @@ export function connectionIntentService(db: Db) {
       || (!run.activeIdentityContextId && run.responsibleUserId !== claims.responsible_user_id)
     ) throw forbidden("Runtime tool token does not match its heartbeat run");
     if (run.status !== "running") throw forbidden("Runtime tool token is no longer active");
-    if (run.activeIdentityContextId) {
+    // Accepting a steered identity takes the task lock and then the run lock. Do that only when one is
+    // pending: this runs on every runtime-tools call, and the two row locks put a lock-order
+    // inversion on a hot path that other run writers deadlocked against.
+    if (run.activeIdentityContextId && await hasPendingRunIdentity(db, run.id)) {
       const current = await captureRunIdentity(db, { companyId: run.companyId, agentId: run.agentId, runId: run.id });
       run = { ...run, responsibleUserId: current.run.responsibleUserId };
     }
