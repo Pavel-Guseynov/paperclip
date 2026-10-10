@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { unreachableInstalledPackages } from "./helpers/production-closure.js";
 
 const run = promisify(execFile);
 const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -20,11 +21,16 @@ const INSTALLED_WITH_SERVER = [
   "@opentelemetry/semantic-conventions",
 ];
 
-describe("OpenTelemetry packages in a production install", () => {
-  const deployDirs: string[] = [];
+describe("a production install of the server", () => {
+  let deployDir = "";
+
+  beforeAll(async () => {
+    deployDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-prod-install-"));
+    await run("pnpm", ["--filter", "@paperclipai/server", "deploy", "--prod", deployDir], { cwd: repoRoot });
+  }, 180_000);
 
   afterAll(async () => {
-    await Promise.all(deployDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+    if (deployDir) await rm(deployDir, { recursive: true, force: true });
   });
 
   it("declares the exporter packages as installed dependencies at the exact peer versions", async () => {
@@ -38,11 +44,7 @@ describe("OpenTelemetry packages in a production install", () => {
     }
   });
 
-  it("loads the SDK and the OTLP exporter from a production deploy of the server", async () => {
-    const deployDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-prod-install-"));
-    deployDirs.push(deployDir);
-
-    await run("pnpm", ["--filter", "@paperclipai/server", "deploy", "--prod", deployDir], { cwd: repoRoot });
+  it("loads the SDK and the OTLP exporter from the production deploy", async () => {
     const { stdout } = await run(
       process.execPath,
       [
@@ -62,5 +64,12 @@ describe("OpenTelemetry packages in a production install", () => {
       ...Object.fromEntries(INSTALLED_WITH_SERVER.map((name) => [name, true])),
       exporterConstructible: true,
     });
-  }, 180_000);
+  }, 60_000);
+
+  // better-auth and @vercel/connect list vitest, drizzle-kit and react-dom as optional peers. The
+  // workspace satisfied them from its devDependencies and UI dependencies, so pnpm installed the
+  // test runner, the Drizzle CLI and the React DOM renderer, with their trees, into production.
+  it("installs only packages the server can reach without an optional peer", async () => {
+    expect(await unreachableInstalledPackages(deployDir)).toEqual([]);
+  });
 });
