@@ -1,6 +1,6 @@
 import { isHeartbeatRunTerminalStatus } from "./run-lifecycle.js";
 import { DEFERRED_WAKE_CONTEXT_KEY } from "./queue.js";
-import { CANCELLABLE_HEARTBEAT_RUN_STATUSES } from "./recovery.js";
+import { CANCELLABLE_HEARTBEAT_RUN_STATUSES, trackedLocalRunProcessAlive } from "./recovery.js";
 import {
   type WakeupOptions,
 } from "./run-preparation.js";
@@ -1198,14 +1198,20 @@ export function createHeartbeatRunControl(db: Db, dependencies: HeartbeatRunCont
   // An executor releases its run's leases at the end of its own cleanup, after
   // workspace copy-back. A legacy run that ends with no executor in this process
   // never reaches that boundary, so its leases stay active and keep the issue
-  // blocked until the orphaned-lease sweep. Release them when the run ends.
+  // blocked until the orphaned-lease sweep. Release them when the run ends,
+  // unless its detached local process still runs.
   async function releaseLeasesForRunWithoutExecutor(
-    run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "companyId" | "agentId" | "runtimeMode">,
+    run: Pick<
+      typeof heartbeatRuns.$inferSelect,
+      "id" | "companyId" | "agentId" | "runtimeMode" | "processPid" | "processGroupId"
+    >,
     status: string,
     failureReason: string | null,
   ) {
     if (run.runtimeMode !== "legacy" || activeRunExecutions.has(run.id)) return;
     try {
+      const agent = await getAgent(run.agentId);
+      if (trackedLocalRunProcessAlive(run, agent?.adapterType)) return;
       await releaseEnvironmentLeasesForRun({
         runId: run.id,
         companyId: run.companyId,

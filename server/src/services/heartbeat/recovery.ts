@@ -287,6 +287,26 @@ export function isProcessAlive(pid: number | null | undefined) {
   }
 }
 
+/**
+ * A Stop cannot signal a detached local child that this process holds no
+ * handle for, so the child can outlive its terminal run row. While it runs,
+ * its lease still guards the environment it works in. This is the liveness
+ * rule the reaper applies to the same adapters before it ends a run.
+ */
+export function trackedLocalRunProcessAlive(
+  run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "runtimeMode" | "processPid" | "processGroupId">,
+  adapterType: string | null | undefined,
+) {
+  if (run.runtimeMode !== "legacy" || !adapterType || !isTrackedLocalChildProcessAdapter(adapterType)) {
+    return false;
+  }
+  return (
+    runningProcesses.has(run.id) ||
+    (!!run.processPid && isProcessAlive(run.processPid)) ||
+    (!!run.processGroupId && isProcessGroupAlive(run.processGroupId))
+  );
+}
+
 function buildProcessLossMessage(
   run: {
     processPid: number | null;
@@ -1413,12 +1433,22 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
     const cutoff = new Date(Date.now() - opts.backoffMs);
 
     const rows = await db
-      .select({ lease: environmentLeases })
+      .select({
+        lease: environmentLeases,
+        run: {
+          id: heartbeatRuns.id,
+          runtimeMode: heartbeatRuns.runtimeMode,
+          processPid: heartbeatRuns.processPid,
+          processGroupId: heartbeatRuns.processGroupId,
+        },
+        adapterType: agents.adapterType,
+      })
       .from(environmentLeases)
       .leftJoin(
         heartbeatRuns,
         eq(environmentLeases.heartbeatRunId, heartbeatRuns.id),
       )
+      .leftJoin(agents, eq(heartbeatRuns.agentId, agents.id))
       .where(
         and(
           eq(environmentLeases.status, "active"),
@@ -1435,7 +1465,11 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
       .limit(ORPHANED_ACTIVE_LEASE_SWEEP_PAGE_SIZE);
 
     let recovered = 0;
-    for (const { lease } of rows) {
+    for (const { lease, run, adapterType } of rows) {
+      if (run && trackedLocalRunProcessAlive(run, adapterType)) {
+        await deferOrphanedActiveLease(lease.id);
+        continue;
+      }
       // A provider resource id names one physical sandbox. A different lease
       // row can still hold that same resource in a live status, so this sweep
       // must not tear down a sandbox that a different lease still owns.
