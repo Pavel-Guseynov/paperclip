@@ -15,6 +15,7 @@ import {
 } from "@paperclipai/db";
 import { conflict } from "../errors.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
+import { readProcessStartedAt } from "./hot-restart.js";
 import {
   EXECUTION_RECONCILIATION_CAUSES,
   type ExecutionReconciliation,
@@ -79,10 +80,14 @@ export async function validateExecutionReconciliation(input: {
       process.kill(pid, 0);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ESRCH") continue;
+      // Something owns the number but this server may not signal it. After a reboot or a
+      // long wait that is usually an unrelated process that was handed the recycled number.
+      if (await processStartedAfterRun(Math.abs(pid), run.processStartedAt)) continue;
       throw conflict(
         "The previous provider's process ownership cannot be verified.",
       );
     }
+    if (await processStartedAfterRun(Math.abs(pid), run.processStartedAt)) continue;
     throw conflict(
       "The previous provider is still running. Stop it before continuing.",
     );
@@ -125,6 +130,26 @@ export async function validateExecutionReconciliation(input: {
     exposeLowTrustRaw: false,
   });
   return run;
+}
+
+/**
+ * True when the process that holds `pid` now is not the one the run recorded: its start time
+ * differs from the recorded one, so the host recycled the number. An unreadable start time, or a
+ * run that recorded none, proves nothing and the caller keeps treating the process as the provider.
+ * The recorded start time is normally read from the OS at spawn; when that read failed it is the
+ * spawn timestamp, which can sit a second or two off the OS value. Only a clearly different start
+ * time counts, so a provider that is still running is never taken for a recycled number.
+ */
+const RECYCLED_PID_START_TOLERANCE_MS = 5_000;
+async function processStartedAfterRun(pid: number, recordedStartedAt: Date | null) {
+  if (!recordedStartedAt) return false;
+  const observed = await readProcessStartedAt(pid).catch(() => null);
+  if (!observed) return false;
+  const observedAt = new Date(observed).getTime();
+  return (
+    !Number.isNaN(observedAt) &&
+    Math.abs(observedAt - recordedStartedAt.getTime()) > RECYCLED_PID_START_TOLERANCE_MS
+  );
 }
 
 /** Durable delivery marker lives on the existing source-scoped recovery action. */
