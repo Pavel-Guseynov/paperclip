@@ -1989,6 +1989,13 @@
       "when": 1791583603972,
       "tag": "0285_kind_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 286,
+      "version": "7",
+      "when": 1791615979047,
+      "tag": "0286_fearless_sage",
+      "breakpoints": true
     }
   ]
 }
