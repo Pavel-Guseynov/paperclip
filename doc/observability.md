@@ -14,12 +14,15 @@ Logs are not exported by this integration.
 install includes it. It stays a no-op interface until an SDK registers a
 provider, so it exports no telemetry by itself.
 
-The SDK, the auto-instrumentation bundle, and the resources and
-semantic-conventions helpers are *optional peer dependencies*: they are not in
-the default lockfile, and the server loads them dynamically only when an
-operator turns the feature on. The three exporters below are mutually
-alternative peer dependencies — install exactly **one**, matching
-`OTEL_EXPORTER_OTLP_PROTOCOL`.
+The SDK, the auto-instrumentation bundle, the resources and
+semantic-conventions helpers, and the OTLP/HTTP protobuf exporter
+(`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`) are *optional dependencies* of
+`@paperclipai/server` at exact versions, so a production install
+(`pnpm deploy --prod`) includes them. The server loads them dynamically only
+when an operator turns the feature on. They are also declared as optional peer
+dependencies, which the exact-version check below reads. The gRPC and
+HTTP/JSON exporters are mutually alternative peer dependencies — install
+exactly **one** of them yourself when you do not use `http/protobuf`.
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, none of the `@opentelemetry/*` SDK
 packages are imported and there is zero runtime overhead.
@@ -36,9 +39,13 @@ them.
 
 ## Enabling tracing
 
-### 1. Install the OTel peer dependencies
+### 1. Install the OTel packages
 
-Install the SDK, the auto-instrumentations bundle, the resources/semconv
+A production install of the server already includes the SDK, the
+auto-instrumentations bundle, the resources/semconv helpers and the
+`http/protobuf` exporter. Skip this step when you use that protocol. For
+another protocol, or for a source checkout that omits optional dependencies,
+install the SDK, the auto-instrumentations bundle, the resources/semconv
 helpers, and **one** exporter matching your chosen OTLP protocol, at the exact
 versions below.
 
