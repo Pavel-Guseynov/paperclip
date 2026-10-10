@@ -56,6 +56,23 @@ export function redactRegisteredSecretValues<T>(input: T, values: string[]): T {
   ) as T;
 }
 
+/**
+ * Runs whose context names the issue, either as `issueId` or as `paperclipIssue.id`. Each
+ * expression has its own index (heartbeat_runs_company_ctx_issue_created_idx and
+ * heartbeat_runs_company_ctx_paperclip_issue_idx), so the OR is served by both. Exported so the
+ * query plan can be asserted: without the second index this read every run of the company, each
+ * with a context of up to megabytes, on every redacted issue response.
+ */
+export function runsOfIssueFilter(companyId: string, issueId: string) {
+  return and(
+    eq(heartbeatRuns.companyId, companyId),
+    or(
+      sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+      sql`${heartbeatRuns.contextSnapshot} -> 'paperclipIssue' ->> 'id' = ${issueId}`,
+    ),
+  );
+}
+
 export function createRunSecretRedactionRegistry(db: Db) {
   const provider = getSecretProvider("local_encrypted");
 
@@ -81,13 +98,7 @@ export function createRunSecretRedactionRegistry(db: Db) {
   async function valuesForIssue(companyId: string, issueId: string) {
     const rows = await db.select({ contextSnapshot: registrySnapshot })
       .from(heartbeatRuns)
-      .where(and(
-        eq(heartbeatRuns.companyId, companyId),
-        or(
-          sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
-          sql`${heartbeatRuns.contextSnapshot} -> 'paperclipIssue' ->> 'id' = ${issueId}`,
-        ),
-      ));
+      .where(runsOfIssueFilter(companyId, issueId));
     return valuesForRuns(rows);
   }
 

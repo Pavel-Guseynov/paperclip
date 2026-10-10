@@ -152,6 +152,12 @@ export const heartbeatRuns = pgTable(
       sql`(${table.contextSnapshot} ->> 'issueId')`,
       table.createdAt.desc(),
     ),
+    // Serves the issue-scoped secret redaction lookup, whose OR names this expression next to
+    // context issueId. Without it the OR scans every run's context.
+    companyCtxPaperclipIssueIdx: index("heartbeat_runs_company_ctx_paperclip_issue_idx").on(
+      table.companyId,
+      sql`((${table.contextSnapshot} -> 'paperclipIssue') ->> 'id')`,
+    ),
     companyCtxTaskCreatedIdx: index("heartbeat_runs_company_ctx_task_created_idx").on(
       table.companyId,
       sql`(${table.contextSnapshot} ->> 'taskId')`,

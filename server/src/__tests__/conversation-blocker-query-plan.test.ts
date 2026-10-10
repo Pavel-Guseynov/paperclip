@@ -17,6 +17,7 @@ import {
 } from "../services/conversation-continuation.js";
 import { EXECUTION_RECONCILIATION_CAUSES } from "@paperclipai/shared";
 import { executionBlockerPredicate } from "../services/execution-blocker.js";
+import { explainPlan, seedCompanyWithAgent, seedManyRuns } from "./helpers/query-plan.js";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -47,72 +48,12 @@ describeDatabase("execution blocker query plans", () => {
     await tempDb?.cleanup();
   });
 
-  async function seedCompany() {
-    const companyId = randomUUID();
-    const agentId = randomUUID();
-    await db.insert(companies).values({
-      id: companyId,
-      name: "Paperclip",
-      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
-      requireBoardApprovalForNewAgents: false,
-    });
-    await db.insert(agents).values({
-      id: agentId,
-      companyId,
-      name: "Coder",
-      role: "engineer",
-      status: "active",
-      adapterType: "claude_local",
-      adapterConfig: {},
-      runtimeConfig: {},
-      permissions: {},
-    });
-    return { companyId, agentId };
-  }
-
-  async function explain(query: ReturnType<typeof sql>) {
-    const rows = await db.execute(sql`explain ${query}`);
-    return (rows as unknown as Array<Record<string, string>>).map((row) => row["QUERY PLAN"]).join("\n");
-  }
-
-  /** A realistic spread: many terminal legacy runs over many issues, some recording adapter.invoke events. */
-  async function seedManyRuns(companyId: string, agentId: string, targetIssueId: string) {
-    const runs = Array.from({ length: 3000 }, (_, index) => {
-      const issueId = index === 0 ? targetIssueId : randomUUID();
-      return {
-        id: randomUUID(),
-        companyId,
-        agentId,
-        status: "failed",
-        runtimeMode: "legacy",
-        ...(index % 2 === 0 ? { nativeIssueId: issueId } : {}),
-        contextSnapshot: { issueId, filler: "x".repeat(400) },
-      };
-    });
-    for (let offset = 0; offset < runs.length; offset += 500) {
-      await db.insert(heartbeatRuns).values(runs.slice(offset, offset + 500));
-    }
-    await db.insert(heartbeatRunEvents).values(
-      runs.slice(0, 600).map((run) => ({
-        companyId,
-        runId: run.id,
-        agentId,
-        seq: 1,
-        eventType: "adapter.invoke",
-        payload: { adapterType: "claude_local" },
-      })),
-    );
-    await db.execute(sql`analyze heartbeat_runs`);
-    await db.execute(sql`analyze heartbeat_run_events`);
-    return runs;
-  }
-
   it("finds an issue's terminal runs through the issue indexes, not a scan of the company's runs", async () => {
-    const { companyId, agentId } = await seedCompany();
+    const { companyId, agentId } = await seedCompanyWithAgent(db);
     const issueId = randomUUID();
-    await seedManyRuns(companyId, agentId, issueId);
+    await seedManyRuns(db, companyId, agentId, issueId);
 
-    const plan = await explain(
+    const plan = await explainPlan(db, 
       sql`select * from ${heartbeatRuns} where ${conversationOwnershipRunFilter(companyId, issueId)}`,
     );
 
@@ -122,11 +63,11 @@ describeDatabase("execution blocker query plans", () => {
   });
 
   it("checks the conversation predicate for given run ids without scanning run events", async () => {
-    const { companyId, agentId } = await seedCompany();
-    const runs = await seedManyRuns(companyId, agentId, randomUUID());
+    const { companyId, agentId } = await seedCompanyWithAgent(db);
+    const runs = await seedManyRuns(db, companyId, agentId, randomUUID());
     const ids = runs.slice(0, 3).map((run) => run.id);
 
-    const plan = await explain(
+    const plan = await explainPlan(db, 
       sql`select id from ${heartbeatRuns} where ${inArray(heartbeatRuns.id, ids)} and ${conversationRunPredicate()}`,
     );
 
@@ -135,11 +76,11 @@ describeDatabase("execution blocker query plans", () => {
   });
 
   it("evaluates the conversation recovery hold without scanning heartbeat runs per recovery action", async () => {
-    const { companyId, agentId } = await seedCompany();
+    const { companyId, agentId } = await seedCompanyWithAgent(db);
     const issueId = randomUUID();
-    await seedManyRuns(companyId, agentId, issueId);
+    await seedManyRuns(db, companyId, agentId, issueId);
 
-    const plan = await explain(
+    const plan = await explainPlan(db, 
       sql`select * from ${issueRecoveryActions}
         where ${issueRecoveryActions.companyId} = ${companyId}
           and ${issueRecoveryActions.sourceIssueId} = ${issueId}
@@ -151,7 +92,7 @@ describeDatabase("execution blocker query plans", () => {
 
 
   it("reads an issue's open or replay-blocked recovery records through the partial index, not its whole history", async () => {
-    const { companyId } = await seedCompany();
+    const { companyId } = await seedCompanyWithAgent(db);
     const issueId = randomUUID();
     await db.insert(issues).values({ id: issueId, companyId, title: "Stranded", status: "in_progress", priority: "medium" });
     const base = {
@@ -174,7 +115,7 @@ describeDatabase("execution blocker query plans", () => {
     await db.insert(issueRecoveryActions).values({ ...base, status: "active", fingerprint: "open" });
     await db.execute(sql`analyze issue_recovery_actions`);
 
-    const plan = await explain(
+    const plan = await explainPlan(db, 
       sql`select * from ${issueRecoveryActions}
         where ${issueRecoveryActions.companyId} = ${companyId}
           and ${issueRecoveryActions.sourceIssueId} = ${issueId}
@@ -192,7 +133,7 @@ describeDatabase("execution blocker query plans", () => {
   });
 
   it("still blocks on a terminal conversation run recorded by native issue id or by context snapshot", async () => {
-    const { companyId, agentId } = await seedCompany();
+    const { companyId, agentId } = await seedCompanyWithAgent(db);
     const nativeIssueId = randomUUID();
     const contextIssueId = randomUUID();
     const otherIssueId = randomUUID();
