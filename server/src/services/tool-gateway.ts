@@ -1302,6 +1302,7 @@ export function createToolGatewayService(
 
   async function connectedMcpToolsForCompany(
     companyId: string,
+    scope?: { applicationIds: string[]; connectionIds: string[]; catalogEntryIds: string[] } | null,
   ): Promise<ToolGatewayDescriptor[]> {
     // Read each connection and application row once. Selecting them in the
     // catalog join repeats the full connection row (config included) for
@@ -1328,6 +1329,13 @@ export function createToolGatewayService(
               eq(toolCatalogEntries.status, "active"),
               isNull(toolCatalogEntries.quarantinedAt),
               connectedMcpConnectionFilter(companyId),
+              scope
+                ? or(
+                    inArray(toolApplications.id, scope.applicationIds),
+                    inArray(toolCatalogEntries.connectionId, scope.connectionIds),
+                    inArray(toolCatalogEntries.id, scope.catalogEntryIds),
+                  )
+                : undefined,
             ),
           )
           .orderBy(toolConnections.name, toolCatalogEntries.name);
@@ -2701,6 +2709,20 @@ export function createToolGatewayService(
     });
   }
 
+  function policyActor(input: {
+    companyId: string;
+    agentId: string | null;
+    actorType?: "agent" | "user" | "system" | "plugin";
+    actorId?: string | null;
+    gatewayId?: string | null;
+  }): ToolAccessDecisionInput["actor"] {
+    return {
+      actorType: input.actorType ?? (input.agentId ? "agent" : "system"),
+      actorId: input.actorId ?? input.agentId ?? input.gatewayId ?? input.companyId,
+      agentId: input.agentId,
+    };
+  }
+
   function policyInputForAgentTool(input: {
     companyId: string;
     agentId: string | null;
@@ -2715,16 +2737,9 @@ export function createToolGatewayService(
     projectId?: string | null;
     gatewayId?: string | null;
   }): ToolAccessDecisionInput {
-    const actorType = input.actorType ?? (input.agentId ? "agent" : "system");
-    const actorId =
-      input.actorId ?? input.agentId ?? input.gatewayId ?? input.companyId;
     return {
       companyId: input.companyId,
-      actor: {
-        actorType,
-        actorId,
-        agentId: input.agentId,
-      },
+      actor: policyActor(input),
       runContext: {
         heartbeatRunId: input.heartbeatRunId ?? null,
         issueId: input.issueId ?? null,
@@ -3007,9 +3022,29 @@ export function createToolGatewayService(
   }
 
   /** Shared connection descriptors and task restrictions; no provider calls. */
-  async function connectionToolsForContext(session: ToolGatewaySession): Promise<ToolGatewayDescriptor[]> {
+  // A named gateway whose own profile alone decides its tools reads only the
+  // catalog entries that profile selects, instead of every company tool.
+  async function namedGatewayDiscoveryScopeForSession(session: ToolGatewaySession) {
+    if (!session.gatewayId) return null;
+    return policyService.namedGatewayDiscoveryScope({
+      companyId: session.companyId,
+      gatewayId: session.gatewayId,
+      actor: policyActor({
+        companyId: session.companyId,
+        agentId: session.agentId,
+        actorType: session.actorType,
+        actorId: session.actorId ?? session.gatewayTokenId ?? null,
+        gatewayId: session.gatewayId,
+      }),
+    });
+  }
+
+  async function connectionToolsForContext(
+    session: ToolGatewaySession,
+    scope?: { applicationIds: string[]; connectionIds: string[]; catalogEntryIds: string[] } | null,
+  ): Promise<ToolGatewayDescriptor[]> {
     const guestBotConnection = await githubGuestBotConnectionForSession(db, session);
-    const connectedTools = (await connectedMcpToolsForCompany(session.companyId))
+    const connectedTools = (await connectedMcpToolsForCompany(session.companyId, scope))
       .filter(tool => !guestBotConnection || !tool.connectionId || (tool.connectionId === guestBotConnection && tool.providerType === "paperclip_github_chat"));
     return [
       ...await githubBotToolsForSession(db, session),
@@ -3026,7 +3061,8 @@ export function createToolGatewayService(
     if (session.agentId) {
       await assertAgentInCompany(session.companyId, session.agentId);
     }
-    const connectionTools = await connectionToolsForContext(session);
+    const discoveryScope = await namedGatewayDiscoveryScopeForSession(session);
+    const connectionTools = await connectionToolsForContext(session, discoveryScope);
     const onDemandTargets = connectionTools.filter(isOnDemandRemoteTool);
     const tools = [
       ...allTools(),
