@@ -31,6 +31,15 @@ export const activityLog = pgTable(
       table.responsibleUserId,
       table.createdAt,
     ),
+    // Latest activity of one entity (issue list sort key, per-issue last-activity reads): one
+    // backward probe instead of every activity row of the entity or of the whole company. Plain
+    // ascending on purpose: MAX(created_at) does not use a DESC NULLS LAST index.
+    companyEntityCreatedIdx: index("activity_log_company_entity_created_idx").on(
+      table.companyId,
+      table.entityType,
+      table.entityId,
+      table.createdAt,
+    ),
     runIdIdx: index("activity_log_run_id_idx").on(table.runId),
     entityIdx: index("activity_log_entity_type_id_idx").on(table.entityType, table.entityId),
   }),

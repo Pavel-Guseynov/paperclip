@@ -1,0 +1,2 @@
+-- paperclip:migration-safety-ignore large-create-index-not-concurrently: Drizzle migrations run transactionally so CONCURRENTLY is unavailable, and the deployed activity_log is about 173 MB so the build is brief
+CREATE INDEX "activity_log_company_entity_created_idx" ON "activity_log" USING btree ("company_id","entity_type","entity_id","created_at");

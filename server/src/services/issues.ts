@@ -2911,7 +2911,8 @@ function issueLatestCommentAtExpr(companyId: string) {
   `;
 }
 
-function issueLatestLogAtExpr(companyId: string) {
+/** Latest non-inbox activity on each issue; exported so its query plan can be asserted. */
+export function issueLatestLogAtExpr(companyId: string) {
   return sql<Date | null>`
     (
       SELECT MAX(${activityLog.createdAt})
