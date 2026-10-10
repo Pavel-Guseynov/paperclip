@@ -188,6 +188,21 @@ derived from statement start and finish events, and the idle connection count is
 not reported. Queue wait is measured from the call into the driver to the
 moment the driver starts the statement on a connection.
 
+### Event-loop stalls
+
+A synchronous block of the main thread stops every timer, lease renewal and request, and the logs say
+nothing until it ends. A worker thread watches a heartbeat the main thread bumps. When the heartbeat
+stops for `PAPERCLIP_EVENT_LOOP_STALL_THRESHOLD_MS` (default `5000`; `0` turns the reporter off), it
+writes structured records to stderr while the stall lasts, using synchronous writes because the main
+thread cannot flush its streams. The records have `action: "event_loop_stall"`:
+
+| `message` | Fields in `attributes` |
+| --- | --- |
+| `Event loop is blocked` | `blockedMs`; `stack`, the main thread's JavaScript stack read through the inspector (an `execFileSync` frame names a synchronous child-process wait); `mainThreadPaused` (`false` and `stack: null` when the thread could not be paused within 2 s); `childProcesses`, the server's children by executable name only (arguments can carry secrets); `sample`; `pid` |
+| `Event loop is running again` | `blockedMs` for the whole stall; `samples` |
+
+While a stall lasts, another `Event loop is blocked` sample follows every 30 s.
+
 ### Background tasks
 
 Scheduler, recovery and sweep ticks pass through `trackHeartbeatSchedulerWork`
