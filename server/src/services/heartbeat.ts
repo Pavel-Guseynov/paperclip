@@ -762,6 +762,8 @@ const EXECUTION_PATH_HEARTBEAT_RUN_STATUSES = [
   "running",
   "scheduled_retry",
 ] as const;
+/** A wake younger than this may still be finished by the run that owns it. */
+const ORPHANED_WAKE_GRACE_MS = 60_000;
 const CANCELLABLE_HEARTBEAT_RUN_STATUSES = [
   "queued",
   "running",
@@ -19780,7 +19782,129 @@ export function heartbeatService(
     return { scanned: pending.length, enqueued, alreadyQueued, invalid };
   }
 
+  /**
+   * Finishes wakes that nothing else can finish.
+   *
+   * A claimed wake is finished by the run that claimed it. When that run ended
+   * without finishing it (for example the restart backstop terminalized it as
+   * orphaned_running_run), the wake stays claimed for good and the stranded-issue
+   * sweep counts it as work in flight. A deferred wake is promoted when the run it
+   * waited on releases the issue. When that release never drained the queue, or
+   * the hold it waited behind was resolved, no run is left to release and the wake
+   * stays deferred for good. Both strand an assigned issue with no owner.
+   *
+   * Claimed wakes with a terminal run are marked finished with the run's outcome.
+   * Deferred wakes with no run in flight, no execution hold and an assignee that
+   * still owns the issue are promoted by re-driving the release drain of the last
+   * terminal run for that issue and agent, which applies every promotion rule.
+   */
+  async function rearmOrphanedWakes(now = new Date()) {
+    const cutoff = new Date(now.getTime() - ORPHANED_WAKE_GRACE_MS);
+    const finishedClaims = await db
+      .select({
+        id: agentWakeupRequests.id,
+        runStatus: heartbeatRuns.status,
+        runFinishedAt: heartbeatRuns.finishedAt,
+      })
+      .from(agentWakeupRequests)
+      .innerJoin(heartbeatRuns, eq(heartbeatRuns.id, agentWakeupRequests.runId))
+      .where(
+        and(
+          eq(agentWakeupRequests.status, "claimed"),
+          isNull(agentWakeupRequests.finishedAt),
+          inArray(heartbeatRuns.status, [...HEARTBEAT_RUN_TERMINAL_STATUSES]),
+          lte(heartbeatRuns.finishedAt, cutoff),
+        ),
+      )
+      .limit(100);
+    for (const claim of finishedClaims) {
+      await setWakeupStatus(
+        claim.id,
+        claim.runStatus === "succeeded" ? "completed" : claim.runStatus === "cancelled" ? "cancelled" : "failed",
+        {
+          finishedAt: claim.runFinishedAt ?? now,
+          error: "The run ended before this wake request was marked finished",
+        },
+      );
+    }
+
+    const deferred = await db
+      .select({
+        id: agentWakeupRequests.id,
+        companyId: agentWakeupRequests.companyId,
+        agentId: agentWakeupRequests.agentId,
+        issueId: sql<string>`${agentWakeupRequests.payload} ->> 'issueId'`,
+      })
+      .from(agentWakeupRequests)
+      .where(
+        and(
+          eq(agentWakeupRequests.status, "deferred_issue_execution"),
+          lte(agentWakeupRequests.updatedAt, cutoff),
+          sql`${agentWakeupRequests.payload} ->> 'issueId' is not null`,
+        ),
+      )
+      .orderBy(asc(agentWakeupRequests.requestedAt))
+      .limit(100);
+    const handled = new Set<string>();
+    let promoted = 0;
+    for (const wake of deferred) {
+      const key = `${wake.agentId}:${wake.issueId}`;
+      if (handled.has(key) || !isUuidLike(wake.issueId)) continue;
+      handled.add(key);
+      const [issue] = await db
+        .select({
+          assigneeAgentId: issues.assigneeAgentId,
+          status: issues.status,
+          executionRunId: issues.executionRunId,
+        })
+        .from(issues)
+        .where(and(eq(issues.companyId, wake.companyId), eq(issues.id, wake.issueId)));
+      if (
+        !issue ||
+        issue.assigneeAgentId !== wake.agentId ||
+        ["done", "cancelled"].includes(issue.status) ||
+        issue.executionRunId
+      ) {
+        continue;
+      }
+      const [live] = await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .where(
+          and(
+            eq(heartbeatRuns.companyId, wake.companyId),
+            eq(heartbeatRuns.agentId, wake.agentId),
+            inArray(heartbeatRuns.status, [...EXECUTION_PATH_HEARTBEAT_RUN_STATUSES]),
+            sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${wake.issueId}`,
+          ),
+        )
+        .limit(1);
+      if (live) continue;
+      if (await getExecutionBlocker(db, wake.companyId, wake.issueId)) continue;
+      const [lastRun] = await db
+        .select({ id: heartbeatRuns.id, companyId: heartbeatRuns.companyId })
+        .from(heartbeatRuns)
+        .where(
+          and(
+            eq(heartbeatRuns.companyId, wake.companyId),
+            eq(heartbeatRuns.agentId, wake.agentId),
+            inArray(heartbeatRuns.status, [...HEARTBEAT_RUN_TERMINAL_STATUSES]),
+            sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${wake.issueId}`,
+          ),
+        )
+        .orderBy(desc(heartbeatRuns.createdAt))
+        .limit(1);
+      if (!lastRun) continue;
+      await releaseIssueExecutionAndPromote(lastRun);
+      promoted += 1;
+    }
+    return { finishedClaims: finishedClaims.length, promoted };
+  }
+
   async function reconcileStrandedAssignedIssues() {
+    await rearmOrphanedWakes().catch((err) => {
+      logger.warn({ err }, "orphaned wake re-arm failed");
+    });
     return recovery.reconcileStrandedAssignedIssues({
       issueCreatedAtGte: await getWorktreeExecutionCutoff(),
     });

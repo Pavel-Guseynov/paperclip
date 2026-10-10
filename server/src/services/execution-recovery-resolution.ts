@@ -3,7 +3,7 @@ import { conversationRecoveryActionPredicate, evidenceRunId, getConversationOwne
 import { persistActivity } from "./activity-log.js";
 import { appendHeartbeatRunEvent } from "./heartbeat-run-events.js";
 import { logger } from "../middleware/logger.js";
-import { and, eq, inArray, isNull, not, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, not, or, sql } from "drizzle-orm";
 import {
   chatActions,
   environmentLeases,
@@ -190,6 +190,33 @@ export async function markExecutionReconciliation(
       and(
         eq(issueRecoveryActions.companyId, action.companyId),
         eq(issueRecoveryActions.id, action.id),
+      ),
+    );
+  // The verified outcome is about the run, not about one record. Earlier recovery passes left
+  // further settled no-replay holds for the same run on the same issue; each one still blocks
+  // the issue until it is resolved too. Retire them with this decision. They do not deliver
+  // the continuation: the resolved record does that once.
+  await db
+    .update(issueRecoveryActions)
+    .set({
+      evidence: sql`(${issueRecoveryActions.evidence} - 'automaticRecovery') || ${JSON.stringify({
+        executionReconciliation: {
+          ...decision,
+          actorId,
+          recordedAt: new Date().toISOString(),
+        },
+        continuationDelivery: "superseded",
+        supersededByRecoveryActionId: action.id,
+      })}::jsonb`,
+    })
+    .where(
+      and(
+        eq(issueRecoveryActions.companyId, action.companyId),
+        eq(issueRecoveryActions.sourceIssueId, action.sourceIssueId),
+        ne(issueRecoveryActions.id, action.id),
+        inArray(issueRecoveryActions.cause, [...EXECUTION_RECONCILIATION_CAUSES]),
+        sql`${issueRecoveryActions.evidence}->>'runId' = ${decision.runId}`,
+        sql`${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'blocked'`,
       ),
     );
 }
