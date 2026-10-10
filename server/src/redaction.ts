@@ -1,9 +1,19 @@
 import { redactCommandText } from "@paperclipai/adapter-utils";
 import { isPublicExecutorToolSelector } from "@paperclipai/adapter-utils/command-redaction";
 
-const SECRET_FIELD_NAME_PATTERN = String.raw`[A-Za-z0-9_-]*(?:api[-_]?key|access[-_]?token|auth(?:_?token)?|token|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connectionstring|browser[-_]?code|login[-_]?url)[A-Za-z0-9_-]*`;
+const SECRET_FIELD_KEYWORDS = String.raw`(?:api[-_]?key|access[-_]?token|auth(?:_?token)?|token|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connectionstring|browser[-_]?code|login[-_]?url)`;
+// A secret field name is one whole run of name characters that contains a
+// keyword. It is only tried from the start of its run (the lookbehind), and the
+// run is read once: the lookahead finds the keyword, then the run is consumed
+// greedily. Text scans over provider output must stay linear: an unanchored
+// "name characters, keyword, name characters" pattern is tried from every
+// position of a run and from every keyword inside it, which is quadratic on a
+// long hyphen or underscore separated run such as a base64url blob.
+const SECRET_FIELD_NAME_PATTERN = String.raw`(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]*?${SECRET_FIELD_KEYWORDS})[A-Za-z0-9_-]+`;
 
-const SECRET_PAYLOAD_KEY_RE = new RegExp(SECRET_FIELD_NAME_PATTERN, "i");
+// Name characters contain every keyword character, so a key holds a secret name
+// exactly when it holds a keyword.
+const SECRET_PAYLOAD_KEY_RE = new RegExp(SECRET_FIELD_KEYWORDS, "i");
 // Authorization reasons are policy decision codes, not credentials. They must
 // remain visible in audit receipts even though the field name contains
 // "authorization". JWT-shaped values are still caught by the value guard below.
@@ -346,10 +356,11 @@ const NATIVE_RUN_SPAN_NAMES = new Set([
   "task.run.measured",
   "task.settle",
 ]);
-const CLI_SECRET_FLAG_RE = new RegExp(
-  String.raw`^-{1,2}${SECRET_FIELD_NAME_PATTERN}$`,
-  "i",
-);
+const CLI_FLAG_SHAPE_RE = /^-{1,2}[A-Za-z0-9_-]*$/;
+
+function isSecretCliFlag(arg: string): boolean {
+  return CLI_FLAG_SHAPE_RE.test(arg) && SECRET_PAYLOAD_KEY_RE.test(arg);
+}
 const JSON_SECRET_FIELD_TEXT_RE = new RegExp(
   String.raw`((?:"|')?${SECRET_FIELD_NAME_PATTERN}(?:"|')?\s*:\s*(?:"|'))[^"'` +
     "`" +
@@ -546,6 +557,30 @@ function credentialEndAfterQuotedDelimiter(input: string, quotedEnd: number) {
   return input.length;
 }
 
+const AUTHORIZATION_WORD_RE = /authorization/i;
+const SCHEME_PREFIX_RE = /\s*(?:Bearer|Basic)/iy;
+
+/**
+ * False only when the quoted text beginning at `contentStart` certainly does
+ * not open with a Bearer or Basic scheme, so the caller can skip finding the
+ * quote's end. Finding it scans to the end of the input when the quote is never
+ * closed, and a label that is followed by a quote but no scheme would repeat
+ * that scan for every occurrence. `truncated` is how many trailing characters
+ * the caller drops from an unterminated value; a scheme word that reaches them
+ * is left for the caller to judge.
+ */
+function mayOpenWithScheme(
+  input: string,
+  contentStart: number,
+  truncated: number,
+): boolean {
+  SCHEME_PREFIX_RE.lastIndex = contentStart;
+  const prefix = SCHEME_PREFIX_RE.exec(input);
+  if (!prefix) return false;
+  const wordEnd = contentStart + prefix[0].length;
+  return wordEnd >= input.length - truncated || !/\w/.test(input[wordEnd]);
+}
+
 interface AuthorizationCredentialRange {
   start: number;
   end: number;
@@ -580,6 +615,7 @@ function authorizationCredentialRange(
 
   const rawValueQuote = input[valueStart];
   if (rawValueQuote === '"' || rawValueQuote === "'") {
+    if (!mayOpenWithScheme(input, valueStart + 1, 1)) return null;
     const quotedEnd = rawQuotedValueEnd(input, valueStart, rawValueQuote);
     const content = input.slice(valueStart + 1, quotedEnd - 1).trimStart();
     if (!/^(?:Bearer|Basic)\b/i.test(content)) return null;
@@ -592,6 +628,7 @@ function authorizationCredentialRange(
 
   const escapedValueQuote = escapedQuoteAt(input, valueStart);
   if (escapedValueQuote) {
+    if (!mayOpenWithScheme(input, valueStart + 2, 2)) return null;
     const quotedEnd = escapedQuotedValueEnd(
       input,
       valueStart,
@@ -645,23 +682,33 @@ function authorizationCredentialRange(
   return { start: valueStart, end, replacement: REDACTED_EVENT_VALUE };
 }
 
+// A name ends at its last word character; trailing dashes are not part of it.
+function nameEnd(name: string): number {
+  let end = name.length;
+  while (end > 0 && name[end - 1] === "-") end -= 1;
+  return end;
+}
+
 function redactAuthorizationCredentials(input: string): string {
+  if (!AUTHORIZATION_WORD_RE.test(input)) return input;
   // Include compound diagnostic labels such as proxyAuthorization while the
-  // value parser still requires a Basic/Bearer scheme before redacting.
-  const authorizationWord = /\b[A-Za-z0-9_-]*Authorization[A-Za-z0-9_-]*\b/gi;
+  // value parser still requires a Basic/Bearer scheme before redacting. Names
+  // are read as whole runs, so the scan stays linear on a long run.
+  const nameRun = /[A-Za-z0-9_-]+/g;
   const parts: string[] = [];
   let copiedThrough = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = authorizationWord.exec(input)) !== null) {
+  while ((match = nameRun.exec(input)) !== null) {
+    if (!AUTHORIZATION_WORD_RE.test(match[0])) continue;
     const range = authorizationCredentialRange(
       input,
-      match.index + match[0].length,
+      match.index + nameEnd(match[0]),
     );
     if (!range || range.start < copiedThrough) continue;
     parts.push(input.slice(copiedThrough, range.start), range.replacement);
     copiedThrough = range.end;
-    authorizationWord.lastIndex = range.end;
+    nameRun.lastIndex = range.end;
   }
 
   if (copiedThrough === 0) return input;
@@ -840,7 +887,7 @@ function sanitizeCommandArgs(args: unknown[]): unknown[] {
       return REDACTED_EVENT_VALUE;
     }
     if (typeof arg !== "string") return sanitizeValue(arg);
-    if (CLI_SECRET_FLAG_RE.test(arg.trim())) {
+    if (isSecretCliFlag(arg.trim())) {
       redactNext = true;
       return arg;
     }

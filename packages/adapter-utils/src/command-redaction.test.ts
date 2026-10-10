@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   REDACTED_COMMAND_TEXT_VALUE,
+  redactCommandText,
   redactDiagnosticText,
 } from "./command-redaction.js";
 
@@ -91,5 +92,31 @@ second-line\" status=401`;
     const output = redactDiagnosticText(input);
     expect(output).not.toContain("MARKERBACKSLASH_B");
     expect(output).toContain(REDACTED_COMMAND_TEXT_VALUE);
+  });
+});
+
+describe("secret name scanning", () => {
+  it("redacts the value of an option whose dashes are glued to the words before it", () => {
+    expect(redactCommandText("tool--token s3cr3t-value")).toBe("tool--token ***REDACTED***");
+  });
+
+  it("redacts the value of an option that starts a run of dashes", () => {
+    expect(redactCommandText("run ---api-key s3cr3t-value")).toBe("run ---api-key ***REDACTED***");
+  });
+
+  it("leaves a dash-separated word without a secret keyword alone", () => {
+    expect(redactCommandText("tool-name --flag value")).toBe("tool-name --flag value");
+  });
+
+  it("keeps the leading dashes of a dotted run it redacts", () => {
+    expect(redactCommandText("--abcdefgh.abcdefgh.abcdefgh")).toBe("--***REDACTED***");
+  });
+
+  it("keeps a public Executor selector and redacts a longer address that starts with one", () => {
+    expect(redactCommandText("executor.coreTools.integrations.list")).toBe("executor.coreTools.integrations.list");
+    expect(redactCommandText("executor.coreTools.integrations.list.abcdefgh1")).toBe(
+      "***REDACTED***.list.abcdefgh1",
+    );
+    expect(redactCommandText("executor.coreTools.integrations.list.")).toBe("executor.coreTools.integrations.list.");
   });
 });
