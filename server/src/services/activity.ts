@@ -36,6 +36,32 @@ export function normalizeActivityLimit(limit: number | undefined) {
   return Math.max(1, Math.min(MAX_ACTIVITY_LIMIT, Math.floor(limit ?? DEFAULT_ACTIVITY_LIMIT)));
 }
 
+/**
+ * Runs of an issue: runs whose context names it, plus runs that logged activity on it. The ids come
+ * from the two indexed sources (context issue index; activity entity index) and the runs are then
+ * read by primary key. The same condition written as `context issueId = x OR exists (...)` cannot
+ * use an index, so it evaluated the subquery for every run of the company. Exported so the query
+ * plan can be asserted.
+ */
+export function runsOfIssueCondition(companyId: string, issueId: string) {
+  return and(
+    eq(heartbeatRuns.companyId, companyId),
+    sql`${heartbeatRuns.id} in (
+      select ${heartbeatRuns.id}
+      from ${heartbeatRuns}
+      where ${heartbeatRuns.companyId} = ${companyId}
+        and ${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}
+      union
+      select ${activityLog.runId}
+      from ${activityLog}
+      where ${activityLog.companyId} = ${companyId}
+        and ${activityLog.entityType} = 'issue'
+        and ${activityLog.entityId} = ${issueId}
+        and ${activityLog.runId} is not null
+    )`,
+  );
+}
+
 export function activityService(db: Db) {
   const scheduledLivenessBackfills = new Set<string>();
   const issueIdAsText = sql<string>`${issues.id}::text`;
@@ -419,22 +445,7 @@ export function activityService(db: Db) {
             eq(agents.companyId, heartbeatRuns.companyId),
           ),
         )
-        .where(
-          and(
-            eq(heartbeatRuns.companyId, companyId),
-            or(
-              sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
-              sql`exists (
-                select 1
-                from ${activityLog}
-                where ${activityLog.companyId} = ${companyId}
-                  and ${activityLog.entityType} = 'issue'
-                  and ${activityLog.entityId} = ${issueId}
-                  and ${activityLog.runId} = ${heartbeatRuns.id}
-              )`,
-            ),
-          ),
-        )
+        .where(runsOfIssueCondition(companyId, issueId))
         .orderBy(desc(heartbeatRuns.createdAt));
 
       if (runs.length === 0) return runs;
