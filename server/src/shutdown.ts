@@ -11,6 +11,7 @@ export async function drainRunExecutionFinalizersForShutdown(input: {
   signal: "SIGINT" | "SIGTERM";
   drain: (() => Promise<void>) | null;
   timeoutMs?: number;
+  getActiveRunIds?: (() => string[]) | null;
   log: ShutdownLogger;
 }): Promise<"drained" | "timed_out" | "unavailable"> {
   if (!input.drain) return "unavailable";
@@ -25,9 +26,10 @@ export async function drainRunExecutionFinalizersForShutdown(input: {
       }),
     ]);
     if (result === "timed_out") {
-      input.log.info(
-        { signal: input.signal, timeoutMs },
-        "bounded heartbeat execution finalizer drain timed out",
+      const pendingRunIds = input.getActiveRunIds?.() ?? [];
+      input.log.error(
+        { signal: input.signal, timeoutMs, pendingRunIds, pendingRunCount: pendingRunIds.length },
+        "bounded heartbeat execution finalizer drain timed out; in-flight adapter executions did not settle",
       );
     }
     return result;
