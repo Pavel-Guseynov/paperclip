@@ -10,7 +10,7 @@ import request from "supertest";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
-  activityLog, agents, agentRuntimeState, agentWakeupRequests, authUsers, companies,
+  activityLog, agents, agentRuntimeState, agentWakeupRequests, authUsers, companies, companySkills,
   createDb, documentRevisions, documents, heartbeatRunEvents, heartbeatRuns,
   issueComments, issueDocuments, issueRecoveryActions, issueRelations, issues,
 } from "@paperclipai/db";
@@ -60,6 +60,7 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
       await db.delete(agentWakeupRequests);
       await db.delete(agentRuntimeState);
       await db.delete(agents);
+      await db.delete(companySkills);
       await db.delete(companies);
       await db.delete(authUsers);
     }
@@ -295,5 +296,114 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     expect((await db.select().from(issueRecoveryActions).where(eq(
       issueRecoveryActions.id, issue.body.executionBlocker.recoveryActionId,
     )))[0]).toMatchObject({ status: "resolved", outcome: "blocked" });
+  });
+
+  it("one verified reconciliation retires every settled hold of the same stopped run and no other run's", async () => {
+    const f = await settledProcessHold();
+    const [first] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issue.id));
+    // The same stopped run accumulated further settled no-replay holds before recovery was fixed.
+    const sibling = (fingerprint: string, runId: string) => ({ ...first!, id: randomUUID(), fingerprint, evidence: { ...first!.evidence, runId } });
+    const otherRunId = randomUUID();
+    await db.insert(issueRecoveryActions).values([
+      sibling("legacy-execution:dup-1", f.run.id),
+      sibling("legacy-execution:dup-2", f.run.id),
+      sibling("legacy-execution:other", otherRunId),
+    ]);
+    const before = (await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker;
+    expect(before).toMatchObject({ cause: "legacy_execution_requires_reconciliation" });
+
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`)
+      .send({ ...resolutionBody(f.run.id), actionId: first!.id }).expect(200);
+
+    const rows = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issue.id));
+    const sameRun = rows.filter(row => row.evidence.runId === f.run.id);
+    const otherRun = rows.filter(row => row.evidence.runId === otherRunId);
+    expect(sameRun).toHaveLength(3);
+    for (const row of sameRun) {
+      expect((row.evidence.automaticRecovery as { replay?: string } | undefined)?.replay).not.toBe("blocked");
+      expect(row.evidence.executionReconciliation).toMatchObject({ runId: f.run.id });
+    }
+    // Only the resolved hold delivers the continuation; its duplicates must not wake the agent again.
+    expect(sameRun.filter(row => row.evidence.continuationDelivery === "pending")).toHaveLength(1);
+    expect(otherRun).toHaveLength(1);
+    expect((otherRun[0]!.evidence.automaticRecovery as { replay?: string }).replay).toBe("blocked");
+    const after = (await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker;
+    expect(after).toMatchObject({ runId: otherRunId });
+  });
+
+  describe("wakes that nothing else can finish", () => {
+    const hourAgo = () => new Date(Date.now() - 3_600_000);
+
+    // A run that never started a provider (bootstrap evidence says so): replaying it repeats no action.
+    async function terminalPredecessor(f: Awaited<ReturnType<typeof fixture>>, errorCode: string) {
+      const [run] = await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id,
+        invocationSource: "on_demand", status: "failed", errorCode, finishedAt: hourAgo(),
+        resultJson: { executionRecovery: { kind: "bootstrap", providerWorkStarted: false } },
+        contextSnapshot: { issueId: f.issue.id } }).returning();
+      return run!;
+    }
+
+    const wakesOf = (agentId: string) => db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
+    const runsOf = (agentId: string) => db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId));
+
+    it("finishes a claimed wake whose run was terminalized without finishing it, so the issue is dispatched again", async () => {
+      const f = await fixture();
+      await db.update(issues).set({ status: "todo" }).where(eq(issues.id, f.issue.id));
+      const orphan = await terminalPredecessor(f, "orphaned_running_run");
+      await db.insert(agentWakeupRequests).values({ companyId: f.company.id, agentId: f.agent.id, source: "on_demand",
+        triggerDetail: "manual", reason: "issue_commented", status: "claimed", runId: orphan.id,
+        requestedByActorType: "user", requestedByActorId: f.company.defaultResponsibleUserId!,
+        requestedAt: hourAgo(), payload: { issueId: f.issue.id } });
+
+      await heartbeat.reconcileStrandedAssignedIssues();
+      await heartbeat.drainActiveRunExecutions();
+
+      const [wake] = await wakesOf(f.agent.id).then(rows => rows.filter(row => row.runId === orphan.id));
+      expect(wake).toMatchObject({ status: "failed" });
+      expect(wake!.finishedAt).not.toBeNull();
+      expect((await runsOf(f.agent.id)).filter(run => run.id !== orphan.id).length).toBeGreaterThan(0);
+    });
+
+    it("leaves a claimed wake alone while its run is still in flight", async () => {
+      const f = await fixture();
+      const [live] = await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id,
+        invocationSource: "on_demand", status: "running", startedAt: hourAgo(), contextSnapshot: { issueId: f.issue.id } }).returning();
+      await db.insert(agentWakeupRequests).values({ companyId: f.company.id, agentId: f.agent.id, source: "on_demand",
+        status: "claimed", runId: live!.id, requestedAt: hourAgo(), payload: { issueId: f.issue.id } });
+
+      await heartbeat.reconcileStrandedAssignedIssues();
+
+      expect((await wakesOf(f.agent.id))[0]).toMatchObject({ status: "claimed", finishedAt: null });
+    });
+
+    it("promotes a deferred wake that no run is left to release", async () => {
+      const f = await fixture();
+      await db.update(issues).set({ status: "todo" }).where(eq(issues.id, f.issue.id));
+      const earlier = await terminalPredecessor(f, "adapter_failed");
+      await db.insert(agentWakeupRequests).values({ companyId: f.company.id, agentId: f.agent.id, source: "on_demand",
+        triggerDetail: "manual", reason: "issue_commented", status: "deferred_issue_execution",
+        requestedByActorType: "user", requestedByActorId: f.company.defaultResponsibleUserId!,
+        requestedAt: hourAgo(), updatedAt: hourAgo(),
+        payload: { issueId: f.issue.id, _paperclipWakeContext: { issueId: f.issue.id, triggeredBy: "board" } } });
+
+      await heartbeat.reconcileStrandedAssignedIssues();
+      await heartbeat.drainActiveRunExecutions();
+
+      expect((await wakesOf(f.agent.id)).filter(wake => wake.status === "deferred_issue_execution")).toHaveLength(0);
+      expect((await runsOf(f.agent.id)).filter(run => run.id !== earlier.id).length).toBeGreaterThan(0);
+    });
+
+    it("does not promote a deferred wake while a run of that issue is in flight", async () => {
+      const f = await fixture();
+      await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id,
+        invocationSource: "on_demand", status: "running", startedAt: hourAgo(), contextSnapshot: { issueId: f.issue.id } });
+      await db.insert(agentWakeupRequests).values({ companyId: f.company.id, agentId: f.agent.id, source: "on_demand",
+        reason: "issue_commented", status: "deferred_issue_execution", requestedAt: hourAgo(), updatedAt: hourAgo(),
+        payload: { issueId: f.issue.id } });
+
+      await heartbeat.reconcileStrandedAssignedIssues();
+
+      expect((await wakesOf(f.agent.id))[0]).toMatchObject({ status: "deferred_issue_execution" });
+    });
   });
 });
