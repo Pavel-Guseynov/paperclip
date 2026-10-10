@@ -47,6 +47,7 @@ function callbacks(db: Db) {
     runTaskKey: (run: Run) => typeof run.contextSnapshot?.issueId === "string" ? run.contextSnapshot.issueId : null,
     filterZombieCoalesceTarget: <T extends { id: string; status: string }>(run: T | null) => run,
     getSchedulingSuppression: vi.fn(async () => ({ suppressed: false, reason: null } as Awaited<ReturnType<HeartbeatQueueDependencies["getSchedulingSuppression"]>>)),
+    runStartsStoppedForShutdown: vi.fn(() => false),
     executeRun: vi.fn(async () => undefined),
     applyWakeQueuePostCommitEffects: vi.fn(async () => undefined),
     releaseIssueExecutionAndPromote: vi.fn(async () => undefined),

@@ -932,6 +932,10 @@ function mergeAdapterRecoveryMetadata(input: {
 // Routes and the scheduler construct separate heartbeatService instances, but
 // they must agree on in-process adapter executions when reaping stale runs.
 const activeRunExecutions = new Set<string>();
+// Graceful shutdown waits for this process's run executions. A run that any
+// heartbeatService instance started during that wait would be cut off when the
+// process exits, so the stop on new runs belongs to the process.
+let runStartsStoppedForShutdown = false;
 // A legacy process adapter's signal exit can race the operator cancellation CAS while
 // its owned process group is still being joined. Keep that exit from becoming
 // a successful result (or a competing failure) before Stop settles. This is an
@@ -1604,7 +1608,10 @@ export function heartbeatService(
     sweepOrphanedActiveLeases,
     drainRunningRunsForShutdown,
   } = createHeartbeatRecovery(db, {
-    enterShutdown: () => { shutdownInProgress = true; },
+    enterShutdown: () => {
+      shutdownInProgress = true;
+      runStartsStoppedForShutdown = true;
+    },
     scheduleBoundedRetryForRun,
     appendRunEvent,
     environmentRuntime,
@@ -1846,6 +1853,7 @@ export function heartbeatService(
     isHeartbeatRunTerminalStatus,
     liveRunExecutions,
     getSchedulingSuppression,
+    runStartsStoppedForShutdown: () => runStartsStoppedForShutdown,
     resumeExecutionWaitComments,
     getWorktreeExecutionCutoff,
     resumeQueuedCommentInterrupt,
@@ -10324,6 +10332,7 @@ export function heartbeatService(
     resolveSchedulingSuppression: getSchedulingSuppression,
     drainRunningRunsForShutdown,
     drainActiveRunExecutions,
+    getActiveRunExecutionIds: () => [...activeRunExecutions],
     startTaskDrain,
     stopTaskDrain,
     getTaskDrainStatus,
