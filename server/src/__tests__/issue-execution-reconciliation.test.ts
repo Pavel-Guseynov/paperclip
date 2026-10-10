@@ -406,4 +406,34 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
       expect((await wakesOf(f.agent.id))[0]).toMatchObject({ status: "deferred_issue_execution" });
     });
   });
+
+  describe("an in-progress issue whose last run was cancelled for a reassignment", () => {
+    const hourAgo = () => new Date(Date.now() - 3_600_000);
+    const cancelledRun = (f: Awaited<ReturnType<typeof fixture>>, errorCode: string) => db.insert(heartbeatRuns).values({
+      companyId: f.company.id, agentId: f.agent.id, invocationSource: "retry", status: "cancelled", runtimeMode: "native",
+      errorCode, error: "Cancelled", scheduledRetryAttempt: 2, scheduledRetryReason: "transient_failure",
+      finishedAt: hourAgo(), createdAt: hourAgo(), contextSnapshot: { issueId: f.issue.id } });
+    const otherRuns = async (f: Awaited<ReturnType<typeof fixture>>) =>
+      (await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, f.agent.id))).filter(run => run.errorCode !== "issue_reassigned" && run.errorCode !== "adapter_failed");
+
+    it("dispatches the owner again: a reassignment stop is not a failed attempt that native recovery will continue", async () => {
+      const f = await fixture();
+      await cancelledRun(f, "issue_reassigned");
+
+      await heartbeat.reconcileStrandedAssignedIssues();
+      await heartbeat.drainActiveRunExecutions();
+
+      expect((await otherRuns(f)).length).toBeGreaterThan(0);
+    });
+
+    it("keeps leaving a failed native attempt to native recovery", async () => {
+      const f = await fixture();
+      await cancelledRun(f, "adapter_failed");
+
+      await heartbeat.reconcileStrandedAssignedIssues();
+      await heartbeat.drainActiveRunExecutions();
+
+      expect(await otherRuns(f)).toHaveLength(0);
+    });
+  });
 });
