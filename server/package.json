@@ -126,6 +126,13 @@
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
+  "optionalDependencies": {
+    "@opentelemetry/auto-instrumentations-node": "0.79.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.221.0",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-node": "0.221.0",
+    "@opentelemetry/semantic-conventions": "1.43.0"
+  },
   "peerDependencies": {
     "@opentelemetry/auto-instrumentations-node": "0.79.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "0.221.0",
