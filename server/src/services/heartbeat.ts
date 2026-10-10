@@ -1564,6 +1564,8 @@ export function heartbeatService(
     transientRetryBudgetSpent: (run) =>
       executionFailureRetryCount(run) >=
       BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
+    releaseTerminalizedRunLeases: (run) =>
+      runControl.releaseLeasesForRunWithoutExecutor(run, run.status, run.error),
   });
   const runDispatch = createRunDispatch(db);
   const {

@@ -1180,6 +1180,7 @@ export function createHeartbeatRunControl(db: Db, dependencies: HeartbeatRunCont
           message: options.eventMessage ?? "run cancelled",
           payload: { ...options.eventPayload, cancellation: readRunCancellation(cancelled.resultJson) },
         });
+        await releaseLeasesForRunWithoutExecutor(cancelled, cancelled.status, reason);
         await releaseIssueExecutionAndPromote(cancelled, {
           suppressImmediateRecovery: options.suppressImmediateRecovery,
         });
@@ -1191,6 +1192,34 @@ export function createHeartbeatRunControl(db: Db, dependencies: HeartbeatRunCont
       return cancelled;
     } finally {
       stopOwnership?.release();
+    }
+  }
+
+  // An executor releases its run's leases at the end of its own cleanup, after
+  // workspace copy-back. A legacy run that ends with no executor in this process
+  // never reaches that boundary, so its leases stay active and keep the issue
+  // blocked until the orphaned-lease sweep. Release them when the run ends.
+  async function releaseLeasesForRunWithoutExecutor(
+    run: Pick<typeof heartbeatRuns.$inferSelect, "id" | "companyId" | "agentId" | "runtimeMode">,
+    status: string,
+    failureReason: string | null,
+  ) {
+    if (run.runtimeMode !== "legacy" || activeRunExecutions.has(run.id)) return;
+    try {
+      await releaseEnvironmentLeasesForRun({
+        runId: run.id,
+        companyId: run.companyId,
+        agentId: run.agentId,
+        status,
+        failureReason,
+      });
+    } catch (err) {
+      // The run already ended. A failed release must not stop the caller from
+      // finishing it; the orphaned-lease sweep still recovers the lease.
+      logger.error(
+        { err, runId: run.id },
+        "failed to release environment leases of a run that ended without an executor",
+      );
     }
   }
 
@@ -1293,6 +1322,7 @@ export function createHeartbeatRunControl(db: Db, dependencies: HeartbeatRunCont
     cancelBudgetScopeWork,
     releaseIssueExecutionAndPromote,
     releaseEnvironmentLeasesForRun,
+    releaseLeasesForRunWithoutExecutor,
     acknowledgeRemoteStop,
     resumeRemoteStopComments,
     cancelRunInternal,
