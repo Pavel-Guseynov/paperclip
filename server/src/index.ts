@@ -5,6 +5,7 @@
 // HTTP server, so trace coverage does not depend on incidental timing.
 import { instrumentationReady, shutdownInstrumentation } from "./instrumentation.js";
 import { metrics } from "@opentelemetry/api";
+import { resolveEventLoopStallThresholdMs, startEventLoopStallReporter } from "./event-loop-stall-reporter.js";
 import { createBackgroundTaskMetrics } from "./background-task-metrics.js";
 import { sentryReady, shutdownSentry, captureException } from "./sentry.js";
 import { waitForPendingRunFailureReports } from "./services/run-failure-report.js";
@@ -212,6 +213,8 @@ async function startServerWithDatabaseTeardown(
   // Tracing must be active (or have failed and logged) before the first DB
   // connection or the HTTP server exists — see instrumentation.ts.
   await instrumentationReady;
+  // Names what blocks the event loop while it is blocked (PAPERCLIP_EVENT_LOOP_STALL_THRESHOLD_MS).
+  const eventLoopStallReporter = startEventLoopStallReporter({ thresholdMs: resolveEventLoopStallThresholdMs() });
   // Error monitoring must be ready before the first request can fail — see
   // sentry.ts.
   await sentryReady;
@@ -2018,7 +2021,10 @@ async function startServerWithDatabaseTeardown(
       drainPendingRunFailureReports: waitForPendingRunFailureReports,
       closeDatabase: closeDatabaseClients,
       stopEmbeddedPostgres,
-      shutdownInstrumentation,
+      shutdownInstrumentation: async () => {
+        await eventLoopStallReporter?.stop();
+        await shutdownInstrumentation();
+      },
       shutdownSentry,
       log: logger,
     });
