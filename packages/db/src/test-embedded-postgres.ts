@@ -2,6 +2,8 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import postgres from "postgres";
 import { applyPendingMigrations, closeRegisteredClients, ensurePostgresDatabase } from "./client.js";
 import {
   createEmbeddedPostgresLogBuffer,
@@ -43,6 +45,66 @@ export type EmbeddedPostgresTestDatabase = {
   connectionString: string;
   cleanup(): Promise<void>;
 };
+
+// A gate that runs many suites starts one Postgres cluster for all of them and
+// holds a database named `paperclip_template` with every migration applied. Each
+// suite then gets its own database copied from that template, which takes
+// milliseconds, instead of initialising a cluster and replaying every migration.
+// `PAPERCLIP_TEST_POSTGRES_URL` is a connection string to that cluster; unset,
+// every suite starts its own embedded cluster as before.
+export const SHARED_TEST_POSTGRES_URL_ENV = "PAPERCLIP_TEST_POSTGRES_URL";
+export const SHARED_TEST_POSTGRES_TEMPLATE = "paperclip_template";
+
+function sharedTestPostgresUrl(): string | null {
+  const value = process.env[SHARED_TEST_POSTGRES_URL_ENV]?.trim();
+  return value ? value : null;
+}
+
+function withDatabase(url: string, database: string): string {
+  const parsed = new URL(url);
+  parsed.pathname = `/${database}`;
+  return parsed.toString();
+}
+
+async function createDatabaseFromSharedTemplate(adminUrl: string): Promise<EmbeddedPostgresTestDatabase> {
+  const database = `paperclip_test_${randomUUID().replaceAll("-", "")}`;
+  const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
+  try {
+    await admin.unsafe(`create database "${database}" template "${SHARED_TEST_POSTGRES_TEMPLATE}"`);
+  } finally {
+    await admin.end();
+  }
+  const connectionString = withDatabase(adminUrl, database);
+  return {
+    connectionString,
+    cleanup: async () => {
+      await closeRegisteredClients(connectionString);
+      const dropper = postgres(adminUrl, { max: 1, onnotice: () => {} });
+      try {
+        await dropper.unsafe(`drop database if exists "${database}" with (force)`);
+      } finally {
+        await dropper.end();
+      }
+    },
+  };
+}
+
+async function probeSharedTestPostgres(adminUrl: string): Promise<EmbeddedPostgresTestSupport> {
+  const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
+  try {
+    const rows = await admin`select 1 as one from pg_database where datname = ${SHARED_TEST_POSTGRES_TEMPLATE}`;
+    return rows.length > 0
+      ? { supported: true }
+      : { supported: false, reason: `shared test Postgres has no ${SHARED_TEST_POSTGRES_TEMPLATE} database` };
+  } catch (error) {
+    return { supported: false, reason: `shared test Postgres is unreachable: ${(error as Error).message}` };
+  } finally {
+    await admin.end();
+  }
+}
+
+// Test-only accessor for the shared-cluster probe.
+export const probeSharedTestPostgresForTests = probeSharedTestPostgres;
 
 let embeddedPostgresSupportPromise: Promise<EmbeddedPostgresTestSupport> | null = null;
 
@@ -266,7 +328,8 @@ async function probeEmbeddedPostgresSupport(): Promise<EmbeddedPostgresTestSuppo
 
 export async function getEmbeddedPostgresTestSupport(): Promise<EmbeddedPostgresTestSupport> {
   if (!embeddedPostgresSupportPromise) {
-    embeddedPostgresSupportPromise = probeEmbeddedPostgresSupport();
+    const sharedUrl = sharedTestPostgresUrl();
+    embeddedPostgresSupportPromise = sharedUrl ? probeSharedTestPostgres(sharedUrl) : probeEmbeddedPostgresSupport();
   }
   return await embeddedPostgresSupportPromise;
 }
@@ -274,6 +337,9 @@ export async function getEmbeddedPostgresTestSupport(): Promise<EmbeddedPostgres
 export async function startEmbeddedPostgresTestDatabase(
   tempDirPrefix: string,
 ): Promise<EmbeddedPostgresTestDatabase> {
+  const sharedUrl = sharedTestPostgresUrl();
+  if (sharedUrl) return await createDatabaseFromSharedTemplate(sharedUrl);
+
   // The bounded retry hardens the cluster start against the port race. It throws
   // with the real Postgres output if every attempt fails.
   const { port, dataDir, instance } = await startEmbeddedPostgresWithRetry(tempDirPrefix);
