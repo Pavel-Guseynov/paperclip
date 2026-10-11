@@ -1078,7 +1078,8 @@ describe("deterministic remote process-session wrapper shutdown (PAP-5316)", () 
     const wrapper = await startWrapperProcess({ outputToStdout: false, terminateGraceMs: 200 });
     // Let the poll loop run a few cycles before the directory disappears.
     await delay(150);
-    await rm(wrapper.sessionDir, { recursive: true, force: true });
+    // The wrapper may still be writing into the directory, which makes a single removal pass report ENOTEMPTY.
+    await rm(wrapper.sessionDir, { recursive: true, force: true, maxRetries: 5 });
     await Promise.race([
       wrapper.exited,
       delay(4_000).then(() => {
