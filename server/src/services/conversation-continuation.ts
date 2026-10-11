@@ -177,14 +177,21 @@ export async function getConversationOwnershipBlocker(db: Db, companyId: string,
     .map((row) => row.id));
   const candidates = issueRuns.filter(({ run }) => conversationRunIds.has(run.id));
   for (const { run, activeLease: leaseHeld } of candidates) {
+    // A recycled PID cannot keep an old task blocked. An unreadable identity
+    // stays conservative; the original process may still own execution.
+    const startedDifferently = async (pid: number) => {
+      if (!run.processStartedAt) return false;
+      const observed = await readProcessStartedAt(pid).catch(() => null);
+      return observed !== null && new Date(observed).getTime() !== run.processStartedAt.getTime();
+    };
     let pidAlive = run.processPid !== null && processMayBeAlive(run.processPid);
-    if (pidAlive && run.processStartedAt) {
-      // A recycled PID cannot keep an old task blocked. An unreadable identity
-      // stays conservative; the original process may still own execution.
-      const observed = await readProcessStartedAt(run.processPid!).catch(() => null);
-      if (observed && new Date(observed).getTime() !== run.processStartedAt.getTime()) pidAlive = false;
+    if (pidAlive && await startedDifferently(run.processPid!)) pidAlive = false;
+    // The recorded start time is the provider's, so it identifies the group only when the
+    // provider led it: a group led by anything else is judged by its existence alone.
+    let groupAlive = run.processGroupId !== null && processMayBeAlive(-run.processGroupId);
+    if (groupAlive && run.processGroupId === run.processPid && await startedDifferently(run.processGroupId!)) {
+      groupAlive = false;
     }
-    const groupAlive = run.processGroupId !== null && processMayBeAlive(-run.processGroupId);
     if (pidAlive || groupAlive || leaseHeld) {
       return {
         runId: run.id,
