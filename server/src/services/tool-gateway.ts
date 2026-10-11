@@ -98,6 +98,7 @@ import {
   initializeMcpHttpSession,
   getMcpHttpSession,
   forgetMcpHttpSessions,
+  discardResponse,
   readMcpHttpResponse,
   McpHttpResponseError,
   mcpHttpRequestHeaders,
@@ -5965,6 +5966,7 @@ export function createToolGatewayService(
       contentLength &&
       Number(contentLength) > MAX_REMOTE_MCP_RESPONSE_BYTES
     ) {
+      await discardResponse(response);
       throw responseTooLargeError();
     }
     const body = await response.text();
@@ -6381,6 +6383,7 @@ export function createToolGatewayService(
         });
         headers = builtHeaders.headers;
         headerSummary = builtHeaders.summary;
+        await discardResponse(response);
         response = await dispatchRemote(endpoint, {
           ...requestInit,
           headers: mcpHttpRequestHeaders(headers),
@@ -6421,6 +6424,7 @@ export function createToolGatewayService(
         });
         headers = builtHeaders.headers;
         headerSummary = builtHeaders.summary;
+        await discardResponse(response);
         response = await dispatchRemote(endpoint, {
           ...requestInit,
           headers: mcpHttpRequestHeaders(headers),
@@ -6461,6 +6465,7 @@ export function createToolGatewayService(
         });
         headers = builtHeaders.headers;
         headerSummary = builtHeaders.summary;
+        await discardResponse(response);
         response = await dispatchRemote(endpoint, {
           ...requestInit,
           headers: mcpHttpRequestHeaders(headers),
@@ -6481,10 +6486,10 @@ export function createToolGatewayService(
                 await retainUpstreamHandoff(invocationId, pending);
                 // Defer this interaction to the user. Do not claim that consent
                 // was granted or repeat a potentially state-changing tool call.
-                await dispatchRemote(endpoint, {
+                await discardResponse(await dispatchRemote(endpoint, {
                   method: "POST", headers: mcpHttpRequestHeaders(requestHeaders),
                   body: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { action: "cancel" } }),
-                });
+                }));
                 throw new ToolGatewayHttpError(409, "This tool needs authorization in the provider.", "provider_interaction_required", { upstreamPending: pending, invocationId });
               }
               const request = extractMcpElicitationRequest(message);
