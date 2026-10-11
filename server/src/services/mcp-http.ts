@@ -36,6 +36,16 @@ export function mcpHttpRequestHeaders(extra?: Record<string, string>): Record<st
   };
 }
 
+/**
+ * Release the connection behind a response whose body will not be read. The
+ * transport holds the socket until the body is read or cancelled; a response
+ * that is simply dropped keeps it open, and once the peer closes its end the
+ * socket sits in CLOSE_WAIT until the idle deadline destroys it.
+ */
+export async function discardResponse(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
+}
+
 export class McpHttpInitializationError extends Error {
   constructor(
     message: string,
@@ -108,6 +118,7 @@ export async function initializeMcpHttpSession(input: {
       params: {},
     }),
   });
+  await discardResponse(initializedResponse);
   if (!initializedResponse.ok) {
     throw new McpHttpInitializationError(
       `Remote MCP initialized notification returned HTTP ${initializedResponse.status}`,
