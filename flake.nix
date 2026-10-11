@@ -307,7 +307,10 @@
         chmod -R u+w "$TMPDIR/shared-pgdata"
         chmod 0700 "$TMPDIR/shared-pgdata"
         PGPORT_SHARED=$(${freePort})
-        pg_ctl -D "$TMPDIR/shared-pgdata" -o "-p $PGPORT_SHARED -k $TMPDIR -c listen_addresses=127.0.0.1 -c autovacuum=on" -l "$TMPDIR/shared-pg.log" -w start
+        pg_ctl -D "$TMPDIR/shared-pgdata" -o "-p $PGPORT_SHARED -k $TMPDIR -c listen_addresses=127.0.0.1 -c autovacuum=on" -l "$TMPDIR/shared-pg.log" -w start || {
+          cat "$TMPDIR/shared-pg.log" >&2
+          exit 1
+        }
         export PAPERCLIP_TEST_POSTGRES_URL="postgres://paperclip@127.0.0.1:$PGPORT_SHARED/postgres"
       '';
 
