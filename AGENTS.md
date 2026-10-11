@@ -183,6 +183,17 @@ pnpm build
 
 If anything cannot be run, explicitly report what was not run and why.
 
+### Nix flake checks (fork)
+
+The fork's `flake.nix` caches dependencies and test results so a repeated run builds nothing:
+
+- `nix flake check` runs every typecheck (`typecheck-<package>`) and every test bucket (`test-<package>-b<N>`). A check re-runs only when a file it reads changed.
+- `nix run .#update-test-graph` regenerates `nix/test-graph.json`, the import graph that decides which files each test bucket reads. Run it after changing imports or adding a test; `test-graph-current` fails when it is stale.
+- `nix develop` provides node 24 and pnpm 11. `packages.<system>.nodeModules` is the installed workspace, keyed only by the lockfile, the manifests, `pnpm-workspace.yaml`, `patches/` and `.pnpmfile.cjs`; `checks.<system>.node-modules-inputs` proves a source-only change leaves it unchanged.
+- A test that reads a file by name rather than by import needs that path in `extraSources` in `flake.nix`; without it the sandboxed check fails.
+- Almost every file under `server/src` is imported by more than 200 server tests, so a server edit re-runs about half of the server buckets. Other packages re-run only their own.
+- The native Rust runner is not built by any check (`PAPERCLIP_SKIP_RUNNER_BINARY=1`).
+
 ## 8. API and Auth Expectations
 
 - Base path: `/api`
