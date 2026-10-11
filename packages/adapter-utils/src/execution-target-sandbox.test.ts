@@ -114,6 +114,9 @@ function createRecordingTraceContext(): {
   return { traceContext, spans };
 }
 
+// Generous so a loaded machine running many checks at once cannot expire the bridge or proxy.
+const PROCESS_SESSION_BUDGET_SEC = 30;
+
 describe("sandbox adapter execution targets", () => {
   const cleanupDirs: string[] = [];
 
@@ -228,8 +231,8 @@ describe("sandbox adapter execution targets", () => {
     const code = await new Promise<number | null>((resolve, reject) => {
       const timeout = setTimeout(() => {
         child.kill("SIGKILL");
-        reject(new Error("Timed out waiting for process session proxy."));
-      }, 5000);
+        reject(new Error(`Timed out waiting for process session proxy. stdout=${JSON.stringify(stdout)} stderr=${JSON.stringify(stderr)}`));
+      }, PROCESS_SESSION_BUDGET_SEC * 1000);
       child.on("error", (error) => {
         clearTimeout(timeout);
         reject(error);
@@ -336,7 +339,7 @@ describe("sandbox adapter execution targets", () => {
       cwd: "/local/workspace",
       env: { TOKEN: "token" },
       stdin: "prompt",
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
     });
@@ -348,7 +351,7 @@ describe("sandbox adapter execution targets", () => {
       cwd: "/workspace",
       env: { TOKEN: "token" },
       stdin: "prompt",
-      timeoutMs: 5000,
+      timeoutMs: PROCESS_SESSION_BUDGET_SEC * 1000,
     }));
     expect(adapterExecutionTargetSessionIdentity(target)).toEqual({
       transport: "sandbox",
@@ -389,7 +392,7 @@ describe("sandbox adapter execution targets", () => {
         cwd: rootDir,
         env: {},
         stdin: "hello-through-wrapper",
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         graceSec: 1,
         runLogTail: { create: () => runLogTail },
         onLog: async (stream, chunk) => { events.push({ stream, chunk }); },
@@ -433,7 +436,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -474,7 +477,9 @@ describe("sandbox adapter execution targets", () => {
 
       const nodeBinDir = path.dirname(process.execPath);
       const explicitHostPath = `${nodeBinDir}:/explicit-host-bin`;
-      const sandboxNativePath = `/usr/bin:/bin:${nodeBinDir}`;
+      // Starts from the ambient PATH so the wrapper finds the same nohup the other polled tests use:
+      // the system one refuses to run without a controlling terminal, as in a build sandbox.
+      const sandboxNativePath = `${process.env.PATH ?? ""}:/usr/bin:/bin:${nodeBinDir}`;
       vi.stubEnv("PATH", explicitHostPath);
 
       const delegate = createLocalSandboxRunner();
@@ -508,7 +513,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: { PATH: explicitHostPath },
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession,
       });
@@ -575,7 +580,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
       getRuntimeParentContext: () => runParentToken,
     });
@@ -639,7 +644,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -708,7 +713,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
       getRuntimeParentContext: () => currentParent as never,
     });
@@ -790,7 +795,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
       // Record each wrapper span name, then run the wrapped work.
       runtimeSpan: async (name, work) => {
@@ -862,7 +867,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
       // Record each wrapper span name, then run the wrapped work.
       runtimeSpan: async (name, work) => {
@@ -913,7 +918,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -960,7 +965,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -1006,7 +1011,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -1044,7 +1049,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -1124,7 +1129,7 @@ describe("sandbox adapter execution targets", () => {
       args: [childPath],
       cwd: rootDir,
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       onLog: async () => {},
     });
     expect(bridge).not.toBeNull();
@@ -1145,7 +1150,7 @@ describe("sandbox adapter execution targets", () => {
       const timeout = setTimeout(() => {
         child.kill("SIGKILL");
         reject(new Error("Timed out waiting for streaming process session proxy."));
-      }, 5000);
+      }, PROCESS_SESSION_BUDGET_SEC * 1000);
       child.on("error", (error) => {
         clearTimeout(timeout);
         reject(error);
@@ -1210,7 +1215,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
       });
@@ -1264,7 +1269,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
         // Record each wrapper span name, then run the wrapped work.
@@ -1323,7 +1328,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
         runtimeSpan,
@@ -1440,7 +1445,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
       });
@@ -1489,7 +1494,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
       });
@@ -1542,7 +1547,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
       });
@@ -1564,7 +1569,7 @@ describe("sandbox adapter execution targets", () => {
         const timeout = setTimeout(() => {
           child.kill("SIGKILL");
           reject(new Error("Timed out waiting for streamed process session proxy."));
-        }, 5000);
+        }, PROCESS_SESSION_BUDGET_SEC * 1000);
         child.on("error", (error) => {
           clearTimeout(timeout);
           reject(error);
@@ -1664,7 +1669,7 @@ describe("sandbox adapter execution targets", () => {
         args: [childPath],
         cwd: rootDir,
         env: {},
-        timeoutSec: 5,
+        timeoutSec: PROCESS_SESSION_BUDGET_SEC,
         onLog: async () => {},
         streamOutputViaSession: true,
       });
@@ -1967,7 +1972,7 @@ describe("sandbox adapter execution targets", () => {
         TMPDIR: "/var/folders/local/T",
         SAFE_VALUE: "visible",
       },
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
     });
@@ -2008,7 +2013,7 @@ describe("sandbox adapter execution targets", () => {
         HOME: "/home/sandbox",
         SAFE_VALUE: "visible",
       },
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
     });
@@ -6619,7 +6624,7 @@ describe("CLI-lane run-disposition seam", () => {
     const result = await runAdapterExecutionTargetProcess("run-cli-lost", sandboxTarget(runner), "agent-cli", [], {
       cwd: "/local",
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
       settleRunDisposition: () => broker.settleRunDisposition(),
@@ -6639,7 +6644,7 @@ describe("CLI-lane run-disposition seam", () => {
     const result = await runAdapterExecutionTargetProcess("run-cli-ok", sandboxTarget(runner), "agent-cli", [], {
       cwd: "/local",
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
       settleRunDisposition: () => broker.settleRunDisposition(),
@@ -6679,7 +6684,7 @@ describe("CLI-lane run-disposition seam", () => {
     const result = await runAdapterExecutionTargetProcess("run-cli-race", sandboxTarget(runner), "agent-cli", [], {
       cwd: "/local",
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
       runLogTail,
@@ -6706,7 +6711,7 @@ describe("CLI-lane run-disposition seam", () => {
     const result = await runAdapterExecutionTargetProcess("run-cli-latch", sandboxTarget(runner), "agent-cli", [], {
       cwd: "/local",
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
       settleRunDisposition: () => broker.settleRunDisposition(),
@@ -6727,7 +6732,7 @@ describe("CLI-lane run-disposition seam", () => {
     const result = await runAdapterExecutionTargetProcess("run-cli-failed", sandboxTarget(runner), "agent-cli", [], {
       cwd: "/local",
       env: {},
-      timeoutSec: 5,
+      timeoutSec: PROCESS_SESSION_BUDGET_SEC,
       graceSec: 1,
       onLog: async () => {},
       settleRunDisposition: () => {
