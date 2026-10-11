@@ -177,6 +177,7 @@
             ./doc
             ./packages/paperclip-runner
             ./packages/plugins
+            ./ui/public
           ];
         }
         .${dir} or [ ];
@@ -290,6 +291,9 @@
             initdb -D "$TMPDIR/pgdata" -U paperclip --auth=trust -E UTF8 --locale=C --no-sync
             cat >> "$TMPDIR/pgdata/postgresql.conf" <<'CONF'
             ${postgresConfig}CONF
+            # Left unvacuumed, the tables look like those of a freshly created database to
+            # the planner, so plan-shape tests see the same plans as on an embedded cluster.
+            echo "autovacuum = off" >> "$TMPDIR/pgdata/postgresql.conf"
             pg_ctl -D "$TMPDIR/pgdata" -o "-p $PORT -k $TMPDIR -c listen_addresses=127.0.0.1" -l "$TMPDIR/pg.log" -w start
             createdb -h 127.0.0.1 -p "$PORT" -U paperclip -E UTF8 --locale=C -T template0 paperclip_template
             (cd packages/db && DATABASE_URL="postgres://paperclip@127.0.0.1:$PORT/paperclip_template" ${pnpmRun "migrate"})
@@ -303,7 +307,7 @@
         chmod -R u+w "$TMPDIR/shared-pgdata"
         chmod 0700 "$TMPDIR/shared-pgdata"
         PGPORT_SHARED=$(${freePort})
-        pg_ctl -D "$TMPDIR/shared-pgdata" -o "-p $PGPORT_SHARED -k $TMPDIR -c listen_addresses=127.0.0.1" -l "$TMPDIR/shared-pg.log" -w start
+        pg_ctl -D "$TMPDIR/shared-pgdata" -o "-p $PGPORT_SHARED -k $TMPDIR -c listen_addresses=127.0.0.1 -c autovacuum=on" -l "$TMPDIR/shared-pg.log" -w start
         export PAPERCLIP_TEST_POSTGRES_URL="postgres://paperclip@127.0.0.1:$PGPORT_SHARED/postgres"
       '';
 
@@ -342,6 +346,7 @@
               pkgs.gnugrep
               pkgs.gnused
               pkgs.jq
+              pkgs.lsof
               pkgs.openssh
             ]
             ++ [ (if pkgs.stdenv.hostPlatform.isDarwin then pkgs.darwin.ps else pkgs.procps) ]
@@ -430,7 +435,14 @@
 
       # The server's suites each start their own database and cannot share a process
       # pool; its own config asks for one worker, which only the root config can set.
-      serialWorkers = dir: lib.optionalString (dir == "server") ", maxWorkers: 1, minWorkers: 1";
+      serialWorkers =
+        dir: if dir == "server" then ", maxWorkers: 1, minWorkers: 1" else ", maxWorkers: ${toString otherWorkers}";
+      # The gate shares the machine with other checks, and the packages' own limits
+      # (15 s for a server test, 5 s elsewhere) assume an idle one; a hung test still fails.
+      gateTimeoutMs = 60000;
+      timeoutFlags = dir: " --testTimeout=${toString gateTimeoutMs} --hookTimeout=${toString gateTimeoutMs}";
+      # Checks run side by side, so each leaves cores for the others.
+      otherWorkers = 2;
 
       # Packages the root vitest config lists run from the repository root; the rest
       # (the Runner, the MCP servers, the plugin examples) run from their own directory.
@@ -440,6 +452,53 @@
         )
       );
 
+      # Files a single test reads by name rather than by import; the bucket holding the
+      # test gets them as inputs and no other check does.
+      testInputs = {
+        # Checks that every test file the stress traceability report names exists.
+        "packages/paperclip-runner/src/eval/workflow-evals.test.ts" = [
+          ./packages/paperclip-runner/src
+          ./server/src/__tests__
+          ./server/src/services/native-runtime
+          ./ui/src/components
+          ./ui/src/context
+        ];
+      };
+
+      # Tests the gate does not run, each with its reason: they call a program or
+      # reach a service the sandbox does not provide. This list is the whole of what
+      # the Nix gate leaves out of the repository's test suites.
+      droppedTests = {
+        "packages/adapters/codex-local/src/server/reachability-matrix.test.ts" = "calls the codex CLI";
+        "packages/adapters/hermes/src/server/detect-model.test.ts" = "calls the hermes CLI";
+        "packages/adapters/kimi-local/src/server/execute.test.ts" = "depends on the kimi CLI's capability detection";
+        "packages/paperclip-runner/src/live/runnerd-codex-transport-settlement.test.ts" = "needs the built Rust runner binary";
+        "packages/paperclip-runner/src/live/runnerd-codex-transport.test.ts" = "needs the built Rust runner binary";
+        "packages/paperclip-runner/src/mock-core/local-runner.test.ts" = "needs the built Rust runner binary";
+        "packages/skills-catalog/src/packaged-artifacts.test.ts" = "runs pnpm build, which needs the package registry";
+        "cli/src/__tests__/company-import-export-e2e.test.ts" = "starts the built server and waits for it";
+        "server/src/__tests__/production-install.test.ts" = "runs pnpm deploy, which needs the package registry";
+        "server/src/services/native-runtime/native-codex-runner.integration.test.ts" = "needs cargo";
+      };
+
+      # Single test cases the gate does not run, by file. They pin descriptors in a
+      # temporary directory whose parents nobody else can write to; the build
+      # directory of a Nix build sits under a shared parent, and the same cases fail
+      # in the working tree when TMPDIR points at /private/tmp.
+      droppedCases = {
+        "packages/paperclip-runner/src/drivers/acpx/installation-integrity.test.ts" = [
+          "loads a verified ESM snapshot with relative imports and arguments"
+          "pins relative imports when the command directory is replaced"
+          "keeps descriptor-pinned CommonJS identity across replacement"
+        ];
+      };
+      caseFilter =
+        ids:
+        let
+          cases = lib.concatMap (id: droppedCases.${fileOf id} or [ ]) ids;
+        in
+        lib.optionalString (cases != [ ]) " -t '^(?!.*(${lib.concatStringsSep "|" cases})).*'";
+
       # Each bucket pays vitest's transform and import cost once, so the server, whose
       # tests share large modules, uses larger buckets.
       testsPerBucket = dir: if dir == "server" then 20 else 8;
@@ -448,15 +507,29 @@
       bucketOf =
         count: test: lib.mod (lib.fromHexString (builtins.substring 0 6 (builtins.hashString "sha256" test))) count;
 
+      # Tests that start listeners in the machine-wide runtime port range (42000-42999)
+      # cannot run beside each other, so each group runs in one check, one file at a time.
+      serialGroups = {
+        "server-ports" = [
+          "server/src/__tests__/local-service-supervisor.test.ts"
+          "server/src/__tests__/workspace-runtime-exposure-reservation.test.ts"
+          "server/src/__tests__/workspace-runtime.test.ts"
+          "server/src/services/workspace-runtime-exposure.test.ts"
+        ];
+      };
+
       testBucketChecks =
         pkgs: dir:
         let
           package = importGraph.packages.${dir} or { common = [ ]; tests = [ ]; };
-          testPaths = map fileOf package.tests;
+          grouped = lib.concatLists (lib.attrValues serialGroups);
+          runTests = lib.filter (id: !(droppedTests ? ${fileOf id}) && !(lib.elem (fileOf id) grouped)) package.tests;
+          testPaths = map fileOf runTests;
           count = bucketCount dir testPaths;
-          bucketTests = index: lib.filter (id: bucketOf count (fileOf id) == index) package.tests;
-          bucketSource =
-            index:
+          bucketTests = index: lib.filter (id: bucketOf count (fileOf id) == index) runTests;
+          groupTests = group: lib.filter (id: lib.elem (fileOf id) serialGroups.${group}) package.tests;
+          sourceFor =
+            ids:
             lib.fileset.toSource {
               root = ./.;
               fileset = lib.fileset.unions (
@@ -464,34 +537,46 @@
                 ++ lib.optional (needsScripts dir) ./scripts
                 ++ extraSources dir
                 ++ map (d: ./. + "/${d}/package.json") (closureDirs dir)
-                ++ map (id: ./. + "/${fileOf id}") (reachableFrom (package.common ++ bucketTests index))
+                # Built output (the plugin SDK, the Runner) imports its own dependencies,
+                # which the import graph of the tests cannot see.
+                ++ map (d: ./. + "/${d}") (lib.concatMap closureDirs (distDirs dir))
+                ++ map (id: ./. + "/${fileOf id}") (reachableFrom (package.common ++ ids))
+                ++ lib.concatMap (id: testInputs.${fileOf id} or [ ]) ids
               );
             };
+          # Tests resolve repository paths against the working directory, and the
+          # repository's own runner starts vitest at the root, so this does too: a
+          # root config naming only this package's project, files by repository path.
+          commandFor =
+            ids:
+            if lib.elem dir rootVitestProjects then ''
+              cd "$ROOT"
+              # Some tests ask git about the repository they run in.
+              git init -q
+              cat > vitest.config.ts <<'CONFIG'
+              import { defineConfig } from "vitest/config";
+              export default defineConfig({ test: { projects: [{ extends: "./${dir}/vitest.config.ts", test: { name: "${dir}", root: "./${dir}", testTimeout: ${toString gateTimeoutMs}, hookTimeout: ${toString gateTimeoutMs} } }]${serialWorkers dir} } });
+              CONFIG
+              ${pnpmExec "vitest run${timeoutFlags dir}${caseFilter ids} ${lib.concatMapStringsSep " " fileOf ids}"}
+            '' else
+              pnpmExec "vitest run --maxWorkers=${toString otherWorkers}${timeoutFlags dir}${caseFilter ids} ${
+                lib.concatMapStringsSep " " (id: lib.removePrefix "${dir}/" (fileOf id)) ids
+              }";
+          checkFor =
+            name: ids:
+            lib.nameValuePair name (mkCheckFrom {
+              inherit pkgs dir name;
+              kind = "test";
+              src = sourceFor ids;
+              command = commandFor ids;
+            });
         in
-        map (
-          index:
-          lib.nameValuePair "test-${slug dir}-b${toString index}" (mkCheckFrom {
-            inherit pkgs dir;
-            kind = "test";
-            name = "test-${slug dir}-b${toString index}";
-            src = bucketSource index;
-            # Tests resolve repository paths against the working directory, and the
-            # repository's own runner starts vitest at the root, so this does too: a
-            # root config naming only this package's project, files by repository path.
-            command =
-              if lib.elem dir rootVitestProjects then ''
-                cd "$ROOT"
-                # Some tests ask git about the repository they run in.
-                git init -q
-                cat > vitest.config.ts <<'CONFIG'
-                import { defineConfig } from "vitest/config";
-                export default defineConfig({ test: { projects: ["${dir}"]${serialWorkers dir} } });
-                CONFIG
-                ${pnpmExec "vitest run ${lib.concatMapStringsSep " " fileOf (bucketTests index)}"}
-              '' else
-                pnpmExec "vitest run ${lib.concatMapStringsSep " " (id: lib.removePrefix "${dir}/" (fileOf id)) (bucketTests index)}";
-          })
-        ) (lib.filter (index: bucketTests index != [ ]) (lib.range 0 (count - 1)));
+        map (index: checkFor "test-${slug dir}-b${toString index}" (bucketTests index)) (
+          lib.filter (index: bucketTests index != [ ]) (lib.range 0 (count - 1))
+        )
+        ++ map (group: checkFor "test-${slug dir}-${group}" (groupTests group)) (
+          lib.filter (group: groupTests group != [ ]) (lib.attrNames serialGroups)
+        );
 
       checksFor =
         pkgs:
@@ -577,6 +662,10 @@
             pkgs.pnpmConfigHook
           ];
           dontBuild = true;
+          # pnpmConfigHook rewrites the interpreter line of every script in node_modules,
+          # which changes the files tools verify by digest. The scripts keep the bytes the
+          # packages shipped, as in any other install.
+          postUnpack = "patchShebangs() { :; }";
           installPhase = ''
             runHook preInstall
             # The install ignores scripts; the packages pnpm-workspace.yaml lists under

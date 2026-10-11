@@ -17,7 +17,7 @@ const {
   readPaperclipRuntimeSkillEntries: vi.fn(async () => []),
   resolveAdapterExecutionTargetCommandForLogs: vi.fn(async () => "codex"),
   runAdapterExecutionTargetProcess: vi.fn(),
-  tempCodexHome: "/tmp/paperclip-codex-stderr-error-test-home",
+  tempCodexHome: `${process.env.TMPDIR ?? "/tmp"}/paperclip-codex-stderr-error-test-home-${process.pid}`,
 }));
 
 vi.mock("./acp.js", () => ({

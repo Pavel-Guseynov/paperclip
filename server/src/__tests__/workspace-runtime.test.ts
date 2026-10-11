@@ -4985,8 +4985,10 @@ describe("ensureRuntimeServicesForRun", () => {
       ),
     ].join(" ");
 
-    process.env.PAPERCLIP_CONFIG = "/tmp/base-paperclip-config.json";
-    process.env.PAPERCLIP_HOME = "/tmp/base-paperclip-home";
+    // Per-test directories: a fixed path under /tmp can belong to another user.
+    const baseHome = await fs.mkdtemp(path.join(os.tmpdir(), "base-paperclip-"));
+    process.env.PAPERCLIP_CONFIG = path.join(baseHome, "config.json");
+    process.env.PAPERCLIP_HOME = path.join(baseHome, "home");
     process.env.PAPERCLIP_INSTANCE_ID = "base-instance";
     process.env.DATABASE_URL = "postgres://shared-db.example.com/paperclip";
 
@@ -7395,7 +7397,7 @@ describeEmbeddedPostgres("workspace runtime service control persistence", () => 
       await cleanupRuntimeHome();
       await fixture.cleanup();
     }
-  }, 20_000);
+  }, 60_000);
 
   it("returns a bounded structured conflict and exposes only same-company workspace references", async () => {
     const fixture = await createRuntimeFixture({

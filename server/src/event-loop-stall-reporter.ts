@@ -99,16 +99,16 @@ function mainThreadStack() {
 
 function childProcesses() {
   return new Promise((resolve) => {
-    execFile('ps', ['-A', '-o', 'pid=,ppid=,etime=,stat=,command='], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+    execFile('ps', ['-A', '-o', 'pid=,ppid=,etime=,command='], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
       if (error) { resolve(null); return; }
       const children = [];
       for (const line of stdout.split('\n')) {
-        const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+        const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)/);
         if (!match || Number(match[2]) !== mainPid) continue;
-        const executable = path.basename(match[5]);
+        const executable = path.basename(match[4]);
         // This sampler's own ps is a child of the process too.
         if (executable === 'ps') continue;
-        children.push({ pid: Number(match[1]), elapsed: match[3], state: match[4], executable });
+        children.push({ pid: Number(match[1]), elapsed: match[3], executable });
       }
       resolve(children);
     });
