@@ -79,13 +79,16 @@ export function conversationRunPredicate() {
   return or(
     inArray(sql`${heartbeatRuns.runnerProfileJson}->'adapterDispatch'->>'adapterType'`, types),
     sql`${heartbeatRuns.resultJson}->>'conversationContinuation' = ${CONVERSATION_CONTINUATION_POLICY}`,
-    sql`exists (
-      select 1 from ${heartbeatRunEvents}
+    // Keep this lookup bounded to the selected run. EXISTS can be decorrelated
+    // into a hash of every invocation event, even for a handful of run ids.
+    sql`(select 1
+      from ${heartbeatRunEvents}
       where ${heartbeatRunEvents.companyId} = ${heartbeatRuns.companyId}
         and ${heartbeatRunEvents.runId} = ${heartbeatRuns.id}
         and ${heartbeatRunEvents.eventType} = 'adapter.invoke'
         and ${inArray(sql`${heartbeatRunEvents.payload}->>'adapterType'`, types)}
-    )`,
+      limit 1
+    ) is not null`,
   );
 }
 

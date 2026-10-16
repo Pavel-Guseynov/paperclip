@@ -4,6 +4,7 @@ import {
   heartbeatRuns,
   heartbeatRunEvents,
   issueComments,
+  issueRecoveryActions,
   issueThreadInteractions,
   issues,
   runIdentityContexts,
@@ -22,6 +23,42 @@ export async function explicitOperatorRunIdentity(
     eq(agentWakeupRequests.id, run.wakeupRequestId), eq(agentWakeupRequests.companyId, run.companyId),
     eq(agentWakeupRequests.agentId, run.agentId), eq(agentWakeupRequests.runId, run.id),
   )) : [];
+  const reconciliationPrefix = "execution-reconciliation:";
+  if (request?.idempotencyKey?.startsWith(reconciliationPrefix)) {
+    const actionId = request.idempotencyKey.slice(reconciliationPrefix.length);
+    const context = run.contextSnapshot;
+    const issueId = context?.issueId;
+    if (!context || !isUuidLike(actionId) || typeof issueId !== "string" || !isUuidLike(issueId)) {
+      throw forbidden("Execution reconciliation authority is unavailable");
+    }
+    const [action] = await executor.select().from(issueRecoveryActions).where(and(
+      eq(issueRecoveryActions.id, actionId), eq(issueRecoveryActions.companyId, run.companyId),
+      eq(issueRecoveryActions.sourceIssueId, issueId),
+    ));
+    const value = action?.evidence.executionReconciliation;
+    const decision = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown> : {};
+    // Only the board resolution route records this actor. Bind it to the same
+    // validated recovery, system receipt and successor; retry lineage alone
+    // retains the predecessor's identity and cannot authorize another person.
+    if (!action || action.status !== "resolved" || action.kind !== "active_run_watchdog" ||
+        action.returnOwnerAgentId !== run.agentId ||
+        request.source !== "automation" || request.triggerDetail !== "system" ||
+        request.reason !== "issue_recovery_action_restored" ||
+        request.requestedByActorType !== "system" || request.requestedByActorId !== "execution-recovery" ||
+        request.payload?.issueId !== issueId || request.payload?.recoveryActionId !== actionId ||
+        context.recoveryActionId !== actionId || context.source !== "execution.reconciled" ||
+        context.forceFreshSession !== true || context.previousRunId !== decision.runId ||
+        context.retryOfRunId !== decision.runId || typeof decision.runId !== "string" || !isUuidLike(decision.runId) ||
+        decision.providerStopped !== true || !["completed", "not_performed", "mixed"].includes(String(decision.actionOutcome)) ||
+        typeof decision.outcomeEvidence !== "string" || !decision.outcomeEvidence.trim() ||
+        typeof decision.actorId !== "string" || !decision.actorId.trim() ||
+        !["pending", "delivered"].includes(String(action.evidence.continuationDelivery)) ||
+        (action.evidence.continuationDelivery === "delivered" && action.evidence.continuationRunId !== run.id)) {
+      throw forbidden("Execution reconciliation authority is unavailable");
+    }
+    return { actorId: decision.actorId, cause: "execution_reconciliation" };
+  }
   if (request?.payload?.manualUserWake === true) {
     if (request.requestedByActorType !== "user" || !request.requestedByActorId) {
       throw forbidden("Manual wake requires an authenticated user");

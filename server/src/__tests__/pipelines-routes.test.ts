@@ -1032,14 +1032,20 @@ describeEmbeddedPostgres("pipeline routes", () => {
     const approvedDetail = await http.get(`/api/cases/${approved.body.case.id}`).expect(200);
     expect(approvedDetail.body.case.title).toBe("Approved title");
     expect(approvedDetail.body.case.fields).toEqual({ channel: "blog" });
+    expect(approvedDetail.body.case.version).toBe(4);
+    expect(approvedDetail.body.stage.kind).toBe("done");
     const approvedEvents = await http.get(`/api/cases/${approved.body.case.id}/events`).expect(200);
-    expect(approvedEvents.body.items.map((event: { type: string }) => event.type)).toEqual([
+    // Events in one transaction can share createdAt; the API orders by that
+    // timestamp and does not promise an insertion order for ties.
+    expect(approvedEvents.body.items.map((event: { type: string }) => event.type).sort()).toEqual([
       "ingested",
       "transitioned",
       "updated",
       "transitioned",
       "review_decided",
-    ]);
+    ].sort());
+    const eventTimes = approvedEvents.body.items.map((event: { createdAt: string }) => Date.parse(event.createdAt));
+    expect(eventTimes).toEqual([...eventTimes].sort((left, right) => left - right));
 
     const rejected = await http
       .post(`/api/pipelines/${pipeline.body.id}/cases`)

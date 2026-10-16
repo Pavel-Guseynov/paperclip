@@ -420,6 +420,17 @@ For a run that started, the canonical
 the hold. Unknown action outcomes remain blocked. This changes no configuration
 option. See [execution semantics](doc/execution-semantics.md).
 
+In authenticated deployments, an escalated review assigned to the obsolete
+`local-board` identity can recover through the ordinary issue update API. The
+server selects an eligible participant from the existing review policy while
+preserving its stage, decisions, change-request count and return author. Recovery
+refuses an active execution, a concurrently changed issue or a policy with no
+eligible reviewer. Real human holds and local-trusted board decisions retain
+their existing rules. If the subsequent author execution needs reconciliation,
+the existing board resolution authorizes its fresh continuation under that
+authenticated board user; historical run identities and issue ownership remain
+unchanged, and current access checks still apply.
+
 ### Managed MCP authentication
 
 Managed MCP clients send their gateway bearer to
@@ -530,6 +541,13 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 ### Nix
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
+
+Database checks start a test-owned PostgreSQL cluster on a private Unix socket,
+with TCP listeners disabled. The fixture supplies `PGHOST`, `PGPORT`, `PGUSER`
+and `PAPERCLIP_TEST_POSTGRES_URL`; the URL selects the database and the native
+PostgreSQL environment selects its private endpoint. Each suite clones the
+migrated template and removes its database at cleanup. The check stops its
+cluster after the test command, including a failed test command.
 
 ## Roadmap
 

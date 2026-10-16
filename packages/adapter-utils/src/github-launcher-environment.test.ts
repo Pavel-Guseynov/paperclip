@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as ssh from "./ssh.js";
 import type { CommandManagedRuntimeRunner } from "./command-managed-runtime.js";
 import { githubBrokerEnvironment } from "./github-launcher.js";
+import { resolveCommandForLogs } from "./server-utils.js";
 import {
   ensureAdapterExecutionTargetCommandResolvable,
   prepareGitHubOperationLaunchers,
@@ -22,13 +23,19 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function sandbox(layout: string) {
+async function sandbox(layout: string, realGit = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "paperclip-launcher-env-"));
   roots.push(root);
   const bin = path.join(root, layout);
   await mkdir(bin, { recursive: true });
   for (const cli of ["claude", "codex", "git", "gh"]) {
-    await writeFile(path.join(bin, cli), `#!/bin/sh\nprintf '%s\\n' '${cli} started'\n`, { mode: 0o700 });
+    if (cli === "git" && realGit) {
+      // Stage the test runtime's declared Git, without inheriting its PATH or
+      // relying on a host Git installation in /usr/bin.
+      await symlink(await realpath(await resolveCommandForLogs("git", root, process.env)), path.join(bin, cli));
+    } else {
+      await writeFile(path.join(bin, cli), `#!/bin/sh\nprintf '%s\\n' '${cli} started'\n`, { mode: 0o700 });
+    }
   }
   const remotePath = `${bin}:${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`;
   // Execute real shells and staged launchers, with a provider-owned environment.
@@ -68,11 +75,10 @@ async function sandbox(layout: string) {
 
 describe("managed GitHub launcher environment", () => {
   it.each(["module", "commonjs"])("runs managed GitHub launchers inside a %s project", async (type) => {
-    const fixture = await sandbox("usr/bin");
+    const fixture = await sandbox("usr/bin", true);
     const packageJson = JSON.stringify({ type });
     await writeFile(path.join(fixture.root, "package.json"), packageJson);
     // Exercise real Git; gh uses the fixture CLI because it need not be installed.
-    await rm(path.join(fixture.bin, "git"));
     const env = await prepareGitHubOperationLaunchers({
       runId: "run-package-type", target: fixture.target, cwd: fixture.root,
       env: githubBrokerEnvironment({}, { url: "", token: "" }),
@@ -128,9 +134,7 @@ describe("managed GitHub launcher environment", () => {
   });
 
   it("reads Git metadata from the SSH workspace instead of an existing controller directory", async () => {
-    const fixture = await sandbox("ssh-toolchain/bin");
-    // Use real Git for the probe, not the launcher fixture's stub.
-    await rm(path.join(fixture.bin, "git"));
+    const fixture = await sandbox("ssh-toolchain/bin", true);
     await exec("git", ["init", fixture.root]);
     const controllerCwd = path.join(fixture.root, "controller");
     await mkdir(controllerCwd);

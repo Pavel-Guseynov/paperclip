@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentWakeupRequests, agents, companies, createDb, heartbeatRuns, heartbeatRunEvents, issueComments, issueThreadInteractions, issues } from "@paperclipai/db";
+import { agentWakeupRequests, agents, companies, createDb, heartbeatRuns, heartbeatRunEvents, issueComments, issueRecoveryActions, issueThreadInteractions, issues } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { acceptSteeredIdentity, captureRunIdentity, initializeRunIdentity, listRunIdentityContexts, rejectSteeredIdentity, reserveSteeredIdentity } from "../services/run-identity.js";
 
@@ -77,6 +77,100 @@ const support = await getEmbeddedPostgresTestSupport();
     const retried = await initializeRunIdentity(db, { companyId: input.companyId, runId: retryRunId,
       issueId: input.issueId, parentRunId: input.runId, responsibleUserId: "A", cause: "retry" });
     expect(retried.responsibleUserId).toBe("operator");
+  });
+
+  async function seedReconciliation() {
+    const input = await seed();
+    const sourceRunId = randomUUID(), actionId = randomUUID(), wakeupRequestId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: sourceRunId, companyId: input.companyId,
+      agentId: input.agentId, status: "failed", contextSnapshot: { issueId: input.issueId } });
+    await initializeRunIdentity(db, { companyId: input.companyId, runId: sourceRunId,
+      issueId: input.issueId, responsibleUserId: "local-board", cause: "legacy" });
+    const evidence = {
+      executionReconciliation: { runId: sourceRunId, providerStopped: true,
+        actionOutcome: "not_performed", outcomeEvidence: "Provider stopped before its refused write.",
+        actorId: "operator", recordedAt: new Date().toISOString() },
+      continuationDelivery: "pending",
+    };
+    await db.insert(issueRecoveryActions).values({ id: actionId, companyId: input.companyId,
+      sourceIssueId: input.issueId, returnOwnerAgentId: input.agentId, status: "resolved",
+      kind: "active_run_watchdog", cause: "legacy_execution_requires_reconciliation",
+      fingerprint: actionId, nextAction: "Continue the verified correction", evidence });
+    const payload = { issueId: input.issueId, recoveryActionId: actionId };
+    const contextSnapshot = { ...payload, previousRunId: sourceRunId, retryOfRunId: sourceRunId,
+      forceFreshSession: true, source: "execution.reconciled" };
+    await db.insert(agentWakeupRequests).values({ id: wakeupRequestId, companyId: input.companyId,
+      agentId: input.agentId, runId: input.runId, source: "automation", triggerDetail: "system",
+      reason: "issue_recovery_action_restored", status: "claimed", payload,
+      requestedByActorType: "system", requestedByActorId: "execution-recovery",
+      idempotencyKey: `execution-reconciliation:${actionId}` });
+    await db.update(heartbeatRuns).set({ wakeupRequestId, contextSnapshot, retryOfRunId: sourceRunId })
+      .where(eq(heartbeatRuns.id, input.runId));
+    return { ...input, sourceRunId, actionId, wakeupRequestId, evidence, payload, contextSnapshot };
+  }
+
+  it.each(["pending", "delivered"])("uses the board's %s reconciliation without rewriting historical identity", async (delivery) => {
+    const input = await seedReconciliation();
+    await db.update(issueRecoveryActions).set({ evidence: { ...input.evidence,
+      continuationDelivery: delivery, ...(delivery === "delivered" ? { continuationRunId: input.runId } : {}) } })
+      .where(eq(issueRecoveryActions.id, input.actionId));
+    const identity = await initializeRunIdentity(db, { ...input, parentRunId: input.sourceRunId,
+      responsibleUserId: "local-board", cause: "retry" });
+    expect(identity).toMatchObject({ responsibleUserId: "operator", cause: "execution_reconciliation" });
+    const history = await listRunIdentityContexts(db, input.companyId, input.runId);
+    expect(history[0].parentContextId).toBeNull();
+    expect(history.map(row => row.responsibleUserId)).toEqual(["operator", "operator", "operator", "operator"]);
+    expect(await initializeRunIdentity(db, { ...input, responsibleUserId: "other", cause: "restart" })).toEqual(identity);
+    const [predecessor] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, input.sourceRunId));
+    expect(predecessor).toMatchObject({ status: "failed", responsibleUserId: "local-board" });
+    const [issue] = await db.select().from(issues).where(eq(issues.id, input.issueId));
+    expect(issue.responsibleUserId).toBe("owner");
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, input.issueId));
+    expect(input.messageIds.map(id => comments.find(c => c.id === id)?.authorUserId)).toEqual(["A", "B", "A"]);
+  });
+
+  it.each([
+    "malformed-id", "missing-action", "other-issue", "other-owner", "unresolved", "wrong-kind",
+    "missing-decision", "missing-actor", "provider-live", "unknown-outcome", "missing-evidence",
+    "invalidated", "other-successor", "other-source-run", "other-retry", "wrong-context", "no-fresh-session",
+    "wrong-payload-issue", "wrong-payload-action", "wrong-source", "wrong-trigger", "wrong-reason", "wrong-requester", "wrong-requester-type",
+  ])("rejects %s reconciliation authority before creating any execution identity", async (fault) => {
+    const input = await seedReconciliation();
+    if (fault === "malformed-id" || fault === "missing-action") {
+      await db.update(agentWakeupRequests).set({ idempotencyKey: `execution-reconciliation:${fault === "malformed-id" ? "invalid" : randomUUID()}` })
+        .where(eq(agentWakeupRequests.id, input.wakeupRequestId));
+    } else if (["other-issue", "other-owner", "unresolved", "wrong-kind"].includes(fault)) {
+      // Existing foreign keys remain valid; only the authority's scoped binding changes.
+      if (fault === "other-issue") {
+        const issueId = randomUUID();
+        await db.insert(issues).values({ id: issueId, companyId: input.companyId, title: "Other task" });
+        await db.update(issueRecoveryActions).set({ sourceIssueId: issueId }).where(eq(issueRecoveryActions.id, input.actionId));
+      } else await db.update(issueRecoveryActions).set(fault === "other-owner" ? { returnOwnerAgentId: null } :
+        fault === "unresolved" ? { status: "active" } : { kind: "conversation" })
+        .where(eq(issueRecoveryActions.id, input.actionId));
+    } else if (["missing-decision", "missing-actor", "provider-live", "unknown-outcome", "missing-evidence", "invalidated", "other-successor"].includes(fault)) {
+      const evidence: Record<string, unknown> = { ...input.evidence };
+      if (fault === "missing-decision") evidence.executionReconciliation = null;
+      else if (fault === "invalidated") evidence.continuationDelivery = "invalidated";
+      else if (fault === "other-successor") Object.assign(evidence, { continuationDelivery: "delivered", continuationRunId: randomUUID() });
+      else evidence.executionReconciliation = { ...input.evidence.executionReconciliation,
+        ...(fault === "missing-actor" ? { actorId: " " } : fault === "provider-live" ? { providerStopped: false } :
+          fault === "unknown-outcome" ? { actionOutcome: "unknown" } : { outcomeEvidence: " " }) };
+      await db.update(issueRecoveryActions).set({ evidence }).where(eq(issueRecoveryActions.id, input.actionId));
+    } else if (["other-source-run", "other-retry", "wrong-context", "no-fresh-session"].includes(fault)) {
+      await db.update(heartbeatRuns).set({ contextSnapshot: { ...input.contextSnapshot,
+        ...(fault === "other-source-run" ? { previousRunId: randomUUID() } : fault === "other-retry" ? { retryOfRunId: randomUUID() } :
+          fault === "wrong-context" ? { source: "execution.retry" } : { forceFreshSession: false }) } })
+        .where(eq(heartbeatRuns.id, input.runId));
+    } else await db.update(agentWakeupRequests).set(
+      fault.startsWith("wrong-payload") ? { payload: { ...input.payload,
+        ...(fault === "wrong-payload-issue" ? { issueId: randomUUID() } : { recoveryActionId: randomUUID() }) } } :
+      fault === "wrong-source" ? { source: "on_demand" } : fault === "wrong-trigger" ? { triggerDetail: "manual" } :
+      fault === "wrong-reason" ? { reason: "manual" } : fault === "wrong-requester" ? { requestedByActorId: "other" } : { requestedByActorType: "user" },
+    ).where(eq(agentWakeupRequests.id, input.wakeupRequestId));
+    await expect(initializeRunIdentity(db, { ...input, parentRunId: input.sourceRunId,
+      responsibleUserId: "local-board", cause: "retry" })).rejects.toThrow("reconciliation authority");
+    expect(await listRunIdentityContexts(db, input.companyId, input.runId)).toEqual([]);
   });
 
   it.each(["malformed", "missing", "unconsumed", "other-run", "other-task", "other-agent", "other-actor", "other-message"])(

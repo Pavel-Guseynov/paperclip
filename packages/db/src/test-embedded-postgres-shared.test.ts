@@ -11,6 +11,24 @@ import {
 
 const support = await getEmbeddedPostgresTestSupport();
 const describeDatabase = support.supported ? describe : describe.skip;
+const gateDatabaseUrl = process.env[SHARED_TEST_POSTGRES_URL_ENV];
+const describeNixGate = process.env.NIX_BUILD_TOP ? describe : describe.skip;
+
+describeNixGate("Nix-owned PostgreSQL endpoint", () => {
+  it("serves the gate over a private socket without reserving a host TCP port", async () => {
+    expect(gateDatabaseUrl).toBeTruthy();
+    const client = postgres(gateDatabaseUrl!, { max: 1 });
+    try {
+      const [endpoint] = await client`
+        select inet_server_addr()::text as address,
+          current_setting('listen_addresses') as tcp_listeners
+      `;
+      expect(endpoint).toEqual({ address: null, tcp_listeners: "" });
+    } finally {
+      await client.end();
+    }
+  });
+});
 
 describeDatabase("shared test Postgres cluster", () => {
   let cluster: EmbeddedPostgresTestDatabase;

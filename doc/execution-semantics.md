@@ -480,6 +480,22 @@ A source-scoped recovery action is the default form. Use it when the next safe m
 
 Recovery-action ownership and source-task ownership are separate contracts. Assigning a manager or board owner to a recovery action authorizes that owner to repair or route the recovery action; it does not write that owner into the source issue's `assigneeAgentId`. Automatic retry and escalation preserve the source assignee. Reassignment requires an explicit source-task decision or a policy-defined serious-failure path, with the normal company, authorization, budget, checkout, active-run-lock, governed-action, and activity-log checks.
 
+A board-authenticated execution reconciliation authorizes its fresh successor
+under the user who recorded that decision. Dispatch derives this identity from
+the persisted resolution and its matching system wake receipt, scoped to the
+same company, source issue, return owner, source run and successor. It preserves
+the predecessor's recorded identity, message authors and task ownership. A
+missing, mismatched or invalidated authority cannot grant the successor that
+user's permissions; normal current membership and action checks still apply.
+
+In authenticated mode, `local-board` cannot hold an escalated review. An ordinary
+issue update reselects an eligible participant from that stage's existing policy
+without recording a reviewer decision or resetting its history. The repair and
+its activity record commit together under the issue lock. A changed issue, live
+execution or absent eligible reviewer refuses recovery. A real human participant,
+an unknown deployment mode and local-trusted mode keep their existing decision
+rules. Only a genuine participant decision returns work to its recorded author.
+
 Use an issue-backed recovery action only when the recovery is genuinely independent work or when source-scoped handling would be unsafe or unclear. Examples include:
 
 - long or cross-agent repair work with its own assignee, subtasks, or blockers

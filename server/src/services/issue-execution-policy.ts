@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  DeploymentMode,
   IssueExecutionDecision,
   IssueExecutionMonitorClearReason,
   IssueExecutionMonitorPolicy,
@@ -43,6 +44,7 @@ type RequestedAssigneePatch = {
 };
 
 type TransitionInput = {
+  deploymentMode?: DeploymentMode;
   issue: IssueLike;
   policy: IssueExecutionPolicy | null;
   previousPolicy?: IssueExecutionPolicy | null;
@@ -59,6 +61,7 @@ type TransitionResult = {
   patch: Record<string, unknown>;
   decision?: Pick<IssueExecutionDecision, "stageId" | "stageType" | "outcome" | "body">;
   workflowControlledAssignment?: boolean;
+  recoveredReviewHold?: true;
 };
 
 /**
@@ -453,11 +456,15 @@ function resolveMaxReviewRounds(policy: IssueExecutionPolicy | null): number {
  * changes-requested rounds. Without one the loop keeps handing back to the
  * return assignee (pre-existing behavior) rather than stalling the stage.
  */
-function reviewEscalationUserId(issue: IssueLike): string | null {
-  const responsible = issue.responsibleUserId?.trim();
-  if (responsible) return responsible;
-  const creator = issue.createdByUserId?.trim();
-  if (creator) return creator;
+function isUnreachableLocalBoard(userId: string | null | undefined, deploymentMode: DeploymentMode | undefined) {
+  return deploymentMode === "authenticated" && userId === "local-board";
+}
+
+function reviewEscalationUserId(issue: IssueLike, deploymentMode: DeploymentMode | undefined): string | null {
+  for (const userId of [issue.responsibleUserId, issue.createdByUserId]) {
+    const candidate = userId?.trim();
+    if (candidate && !isUnreachableLocalBoard(candidate, deploymentMode)) return candidate;
+  }
   return null;
 }
 
@@ -724,8 +731,11 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
     // participant would silently undo the escalation on the next unrelated
     // PATCH, so the hold is sticky until the escalated human decides — their
     // own decisions fall through to the participant decision branch below.
+    const unreachableReviewHold = currentParticipant.type === "user" &&
+      isUnreachableLocalBoard(currentParticipant.userId, input.deploymentMode);
     const escalatedHold =
       currentParticipant.type === "user" &&
+      !unreachableReviewHold &&
       !stageHasParticipant(activeStage, currentParticipant) &&
       (existingState?.changesRequestedCount ?? 0) >= resolveMaxReviewRounds(input.policy);
     if (escalatedHold && !principalsEqual(currentParticipant, actor)) {
@@ -763,6 +773,9 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
         exclude: activeStage.type === "review" ? existingState?.returnAssignee ?? null : null,
       });
       if (!participant) {
+        if (unreachableReviewHold) {
+          throw unprocessable(`No eligible ${activeStage.type} participant is configured for this issue`);
+        }
         clearExecutionStatePatch({
           patch,
           issueStatus: input.issue.status,
@@ -784,6 +797,7 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
       return {
         patch,
         workflowControlledAssignment: true,
+        ...(unreachableReviewHold ? { recoveredReviewHold: true as const } : {}),
       };
     }
 
@@ -910,7 +924,7 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
         const actorIsHuman = actor?.type === "user";
         const nextRounds = actorIsHuman ? 0 : (existingState.changesRequestedCount ?? 0) + 1;
         if (!actorIsHuman && nextRounds >= resolveMaxReviewRounds(input.policy)) {
-          const escalationUserId = reviewEscalationUserId(input.issue);
+          const escalationUserId = reviewEscalationUserId(input.issue, input.deploymentMode);
           if (escalationUserId) {
             // Rounds exhausted: keep the stage pending but hand it to the
             // responsible human instead of bouncing back to the implementer.

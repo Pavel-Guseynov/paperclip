@@ -476,6 +476,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
   }, 20_000);
 
   afterEach(async () => {
+    // Finish background writes before replacing the adapter or clearing its
+    // calls; a terminal run row can precede execution and follow-up cleanup.
+    await heartbeatService(db).drainActiveRunExecutions();
     vi.clearAllMocks();
     // A recovery policy can stop before adapter dispatch; do not leak an
     // unused one-shot failure into the next test's otherwise healthy run.
@@ -7020,7 +7023,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     });
     expect(next?.contextSnapshot?.wakeCommentIds).toEqual([pending!.id, go!.id]);
     expect((await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, deferred!.id)))[0]).toMatchObject({ status: "coalesced", runId: next!.id });
-    await vi.waitFor(async () => expect((await heartbeat.getRun(next!.id))?.status).not.toBe("running"));
+    await heartbeat.drainActiveRunExecutions();
+    expect((await heartbeat.getRun(next!.id))?.status).toBe("succeeded");
   });
 
   it.each(["dedicated deferred donor", "non-coalescing recipient", "persistent agent conversation"] as const)(
@@ -7157,12 +7161,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
           .set({ status: "paused" })
           .where(eq(agents.id, agentId));
         release();
-        if (next!)
-          await vi.waitFor(async () =>
-            expect((await heartbeat.getRun(next!.id))?.status).not.toBe(
-              "running",
-            ),
-          );
+        await heartbeat.drainActiveRunExecutions();
+        if (next!) expect((await heartbeat.getRun(next!.id))?.status).not.toBe("running");
       }
     },
   );
@@ -10509,15 +10509,12 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     await heartbeat.promoteDueScheduledRetries(new Date(Date.now() + 31_000));
     await heartbeat.resumeQueuedRuns();
 
-    const livenessWake = await waitForValue(async () => {
-      const rows = await db
-        .select()
-        .from(agentWakeupRequests)
-        .where(eq(agentWakeupRequests.agentId, agentId));
-      return (
-        rows.find((row) => row.reason === "run_liveness_continuation") ?? null
-      );
-    });
+    await heartbeat.drainActiveRunExecutions();
+    const livenessWakes = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId));
+    const livenessWake = livenessWakes.find((row) => row.reason === "run_liveness_continuation") ?? null;
     expect(livenessWake).toBeTruthy();
     expect(livenessWake?.payload).toMatchObject({
       issueId,

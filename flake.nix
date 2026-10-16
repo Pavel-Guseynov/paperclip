@@ -264,8 +264,8 @@
         full_page_writes = off
         shared_buffers = 128MB
         max_connections = 300
+        listen_addresses = ${"''"}
       '';
-      freePort = "node -e 'const s=require(\"net\").createServer().listen(0,()=>{console.log(s.address().port);s.close()})'";
       usesDatabase = dir: lib.elem "packages/db" (closureDirs dir);
 
       mkTestPostgresTemplate =
@@ -287,17 +287,22 @@
             chmod -R u+w .
             ${linkNodeModules self.packages.${pkgs.stdenv.hostPlatform.system}.nodeModules (installedDirs "packages/db")}
             ${copyDists pkgs "dist" "packages/db"}
-            PORT=$(${freePort})
+            export PGHOST="$TMPDIR" PGPORT=5432 PGUSER=paperclip
             initdb -D "$TMPDIR/pgdata" -U paperclip --auth=trust -E UTF8 --locale=C --no-sync
             cat >> "$TMPDIR/pgdata/postgresql.conf" <<'CONF'
             ${postgresConfig}CONF
             # Left unvacuumed, the tables look like those of a freshly created database to
             # the planner, so plan-shape tests see the same plans as on an embedded cluster.
             echo "autovacuum = off" >> "$TMPDIR/pgdata/postgresql.conf"
-            pg_ctl -D "$TMPDIR/pgdata" -o "-p $PORT -k $TMPDIR -c listen_addresses=127.0.0.1" -l "$TMPDIR/pg.log" -w start
-            createdb -h 127.0.0.1 -p "$PORT" -U paperclip -E UTF8 --locale=C -T template0 paperclip_template
-            (cd packages/db && DATABASE_URL="postgres://paperclip@127.0.0.1:$PORT/paperclip_template" ${pnpmRun "migrate"})
+            pg_ctl -D "$TMPDIR/pgdata" -o "-p $PGPORT -k $PGHOST" -l "$TMPDIR/pg.log" -w start
+            templateStatus=0
+            (
+              createdb -E UTF8 --locale=C -T template0 paperclip_template
+              cd packages/db
+              DATABASE_URL="postgres:///paperclip_template" ${pnpmRun "migrate"}
+            ) || templateStatus=$?
             pg_ctl -D "$TMPDIR/pgdata" -m fast -w stop
+            test "$templateStatus" -eq 0
           '';
           installPhase = ''cp -R "$TMPDIR/pgdata" "$out"'';
         };
@@ -306,12 +311,12 @@
         cp -R ${template} "$TMPDIR/shared-pgdata"
         chmod -R u+w "$TMPDIR/shared-pgdata"
         chmod 0700 "$TMPDIR/shared-pgdata"
-        PGPORT_SHARED=$(${freePort})
-        pg_ctl -D "$TMPDIR/shared-pgdata" -o "-p $PGPORT_SHARED -k $TMPDIR -c listen_addresses=127.0.0.1 -c autovacuum=on" -l "$TMPDIR/shared-pg.log" -w start || {
+        export PGHOST="$TMPDIR" PGPORT=5432 PGUSER=paperclip
+        pg_ctl -D "$TMPDIR/shared-pgdata" -o "-p $PGPORT -k $PGHOST -c autovacuum=on" -l "$TMPDIR/shared-pg.log" -w start || {
           cat "$TMPDIR/shared-pg.log" >&2
           exit 1
         }
-        export PAPERCLIP_TEST_POSTGRES_URL="postgres://paperclip@127.0.0.1:$PGPORT_SHARED/postgres"
+        export PAPERCLIP_TEST_POSTGRES_URL="postgres:///postgres"
       '';
 
       mkCheck = pkgs: kind: dir: command: mkCheckFrom {
@@ -458,6 +463,9 @@
       # Files a single test reads by name rather than by import; the bucket holding the
       # test gets them as inputs and no other check does.
       testInputs = {
+        "server/src/__tests__/unreachable-review-hold.integration.test.ts" = [
+          ./server/src/__tests__/fixtures/review-recovery-agent.mjs
+        ];
         # Checks that every test file the stress traceability report names exists.
         "packages/paperclip-runner/src/eval/workflow-evals.test.ts" = [
           ./packages/paperclip-runner/src

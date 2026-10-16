@@ -835,6 +835,7 @@ export async function createApp(
   // issue approval endpoints delegate to it. The intervening routers use distinct
   // route prefixes, so this dependency does not change issue-route precedence.
   api.use(issueRoutes(db, opts.storageService, {
+    deploymentMode: opts.deploymentMode,
     chatRunRetries: chatChannels,
     feedbackExportService: opts.feedbackExportService,
     pluginWorkerManager: workerManager,

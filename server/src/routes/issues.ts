@@ -16,6 +16,7 @@ import {
   rejectSteeredIdentity,
 } from "../services/run-identity.js";
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -126,6 +127,7 @@ import {
   type IssueWakeDiagnosticsResponse,
   type IssueRelationIssueSummary,
   type IssueReviewPolicy,
+  type DeploymentMode,
   type IssueThreadInteractionCanonicalResolverPolicy,
   type IssueComment,
   type IssueCommentPresentation,
@@ -3434,6 +3436,7 @@ export function issueRoutes(
   db: Db,
   storage: StorageService,
   opts: {
+    deploymentMode?: DeploymentMode;
     chatRunRetries?: Pick<
       ChatChannelService,
       "prepareFailedChatRunRetry" | "processFailedChatRunRetry"
@@ -9415,6 +9418,7 @@ export function issueRoutes(
               lockedIssue.executionPolicy ?? null,
             );
             const transition = applyIssueExecutionPolicyTransition({
+              deploymentMode: opts.deploymentMode,
               issue: lockedIssue,
               policy: executionPolicy,
               previousPolicy: executionPolicy,
@@ -13180,6 +13184,7 @@ export function issueRoutes(
       );
 
       const transition = applyIssueExecutionPolicyTransition({
+        deploymentMode: opts.deploymentMode,
         issue: existing,
         policy: nextExecutionPolicy,
         previousPolicy: previousExecutionPolicy,
@@ -13378,7 +13383,7 @@ export function issueRoutes(
       const enteringReviewRequested =
         existing.status !== "in_review" && updateFields.status === "in_review";
       const persistReviewActivityTransactionally =
-        enteringReviewRequested || Boolean(reviewInteractionId);
+        enteringReviewRequested || Boolean(reviewInteractionId) || Boolean(transition.recoveredReviewHold);
 
       const requestingRunId =
         (typeof actor.runId === "string" && actor.runId.trim()) ||
@@ -13590,6 +13595,19 @@ export function issueRoutes(
       ) => {
         const lockedExisting = await svc.getByIdForUpdate(id, tx);
         if (!lockedExisting) return false;
+        if (transition.recoveredReviewHold) {
+          const recoveryFields = [
+            "status", "assigneeAgentId", "assigneeUserId", "executionPolicy", "executionState",
+            "executionRunId", "checkoutRunId", "executionWorkspaceId", "projectWorkspaceId", "projectId",
+            "responsibleUserId", "createdByUserId", "reviewPolicy",
+          ] as const;
+          if (recoveryFields.some((field) => !isDeepStrictEqual(lockedExisting[field], existing[field]))) {
+            throw conflict("The review changed while recovery was being prepared. Read the issue and try again.");
+          }
+          if (await resolveActiveIssueRun(lockedExisting)) {
+            throw conflict("An active execution must stop before recovering the review participant");
+          }
+        }
         const lockedPolicyChangeRequested =
           req.body.reviewPolicy !== undefined &&
           req.body.reviewPolicy !== lockedExisting.reviewPolicy;
@@ -13704,7 +13722,7 @@ export function issueRoutes(
         if (shouldUseTransactionalIssueUpdate) {
           issue = await db.transaction(async (tx) => {
             if (
-              reviewPolicySensitiveMutationRequested &&
+              (reviewPolicySensitiveMutationRequested || transition.recoveredReviewHold) &&
               !(await assertLockedReviewPolicyAllowsMutation(tx))
             )
               return null;
@@ -17638,6 +17656,7 @@ export function issueRoutes(
       let goalCommentSteered = false;
       if (shouldAutoApproveReviewComment) {
         const transition = applyIssueExecutionPolicyTransition({
+          deploymentMode: opts.deploymentMode,
           issue: currentIssue,
           policy: currentExecutionPolicy,
           requestedStatus: "done",
