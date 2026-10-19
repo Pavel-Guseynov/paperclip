@@ -331,6 +331,13 @@ export interface PluginInstallOptions {
   localPath?: string;
 
   /**
+   * Original absolute local source whose canonical target is localPath.
+   * The install route validates this binding. Retained only in the registry;
+   * package reads and migrations use the validated canonical localPath.
+   */
+  localSourcePath?: string;
+
+  /**
    * Version specifier passed to npm install (e.g. "^1.2.0", "latest").
    * Ignored when localPath is set.
    */
@@ -342,6 +349,8 @@ export interface PluginInstallOptions {
    */
   installDir?: string;
 }
+
+export type PluginLocalSource = Required<Pick<PluginInstallOptions, "localPath" | "localSourcePath">>;
 
 // ---------------------------------------------------------------------------
 // Runtime options — services needed for initializing loaded plugins
@@ -546,7 +555,7 @@ export interface PluginLoader {
    *
    * @see PLUGIN_SPEC.md §25.3 — Upgrade Lifecycle
    */
-  upgradePlugin(pluginId: string, options: Omit<PluginInstallOptions, "installDir">): Promise<{
+  upgradePlugin(pluginId: string, options: Omit<PluginInstallOptions, "installDir">, beforeCommit?: () => Promise<void>): Promise<{
     oldManifest: PaperclipPluginManifestV1;
     newManifest: PaperclipPluginManifestV1;
     discovered: DiscoveredPlugin;
@@ -1744,7 +1753,9 @@ export function pluginLoader(
         const installed = await txRegistry.install(
           {
             packageName: discovered.packageName,
-            packagePath: discovered.source === "local-filesystem" ? discovered.packagePath : undefined,
+            packagePath: discovered.source === "local-filesystem"
+              ? path.resolve(installOptions.localSourcePath ?? discovered.packagePath)
+              : undefined,
           },
           manifest,
         );
@@ -1796,6 +1807,7 @@ export function pluginLoader(
     async upgradePlugin(
       pluginId: string,
       upgradeOptions: Omit<PluginInstallOptions, "installDir">,
+      beforeCommit?: () => Promise<void>,
     ): Promise<{
       oldManifest: PaperclipPluginManifestV1;
       newManifest: PaperclipPluginManifestV1;
@@ -1858,9 +1870,15 @@ export function pluginLoader(
         );
       }
 
+      // Reject invalid identity or capabilities before stopping a healthy worker.
+      await beforeCommit?.();
+
       // 4. Update the existing record
       await registry.update(pluginId, {
         packageName: discovered.packageName,
+        ...(discovered.source === "local-filesystem" ? {
+          packagePath: path.resolve(upgradeOptions.localSourcePath ?? localPath!),
+        } : {}),
         version: discovered.version,
         manifest: newManifest,
       });

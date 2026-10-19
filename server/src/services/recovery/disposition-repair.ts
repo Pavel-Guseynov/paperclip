@@ -12,6 +12,7 @@ import {
   issues,
 } from "@paperclipai/db";
 import { parseIssueExecutionState } from "../issue-execution-policy.js";
+import { hasScheduledIssueMonitorPath } from "./issue-graph-liveness.js";
 
 const ACTIVE_RUN_STATUSES = ["queued", "running", "scheduled_retry"] as const;
 
@@ -197,7 +198,7 @@ export async function collectDispositionRepairSourceState(
     ? "user_owner"
     : blockers.length > 0
       ? "blocker"
-      : issue.monitorNextCheckAt && issue.monitorNextCheckAt.getTime() > Date.now()
+      : hasScheduledIssueMonitorPath(issue, Date.now())
         ? "monitor"
         : pendingExecutionState?.status === "pending"
           ? "execution_stage"

@@ -1051,7 +1051,7 @@ function hasScheduledMonitor(input: {
   )
     return true;
   const policy = normalizeIssueExecutionPolicy(input.executionPolicy ?? null);
-  return Boolean(policy?.monitor?.nextCheckAt);
+  return Boolean(policy?.monitor);
 }
 
 function successfulRunHandoffStateFromActivity(row: {

@@ -1959,6 +1959,7 @@ export {
   stalledReviewDecisionSchema,
   issueExecutionPolicySchema,
   issueExecutionStateSchema,
+  hasPendingIssueMonitor,
   resolveIssueRecoveryActionSchema,
   issueReviewRequestSchema,
   issueExecutionWorkspaceSettingsSchema,

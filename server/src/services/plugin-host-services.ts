@@ -28,12 +28,13 @@ import type {
   PluginExecutionWorkspaceMetadata,
 } from "@paperclipai/plugin-sdk";
 import type { CreateIssueThreadInteraction, InviteJoinType, IssueDocumentSummary, PermissionKey, PrincipalType } from "@paperclipai/shared";
-import { pluginOperationIssueOriginKind } from "@paperclipai/shared";
+import { hasPendingIssueMonitor, pluginOperationIssueOriginKind } from "@paperclipai/shared";
 import { companyService } from "./companies.js";
 import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
 import { executionWorkspaceService } from "./execution-workspaces.js";
 import { issueService } from "./issues.js";
+import { workProductService } from "./work-products.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import { goalService } from "./goals.js";
 import { documentService } from "./documents.js";
@@ -748,6 +749,7 @@ export function buildHostServices(
   const projects = projectService(db);
   const executionWorkspaces = executionWorkspaceService(db);
   const issues = issueService(db);
+  const workProducts = workProductService(db);
   const documents = documentService(db);
   const goals = goalService(db);
   const access = accessService(db);
@@ -1910,7 +1912,8 @@ export function buildHostServices(
         const companyId = ensureCompanyId(params.companyId);
         await ensurePluginAvailableForCompany(companyId);
         const issue = await issues.getById(params.issueId);
-        return (inCompany(issue, companyId) ? issue : null) as Issue | null;
+        if (!inCompany(issue, companyId)) return null;
+        return { ...issue, workProducts: await workProducts.listForIssue(issue!.id) } as Issue;
       },
       async create(params) {
         const companyId = ensureCompanyId(params.companyId);
@@ -2184,6 +2187,17 @@ export function buildHostServices(
           throw new Error(budgetBlock.reason);
         }
         const contextSource = params.contextSource ?? "plugin.issue.requestWakeup";
+        if (params.monitor) {
+          const result = await heartbeat.triggerIssueMonitor(issue.id, {
+            actorType: "system", actorId: pluginId,
+            wakeReason: params.reason ?? "plugin_issue_wakeup_requested",
+            expectedMonitor: params.monitor,
+          });
+          return { queued: result.outcome === "triggered", runId: null };
+        }
+        if (hasPendingIssueMonitor(issue)) {
+          throw new Error("An armed issue monitor requires an exact external-service binding");
+        }
         const run = await heartbeat.wakeup(issue.assigneeAgentId, {
           source: "assignment",
           triggerDetail: "system",
@@ -2233,6 +2247,9 @@ export function buildHostServices(
         const results = [];
         for (const issueId of [...new Set(params.issueIds)]) {
           const issue = requireInCompany("Issue", await issues.getById(issueId), companyId);
+          if (hasPendingIssueMonitor(issue)) {
+            throw new Error("An armed issue monitor requires an exact external-service binding");
+          }
           if (!issue.assigneeAgentId) {
             throw new Error("Issue has no assigned agent to wake");
           }

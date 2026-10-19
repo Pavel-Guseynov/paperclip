@@ -20,6 +20,7 @@ import {
   serializeMessage,
   type JsonRpcNotification,
   type JsonRpcResponse,
+  type JsonRpcRequest,
   type PluginInvocationContext,
 } from "../src/protocol.js";
 import { isWorkerEntrypoint, startWorkerRpcHost } from "../src/worker-rpc-host.js";
@@ -299,10 +300,10 @@ describe("worker invocation scope propagation", () => {
   });
 });
 
-describe("worker configChanged cross-tenant guard", () => {
+describe("worker company-scoped invocations", () => {
   // Spin up a worker-rpc-host wired to in-memory streams and expose a
   // request/response `callWorker` plus `initialize`/`stop` helpers.
-  function makeWorker(plugin: ReturnType<typeof definePlugin>) {
+  function makeWorker(plugin: ReturnType<typeof definePlugin>, onHostRequest?: (request: JsonRpcRequest) => unknown) {
     const hostToWorker = new PassThrough();
     const workerToHost = new PassThrough();
     const hostReadline = createInterface({ input: workerToHost });
@@ -315,7 +316,7 @@ describe("worker configChanged cross-tenant guard", () => {
       stdout: workerToHost,
     });
 
-    function callWorker(method: string, params: unknown) {
+    function callWorker(method: string, params: unknown, invocation?: PluginInvocationContext) {
       const id = `host-${nextRequestId++}`;
       const result = new Promise<unknown>((resolve, reject) => {
         pending.set(id, (response) => {
@@ -330,18 +331,24 @@ describe("worker configChanged cross-tenant guard", () => {
           resolve((response as { result?: unknown }).result);
         });
       });
-      hostToWorker.write(serializeMessage(createRequest(method, params, id)));
+      hostToWorker.write(serializeMessage({ ...createRequest(method, params, id),
+        ...(invocation ? { paperclipInvocation: invocation } : {}),
+      }));
       return result;
     }
 
     hostReadline.on("line", (line) => {
       const message = parseMessage(line);
+      if (isJsonRpcRequest(message) && onHostRequest) {
+        hostToWorker.write(serializeMessage(createSuccessResponse(message.id, onHostRequest(message))));
+        return;
+      }
       if (!isJsonRpcResponse(message)) return;
       pending.get(String(message.id))?.(message);
       pending.delete(String(message.id));
     });
 
-    async function initialize() {
+    async function initialize(capabilities: string[] = []) {
       await callWorker("initialize", {
         manifest: {
           id: "paperclip.config-guard-test",
@@ -351,7 +358,7 @@ describe("worker configChanged cross-tenant guard", () => {
           description: "Test plugin",
           author: "Paperclip",
           categories: ["automation"],
-          capabilities: [],
+          capabilities,
           entrypoints: {},
         },
         config: {},
@@ -368,6 +375,30 @@ describe("worker configChanged cross-tenant guard", () => {
 
     return { callWorker, initialize, stop };
   }
+
+  it("forwards the exact CI binding under the host-owned webhook invocation", async () => {
+    const requests: JsonRpcRequest[] = [];
+    const monitor = { serviceName: "gitea", externalRef: JSON.stringify({ pullRequestUrl: "https://git.example/r/pulls/1", headSha: "head", context: "Flake Check" }) };
+    let wake!: () => Promise<unknown>;
+    const plugin = definePlugin({
+      async setup(ctx) {
+        wake = () => ctx.issues.requestWakeup("issue-id", "company-id", { monitor });
+      },
+      async onWebhook() { await wake(); },
+    });
+    const { callWorker, initialize, stop } = makeWorker(plugin, (request) => {
+      requests.push(request);
+      return { queued: true, runId: null };
+    });
+    try {
+      await initialize(["issues.wakeup"]);
+      await callWorker("handleWebhook", { companyId: "company-id", endpointKey: "gitea", headers: {}, rawBody: "{}", parsedBody: {}, requestId: "delivery-id" },
+        { id: "host-invocation", scope: { companyId: "company-id" } });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ jsonrpc: "2.0", method: "issues.requestWakeup",
+        params: { issueId: "issue-id", companyId: "company-id", monitor }, paperclipInvocationId: "host-invocation" });
+    } finally { stop(); }
+  });
 
   it("fails closed when a second, distinct company's config would overwrite a single-tenant worker", async () => {
     const applied: Array<{ companyId: string | null; token: unknown }> = [];

@@ -27,6 +27,7 @@ import { authorizeChatConversationForBoundRun } from "../native-runtime/chat-att
 import {
   ONBOARDING_FIRST_TASK_ORIGIN_KIND,
   PROVIDER_QUOTA_MONITOR_SERVICE_NAME,
+  hasPendingIssueMonitor,
   ISSUE_DISPOSITION_REPAIR_RETRY_REASON,
   requiresExecutionReconciliation,
   type IssueCommentMetadata,
@@ -1372,7 +1373,7 @@ export function recoveryService(
     issue: typeof issues.$inferSelect,
     latestRun: LatestIssueRun,
   ) {
-    if (issue.monitorNextCheckAt) return true;
+    if (hasPendingIssueMonitor(issue)) return true;
     if (
       issue.status === "in_progress" &&
       latestRun?.status === "succeeded" &&

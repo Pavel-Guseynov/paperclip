@@ -388,7 +388,7 @@ export const issueExecutionStageSchema = z.object({
 });
 
 export const issueExecutionMonitorPolicySchema = z.object({
-  nextCheckAt: z.string().datetime(),
+  nextCheckAt: z.string().datetime().nullable(),
   notes: z.string().max(500).optional().nullable().default(null),
   scheduledBy: z
     .enum(ISSUE_MONITOR_SCHEDULED_BY)
@@ -429,6 +429,12 @@ export const issueExecutionMonitorPolicySchema = z.object({
     .optional()
     .nullable()
     .default(null),
+}).superRefine((monitor, ctx) => {
+  if (monitor.nextCheckAt === null &&
+      (monitor.kind !== "external_service" || !monitor.serviceName || !monitor.externalRef)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["nextCheckAt"],
+      message: "Event-only monitors require external_service kind, serviceName and externalRef" });
+  }
 });
 
 export const issueExecutionPolicySchema = z.object({
@@ -514,6 +520,18 @@ export const issueExecutionStateSchema = z.object({
   monitor: issueExecutionMonitorStateSchema.optional().nullable(),
   changesRequestedCount: z.number().int().nonnegative().optional().default(0),
 });
+
+/** Recognize both scheduled timers and armed external-service event waits. */
+export function hasPendingIssueMonitor(issue: {
+  monitorNextCheckAt?: Date | string | null;
+  executionState?: unknown;
+}): boolean {
+  if (issue.monitorNextCheckAt) return true;
+  const parsed = issueExecutionStateSchema.safeParse(issue.executionState);
+  const monitor = parsed.success ? parsed.data.monitor : null;
+  return monitor?.status === "scheduled" && monitor.nextCheckAt === null &&
+    monitor.kind === "external_service" && Boolean(monitor.serviceName && monitor.externalRef);
+}
 
 export const issueRecoveryActionReadModelSchema = z.object({
   id: z.string().guid(),

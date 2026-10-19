@@ -260,6 +260,58 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 **Plugins** — Instance-wide plugin system with out-of-process workers, capability-gated host services, job scheduling, tool exposure, and UI contributions. Extend Paperclip without forking it.
 
+Local plugin installation validates the canonical filesystem target but retains
+the original absolute source in the registry. A stable system-profile symlink
+therefore remains stable across generations. Instance administrators recover an
+existing local registration with `POST /api/plugins/:id/upgrade` and
+`{"packagePath":"<stable-absolute-source>"}`. The new package must retain the
+manifest ID and approved capabilities. Validation precedes runtime shutdown;
+configuration, secrets and plugin UUID remain attached. Explicit source
+recovery accepts ready, upgrade-pending, installed, error and disabled records;
+disabled plugins remain disabled. Uninstalled records cannot be recovered.
+Cloud-managed sources must still canonicalize inside the bundled plugin root.
+
+Public plugin webhooks can select `?companyId=<uuid>`. The host requires a
+persisted configuration for that plugin and company, records the company on the
+delivery and supplies it as invocation scope. Headers and payloads cannot
+establish that scope. Unscoped instance webhooks remain available to plugins
+whose contract does not require company services. Native secret resolution
+requires a persisted `{type:"secret_ref",secretId:"<uuid>"}` binding and its
+configuration path; secret values never belong in plugin configuration.
+
+An issue can await an external-service event without a timer: retain the
+current execution policy and set its `monitor` to
+`{nextCheckAt:null,kind:"external_service",serviceName:"<service>",externalRef:"<binding>"}`.
+The kind, service and reference are required for a null date. The state remains
+`scheduled` until the event; timer scans do not dispatch it, and review release
+and recovery recognize it as a durable wait. A plugin uses
+`ctx.issues.requestWakeup(issueId,companyId,{monitor:{serviceName,externalRef}})`.
+The native claim compares the exact persisted binding, queues one wake and
+marks the monitor triggered while preserving the review stage, participant,
+return owner and issue status. Mismatches return `{queued:false,runId:null}`
+without consuming the wait. Generic plugin wakeups cannot bypass an armed
+monitor. Issue reads through the plugin SDK include persisted work products
+after enforcing the issue's company boundary.
+
+Event references normalize to `sha256:<hex-digest>` in persisted policies;
+normalizing that form again preserves it. State and activity projections
+redact the reference. Callers supply the original binding to requestWakeup;
+the host compares its digest, so arming never needs to persist the raw input.
+
+Subscribe before observing: arm the monitor, then read the external system's
+current result for that binding. If already complete, the active reviewer uses
+`paperclipUpdateIssue` with the current `executionPolicy` and `monitor: null`,
+then continues the review in that same run. This is native monitor cancellation,
+not a wake request. It records the cleared monitor while retaining the stage,
+participant and return owner. Otherwise the reviewer ends with the wait armed.
+An event received before arming must not be treated as evidence that a later
+wait will be woken. Events received during an active run use the existing
+durable deferred wake queue, which promotes the wake on release. The CI-wake
+binding is `JSON.stringify({pullRequestUrl,headSha,context})` in that property
+order, with `serviceName:"gitea"`, the canonical PR work-product URL, exact
+current head and required check context. A changed head needs a new binding
+and observation. Neither a timer nor repeated CI checks are required.
+
 </td>
 <td>
 

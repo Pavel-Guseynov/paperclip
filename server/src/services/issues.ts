@@ -174,6 +174,7 @@ import {
 import {
   classifyIssueGraphLiveness,
   classifyIssueReviewPaths,
+  hasScheduledIssueMonitorPath,
   type IssueGraphLivenessInput,
   type IssueLivenessFinding,
 } from "./recovery/issue-graph-liveness.js";
@@ -6070,9 +6071,7 @@ async function listIssueBlockedInboxAttentionMap(
       continue;
     }
 
-    const hasMonitor = Boolean(
-      row.monitorNextCheckAt && row.monitorNextCheckAt.getTime() > Date.now(),
-    );
+    const hasMonitor = hasScheduledIssueMonitorPath(row, Date.now());
     const external =
       row.status === "blocked" && !hasMonitor
         ? externalWaitFromDescription(row.description)

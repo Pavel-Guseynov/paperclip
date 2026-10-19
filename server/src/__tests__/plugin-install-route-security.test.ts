@@ -10,12 +10,13 @@
  */
 import express from "express";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createDb, plugins } from "@paperclipai/db";
+import { companies, createDb, pluginConfig, pluginWebhookDeliveries, plugins } from "@paperclipai/db";
 import { pluginLoader, REPO_ROOT } from "../services/plugin-loader.js";
 import {
   getEmbeddedPostgresTestSupport,
@@ -30,9 +31,23 @@ const mockLifecycle = vi.hoisted(() => ({
   disable: vi.fn(),
 }));
 
-vi.mock("../services/plugin-lifecycle.js", () => ({
-  pluginLifecycleManager: () => mockLifecycle,
-}));
+vi.mock("../services/plugin-lifecycle.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../services/plugin-lifecycle.js")>();
+  return {
+    ...original,
+    pluginLifecycleManager: (...args: Parameters<typeof original.pluginLifecycleManager>) => {
+      const lifecycle = original.pluginLifecycleManager(...args);
+      return {
+        ...lifecycle,
+        load: mockLifecycle.load.mockImplementation(lifecycle.load.bind(lifecycle)),
+        upgrade: mockLifecycle.upgrade.mockImplementation(lifecycle.upgrade.bind(lifecycle)),
+        unload: mockLifecycle.unload.mockImplementation(lifecycle.unload.bind(lifecycle)),
+        enable: mockLifecycle.enable.mockImplementation(lifecycle.enable.bind(lifecycle)),
+        disable: mockLifecycle.disable.mockImplementation(lifecycle.disable.bind(lifecycle)),
+      };
+    },
+  };
+});
 
 vi.mock("../services/activity-log.js", () => ({
   logActivity: vi.fn(),
@@ -71,7 +86,7 @@ type FixturePlugin = {
  * Create a valid, already-built plugin package (dist written directly, so no
  * pnpm auto-build runs during install) at an arbitrary directory.
  */
-async function createBuiltPluginFixture(parentDir: string, nameSuffix: string): Promise<FixturePlugin> {
+async function createBuiltPluginFixture(parentDir: string, nameSuffix: string, webhook = false): Promise<FixturePlugin> {
   const slug = `plugin-install-guard-${nameSuffix}-${randomUUID().slice(0, 8)}`;
   const packageName = `@paperclipai/${slug}`;
   const pluginKey = `paperclip.${slug.replace(/^plugin-/, "").replace(/-/g, "_")}`;
@@ -102,7 +117,8 @@ async function createBuiltPluginFixture(parentDir: string, nameSuffix: string): 
     description: "Plugin fixture for install-route security floor coverage.",
     author: "Paperclip",
     categories: ["automation"],
-    capabilities: ["companies.read"],
+    capabilities: webhook ? ["companies.read", "webhooks.receive"] : ["companies.read"],
+    ...(webhook ? { webhooks: [{ endpointKey: "gitea", displayName: "CI" }] } : {}),
     entrypoints: {
       worker: "./dist/worker.js",
     },
@@ -117,7 +133,7 @@ async function createBuiltPluginFixture(parentDir: string, nameSuffix: string): 
   return { packageName, pluginKey, packageRoot };
 }
 
-async function createInstallApp(db: ReturnType<typeof createDb>) {
+async function createInstallApp(db: ReturnType<typeof createDb>, isInstanceAdmin = true, workerManager?: { call: ReturnType<typeof vi.fn> }) {
   const [{ pluginRoutes }, { errorHandler }] = await Promise.all([
     import("../routes/plugins.js"),
     import("../middleware/index.js"),
@@ -129,18 +145,18 @@ async function createInstallApp(db: ReturnType<typeof createDb>) {
   });
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ verify(req, _res, bytes) { Object.assign(req, { rawBody: Buffer.from(bytes) }); } }));
   app.use((req, _res, next) => {
     req.actor = {
       type: "board",
       userId: "admin-1",
       source: "session",
-      isInstanceAdmin: true,
+      isInstanceAdmin,
       companyIds: [],
     } as typeof req.actor;
     next();
   });
-  app.use("/api", pluginRoutes(db as never, loader as never, {} as never, undefined, {} as never, {} as never));
+  app.use("/api", pluginRoutes(db as never, loader as never, {} as never, workerManager ? { workerManager } as never : undefined));
   app.use(errorHandler);
   return app;
 }
@@ -159,6 +175,7 @@ describeEmbeddedPostgres("plugin install route security floor", () => {
   afterEach(async () => {
     vi.clearAllMocks();
     await db.delete(plugins);
+    await db.delete(companies);
     for (const cleanupPath of cleanupPaths) {
       await rm(cleanupPath, { recursive: true, force: true });
     }
@@ -332,11 +349,11 @@ describeEmbeddedPostgres("plugin install route security floor", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.packageName).toBe(fixture.packageName);
-      expect(res.body.packagePath).toBe(await realpath(fixture.packageRoot));
+      expect(res.body.packagePath).toBe(path.resolve(fixture.packageRoot));
       expect(mockLifecycle.load).toHaveBeenCalledTimes(1);
     }, 30_000);
 
-    it("resolves symlinked localPath installs to the real target (self-hosted)", async () => {
+    it("retains the stable source for a symlinked localPath install", async () => {
       const outsideDir = await mkdtemp(path.join(os.tmpdir(), "guard-selfhosted-symlink-"));
       cleanupPaths.add(outsideDir);
       const fixture = await createBuiltPluginFixture(outsideDir, "symlinked");
@@ -350,9 +367,92 @@ describeEmbeddedPostgres("plugin install route security floor", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.packageName).toBe(fixture.packageName);
-      expect(res.body.packagePath).toBe(await realpath(fixture.packageRoot));
+      expect(res.body.packagePath).toBe(path.resolve(linkPath));
       expect(mockLifecycle.load).toHaveBeenCalledTimes(1);
     }, 30_000);
+  });
+
+  describe("local source recovery", () => {
+    it.each(["same target", "new generation", "disabled", "error", "installed", "uninstalled", "different target", "missing target", "blank source", "non-string source", "non-admin", "cloud"])("handles %s without replacing the plugin", async (scenario) => {
+      const parent = await mkdtemp(path.join(os.tmpdir(), "plugin-source-recovery-"));
+      cleanupPaths.add(parent);
+      const fixture = await createBuiltPluginFixture(parent, "source");
+      const app = await createInstallApp(db);
+      const installed = await request(app).post("/api/plugins/install")
+        .send({ packageName: fixture.packageRoot, isLocalPath: true });
+      expect(installed.status).toBe(200);
+      const initialStatus = ["disabled", "error", "installed", "uninstalled"].includes(scenario) ? scenario : installed.body.status;
+      await db.update(plugins).set({ status: initialStatus }).where(eq(plugins.id, installed.body.id));
+      const companyId = randomUUID();
+      await db.insert(companies).values({ id: companyId, name: "Source recovery", issuePrefix: `SRC${companyId.slice(0, 8)}` });
+      const config = { secretRef: { type: "secret_ref", secretId: randomUUID() } };
+      await db.insert(pluginConfig).values({ pluginId: installed.body.id, companyId, configJson: config });
+      const link = path.join(parent, "current");
+      let source: unknown = link;
+      let target = scenario === "different target" ? parent : fixture.packageRoot;
+      if (scenario === "new generation") {
+        target = path.join(parent, "next-generation");
+        await cp(fixture.packageRoot, target, { recursive: true });
+        await rm(fixture.packageRoot, { recursive: true });
+      }
+      if (scenario !== "missing target") await symlink(target, link, "dir");
+      if (scenario === "blank source") source = " ";
+      if (scenario === "non-string source") source = 42;
+      const caller = scenario === "non-admin" ? await createInstallApp(db, false) : app;
+      if (scenario === "cloud") process.env.PAPERCLIP_MANAGED_CONFIG = CLOUD_MANAGED_CONFIG;
+      const repaired = await request(caller).post(`/api/plugins/${installed.body.id}/upgrade`).send({ packagePath: source });
+      const accepted = ["same target", "new generation", "disabled", "error", "installed"].includes(scenario);
+      expect(repaired.status).toBe(accepted ? 200 : ["non-admin", "cloud"].includes(scenario) ? 403 : 400);
+      const read = await request(app).get(`/api/plugins/${installed.body.id}`);
+      expect(read.status).toBe(200);
+      expect(read.body.id).toBe(installed.body.id);
+      expect(read.body.packageName).toBe(fixture.packageName);
+      expect(read.body.version).toBe(installed.body.version);
+      expect(read.body.status).toBe(accepted && initialStatus !== "disabled" ? "ready" : initialStatus);
+      expect(read.body.packagePath).toBe(accepted ? path.resolve(link) : installed.body.packagePath);
+      const configs = await db.select().from(pluginConfig);
+      expect(configs).toHaveLength(1);
+      expect(configs[0]?.configJson).toEqual(config);
+    });
+  });
+
+  describe("webhook company invocation", () => {
+    it.each(["configured", "unconfigured", "malformed", "repeated", "instance"])("validates the %s company selector before dispatch", async (scenario) => {
+      const parent = await mkdtemp(path.join(os.tmpdir(), "plugin-webhook-company-"));
+      cleanupPaths.add(parent);
+      const fixture = await createBuiltPluginFixture(parent, "webhook", true);
+      const workerManager = { call: vi.fn(async () => undefined) };
+      const app = await createInstallApp(db, true, workerManager);
+      const installed = await request(app).post("/api/plugins/install")
+        .send({ packageName: fixture.packageRoot, isLocalPath: true });
+      expect(installed.status).toBe(200);
+      await db.update(plugins).set({ status: "ready" });
+      const companyId = randomUUID();
+      await db.insert(companies).values({ id: companyId, name: "Webhook tenant", issuePrefix: `WH${companyId.slice(0, 8)}` });
+      await db.insert(pluginConfig).values({ pluginId: installed.body.id, companyId, configJson: {} });
+      const query = scenario === "configured" ? `?companyId=${companyId}`
+        : scenario === "unconfigured" ? `?companyId=${randomUUID()}`
+        : scenario === "malformed" ? "?companyId=not-a-uuid"
+        : scenario === "repeated" ? `?companyId=${companyId}&companyId=${companyId}` : "";
+      const rawBody = `{ "companyId": "${randomUUID()}", "state": "success" }`;
+      const response = await request(app).post(`/api/plugins/${installed.body.id}/webhooks/gitea${query}`)
+        .set("Content-Type", "application/json").send(rawBody);
+      const accepted = scenario === "configured" || scenario === "instance";
+      expect(response.status).toBe(accepted ? 200 : scenario === "unconfigured" ? 404 : 400);
+      const deliveries = await db.select().from(pluginWebhookDeliveries);
+      if (!accepted) {
+        expect(deliveries).toHaveLength(0);
+        expect(workerManager.call).not.toHaveBeenCalled();
+        return;
+      }
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]?.companyId).toBe(scenario === "configured" ? companyId : null);
+      expect(deliveries[0]?.status).toBe("success");
+      expect(workerManager.call).toHaveBeenCalledExactlyOnceWith(installed.body.id, "handleWebhook", expect.objectContaining({
+        endpointKey: "gitea", rawBody, parsedBody: JSON.parse(rawBody),
+        ...(scenario === "configured" ? { companyId } : {}),
+      }));
+    });
   });
 
   describe("self-hosted npm installs (behavior unchanged)", () => {

@@ -1,4 +1,5 @@
 import { instanceSettingsService } from "../../../services/instance-settings.js";
+import { issueExecutionStateSchema } from "@paperclipai/shared";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -288,6 +289,49 @@ describeEmbeddedPostgres("wake-queue postgres adapter", () => {
     } finally {
       await settings.updateExperimental({ enableAgentChat: original });
     }
+  });
+
+  it.each([false, true])("releases a reviewer without losing the CI path (event arrived=%s)", async (eventArrived) => {
+    const companyId = await seedCompany();
+    const agentId = await seedAgent({ companyId });
+    const authorId = await seedAgent({ companyId });
+    const issueId = await seedIssue({ companyId, assigneeAgentId: agentId, status: "in_review" });
+    const runId = await seedRun({ companyId, agentId, status: "succeeded",
+      contextSnapshot: { issueId, wakeReason: "execution_review_requested" } });
+    const executionState = issueExecutionStateSchema.parse({ status: "pending", currentStageId: randomUUID(),
+      currentStageIndex: 0, currentStageType: "review", currentParticipant: { type: "agent", agentId },
+      returnAssignee: { type: "agent", agentId: authorId }, completedStageIds: [], lastDecisionId: null,
+      lastDecisionOutcome: null, monitor: { status: "scheduled", nextCheckAt: null, lastTriggeredAt: null,
+        attemptCount: 0, notes: "Await exact-head CI webhook", scheduledBy: "assignee", kind: "external_service",
+        serviceName: "gitea", externalRef: "[redacted]", clearedAt: null, clearReason: null } });
+    let wakeId: string | null = null;
+    if (eventArrived) {
+      executionState.monitor!.status = "triggered";
+      executionState.monitor!.lastTriggeredAt = "2026-10-19T00:00:00.000Z";
+      executionState.monitor!.attemptCount = 1;
+      wakeId = await seedDeferredWake({ companyId, agentId, issueId,
+        payload: { issueId, _paperclipWakeContext: { issueId, wakeReason: "plugin_issue_wakeup_requested", source: "issue.monitor" } },
+      });
+    }
+    await db.update(issues).set({ executionRunId: runId, checkoutRunId: runId, executionState,
+      monitorNextCheckAt: null }).where(eq(issues.id, issueId));
+    const release = createReleaseIssueExecution({ issueLock: createPostgresWakeQueueAdapter(db, stubDeps),
+      recovery: { escalateStrandedAssignedIssue: async () => { throw new Error("unexpected escalation"); },
+        escalateStrandedRecoveryIssueInPlace: async () => { throw new Error("unexpected escalation"); } } });
+    const result = await release({ companyId, runId, now: new Date() });
+    expect(result.outcome.kind).toBe(eventArrived ? "promoted" : "released");
+    if (!eventArrived) expect(result.postCommitEffects).toEqual([]);
+    const [issue] = await db.select().from(issues).where(eq(issues.id, issueId));
+    expect(issue).toMatchObject({ status: "in_review", assigneeAgentId: agentId, executionState,
+      monitorNextCheckAt: null });
+    if (eventArrived) {
+      const [wake] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, wakeId!));
+      expect(wake.status).toBe("queued");
+      expect(wake.runId).toBeTruthy();
+      expect(issue.executionRunId).toBe(wake.runId);
+    } else expect(issue).toMatchObject({ executionRunId: null, checkoutRunId: null });
+    expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId))).toHaveLength(eventArrived ? 1 : 0);
+    expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId))).toHaveLength(eventArrived ? 2 : 1);
   });
 
   for (const hasDeferredMessage of [false, true]) {

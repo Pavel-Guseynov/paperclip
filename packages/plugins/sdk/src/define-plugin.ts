@@ -145,6 +145,8 @@ export interface PluginConfigValidationResult {
  * @see PLUGIN_SPEC.md §13.7 — `handleWebhook`
  */
 export interface PluginWebhookInput {
+  /** Company selected from a persisted plugin configuration by the host. */
+  companyId?: string;
   /** Endpoint key matching the manifest declaration. */
   endpointKey: string;
   /** Inbound request headers. */

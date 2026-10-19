@@ -29,6 +29,11 @@ function derived(overrides: Partial<DerivedMonitorState> & { state: DerivedMonit
 }
 
 describe("buildMonitorSurfaceCopy", () => {
+  it("shows an event wait without promising a timer", () => {
+    const copy = buildMonitorSurfaceCopy(derived({ state: "waiting-event", serviceName: "gitea" }), NOW);
+    expect(copy).toMatchObject({ bannerTitle: "Waiting for external event", stripTitle: "Waiting for external event",
+      bannerMeta: ["Watching: gitea"], stripMeta: ["Resumes when the matching event arrives."], tone: "info" });
+  });
   it.each(["retrying", "due-now", "overdue"] as const)("keeps workspace contention neutral when %s", (state) => {
     const copy = buildMonitorSurfaceCopy(derived({
       state, source: "scheduled-retry", nextCheckAt: NOW.toISOString(), attemptCount: 4,

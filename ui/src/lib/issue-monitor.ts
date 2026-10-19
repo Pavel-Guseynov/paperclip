@@ -36,6 +36,7 @@ export interface MonitorIssueLike {
 }
 
 export type MonitorDisplayState =
+  | "waiting-event"
   | "scheduled"
   | "retrying"
   | "due-now"
@@ -201,6 +202,9 @@ export function deriveMonitorState(issue: MonitorIssueLike, now: MonitorDate = n
 
   if (runtimeMonitor?.status === "cleared") {
     return { state: "cleared", source, nextCheckAt, attemptCount, serviceName };
+  }
+  if (runtimeMonitor?.status === "scheduled" && runtimeMonitor.nextCheckAt === null && serviceName) {
+    return { state: "waiting-event", source: "monitor", nextCheckAt: null, attemptCount, serviceName };
   }
 
   if (!hasMonitor && !retryIsScheduled) {

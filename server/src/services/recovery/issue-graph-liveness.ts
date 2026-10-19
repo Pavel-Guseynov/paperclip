@@ -1,4 +1,4 @@
-import { getAgentWorkEligibility, isAgentInvokable } from "@paperclipai/shared";
+import { getAgentWorkEligibility, hasPendingIssueMonitor, isAgentInvokable } from "@paperclipai/shared";
 import { buildIssueGraphLivenessIncidentKey } from "./origins.js";
 
 export type IssueLivenessSeverity = "warning" | "critical";
@@ -188,16 +188,17 @@ function readDateMs(value: unknown): number | null {
   return Number.isNaN(time) ? null : time;
 }
 
-function monitorFromIssue(issue: IssueLivenessIssueInput) {
+function monitorFromIssue(issue: Pick<IssueLivenessIssueInput, "executionPolicy" | "executionState">) {
   const policyMonitor = readRecord(readRecord(issue.executionPolicy)?.monitor);
   const stateMonitor = readRecord(readRecord(issue.executionState)?.monitor);
   return { policyMonitor, stateMonitor };
 }
 
-export function hasScheduledIssueMonitorPath(issue: IssueLivenessIssueInput, now: Date | string | number) {
+export function hasScheduledIssueMonitorPath(issue: Pick<IssueLivenessIssueInput,
+  "monitorNextCheckAt" | "executionState" | "executionPolicy" | "monitorAttemptCount">, now: Date | string | number) {
   const nowMs = typeof now === "number" ? now : readDateMs(now) ?? Date.now();
   const nextCheckAtMs = readDateMs(issue.monitorNextCheckAt);
-  if (nextCheckAtMs === null || nextCheckAtMs <= nowMs) return false;
+  if (nextCheckAtMs === null ? !hasPendingIssueMonitor(issue) : nextCheckAtMs <= nowMs) return false;
 
   const { policyMonitor, stateMonitor } = monitorFromIssue(issue);
   const timeoutAtMs = readDateMs(policyMonitor?.timeoutAt ?? stateMonitor?.timeoutAt);

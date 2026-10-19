@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { createServer, type ServerResponse } from "node:http";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,11 +8,13 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
+  agentRuntimeState,
   agentWakeupRequests,
   agents,
   approvals,
   assets,
   companies,
+  companySkills,
   companyMemberships,
   costEvents,
   createDb,
@@ -21,6 +25,7 @@ import {
   issueComments,
   issueRelations,
   issueThreadInteractions,
+  issueWorkProducts,
   issues,
   pluginManagedResources,
   plugins,
@@ -32,6 +37,8 @@ import {
 } from "./helpers/embedded-postgres.js";
 import { buildHostServices } from "../services/plugin-host-services.js";
 import { heartbeatService } from "../services/heartbeat.js";
+import { issueExecutionStateSchema } from "@paperclipai/shared";
+import { normalizeIssueExecutionPolicy } from "../services/issue-execution-policy.js";
 import { drainHeartbeatRunsToQuiescence } from "./helpers/drain-heartbeat-runs.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
@@ -119,7 +126,9 @@ describeEmbeddedPostgres("plugin orchestration APIs", () => {
     await db.delete(projects);
     await db.delete(plugins);
     await db.delete(companyMemberships);
+    await db.delete(agentRuntimeState);
     await db.delete(agents);
+    await db.delete(companySkills);
     await db.delete(companies);
   });
 
@@ -209,6 +218,22 @@ describeEmbeddedPostgres("plugin orchestration APIs", () => {
       providerMetadata: { sandboxId: "sandbox-1" },
     });
     await expect(services.executionWorkspaces.get({ workspaceId, companyId: otherCompanyId })).resolves.toBeNull();
+  });
+
+  it("returns persisted review work products only within the issue company", async () => {
+    const { companyId } = await seedCompanyAndAgent();
+    const other = await seedCompanyAndAgent();
+    const [issue] = await db.insert(issues).values({ companyId, title: "Review CI", status: "in_review" }).returning();
+    const [product] = await db.insert(issueWorkProducts).values({ companyId, issueId: issue.id,
+      type: "pull_request", provider: "gitea", title: "Review", status: "active", isPrimary: true,
+      url: "https://git.example/owner/repo/pulls/1", metadata: { headSha: "abc123" },
+    }).returning();
+    const services = buildHostServices(db, "plugin-record-id", "paperclip.ci-wake", createEventBusStub());
+    await expect(services.issues.get({ companyId, issueId: issue.id })).resolves.toMatchObject({
+      id: issue.id, workProducts: [expect.objectContaining({ id: product.id, type: "pull_request",
+        provider: "gitea", url: product.url, metadata: { headSha: "abc123" } })],
+    });
+    await expect(services.issues.get({ companyId: other.companyId, issueId: issue.id })).resolves.toBeNull();
   });
 
   it("creates plugin-origin issues with full orchestration fields and audit activity", async () => {
@@ -674,6 +699,108 @@ describeEmbeddedPostgres("plugin orchestration APIs", () => {
       }),
     ).rejects.toThrow("Issue is blocked by unresolved blockers");
   });
+
+  async function seedCiReviewWait(serviceName = "gitea") {
+    const { companyId, agentId } = await seedCompanyAndAgent();
+    await db.update(companies).set({ defaultResponsibleUserId: "review-owner" }).where(eq(companies.id, companyId));
+    const stageId = randomUUID();
+    const externalRef = JSON.stringify({ pullRequestUrl: "https://git.example/owner/repo/pulls/1",
+      headSha: "current-head", context: "Flake Check" });
+    const monitor = { nextCheckAt: null, kind: "external_service", serviceName, externalRef,
+      scheduledBy: "assignee", maxAttempts: 1 };
+    const executionState = issueExecutionStateSchema.parse({ status: "pending", currentStageId: stageId,
+      currentStageIndex: 0, currentStageType: "review", currentParticipant: { type: "agent", agentId },
+      returnAssignee: { type: "user", userId: "review-owner" }, completedStageIds: [], lastDecisionId: null,
+      lastDecisionOutcome: null, monitor: { ...monitor, externalRef: "[redacted]", status: "scheduled", lastTriggeredAt: null,
+        attemptCount: 0, notes: null, clearedAt: null, clearReason: null } });
+    const executionPolicy = normalizeIssueExecutionPolicy({ maxReviewRounds: 4, stages: [{ id: stageId, type: "review",
+      participants: [{ type: "agent", agentId }] }], monitor });
+    const [issue] = await db.insert(issues).values({ companyId, title: "Await CI", status: "in_review",
+      assigneeAgentId: agentId, executionPolicy: executionPolicy as Record<string, unknown>, executionState, monitorNextCheckAt: null }).returning();
+    return { companyId, agentId, stageId, externalRef, executionState, executionPolicy, issue };
+  }
+
+  it.each(["matching", "wrong head", "wrong context", "provider quota"])(
+    "consumes only the bound external CI wait (%s)", async (scenario) => {
+      const { companyId, agentId, stageId, externalRef, executionState, executionPolicy, issue } =
+        await seedCiReviewWait(scenario === "provider quota" ? "provider_quota" : "gitea");
+      const heartbeat = heartbeatService(db);
+      await heartbeat.tickTimers(new Date("2099-01-01T00:00:00Z"));
+      expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId))).toHaveLength(0);
+      const services = buildHostServices(db, "plugin-record-id", "paperclip.ci-wake", createEventBusStub());
+      const event = { pullRequestUrl: "https://git.example/owner/repo/pulls/1", headSha: "current-head", context: "Flake Check" };
+      if (scenario === "wrong head") event.headSha = "old-head";
+      if (scenario === "wrong context") event.context = "Other Check";
+      const result = await services.issues.requestWakeup({ companyId, issueId: issue.id,
+        monitor: { serviceName: "gitea", externalRef: JSON.stringify(event) } });
+      await heartbeat.drainActiveRunExecutions();
+      const [after] = await db.select().from(issues).where(eq(issues.id, issue.id));
+      expect(after).toMatchObject({ status: "in_review", assigneeAgentId: agentId, monitorNextCheckAt: null });
+      expect(after.executionState).toMatchObject({ status: "pending", currentStageId: stageId,
+        currentParticipant: { type: "agent", agentId }, returnAssignee: { type: "user", userId: "review-owner" } });
+      if (scenario === "matching") {
+        expect(result.queued).toBe(true);
+        expect(after.executionPolicy?.monitor).toBeUndefined();
+        expect(after.executionPolicy?.maxReviewRounds).toBe(4);
+        expect(after.executionState?.monitor).toMatchObject({ status: "triggered", attemptCount: 1 });
+        await expect(services.issues.requestWakeup({ companyId, issueId: issue.id,
+          monitor: { serviceName: "gitea", externalRef } })).resolves.toEqual({ queued: false, runId: null });
+        expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId))).toHaveLength(1);
+      } else {
+        expect(result).toEqual({ queued: false, runId: null });
+        await expect(services.issues.requestWakeup({ companyId, issueId: issue.id }))
+          .rejects.toThrow("An armed issue monitor requires an exact external-service binding");
+        await expect(services.issues.requestWakeups({ companyId, issueIds: [issue.id] }))
+          .rejects.toThrow("An armed issue monitor requires an exact external-service binding");
+        expect(after.executionState).toEqual(executionState);
+        expect(after.executionPolicy).toEqual(executionPolicy);
+        expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId))).toHaveLength(0);
+      }
+    },
+  );
+
+  it("retains a matching CI wake while a real reviewer runs and promotes it on release", async () => {
+    const { companyId, agentId, issue, externalRef, stageId } = await seedCiReviewWait();
+    const heartbeat = heartbeatService(db);
+    let heldResponse: ServerResponse | null = null;
+    const server = createServer((_request, response) => {
+      if (!heldResponse) heldResponse = response;
+      else response.end("complete");
+    });
+    const listening = once(server, "listening", { signal: AbortSignal.timeout(20_000) });
+    server.listen(0, "127.0.0.1");
+    await listening;
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Reviewer fixture has no TCP address");
+      const ready = once(server, "request", { signal: AbortSignal.timeout(20_000) });
+      await db.update(agents).set({ adapterConfig: { command: process.execPath,
+        args: ["--input-type=module", "-e", `await fetch("http://127.0.0.1:${address.port}/ready");`] },
+      }).where(eq(agents.id, agentId));
+      const run = await heartbeat.wakeup(agentId, { source: "assignment", reason: "execution_review_requested",
+        requestedByActorType: "user", requestedByActorId: "review-owner",
+        payload: { issueId: issue.id }, contextSnapshot: { issueId: issue.id, wakeReason: "execution_review_requested" } });
+      expect(run).toBeTruthy();
+      await ready;
+      const services = buildHostServices(db, "plugin-record-id", "paperclip.ci-wake", createEventBusStub());
+      await expect(services.issues.requestWakeup({ companyId, issueId: issue.id,
+        monitor: { serviceName: "gitea", externalRef } })).resolves.toEqual({ queued: true, runId: null });
+      const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId));
+      const deferred = wakes.find((wake) => wake.reason === "plugin_issue_wakeup_requested");
+      expect(deferred).toMatchObject({ status: "deferred_issue_execution", runId: null });
+      heldResponse!.end("complete");
+      await heartbeat.drainActiveRunExecutions();
+      const [after] = await db.select().from(issues).where(eq(issues.id, issue.id));
+      expect(after).toMatchObject({ status: "in_review", assigneeAgentId: agentId, executionRunId: null });
+      expect(after.executionState).toMatchObject({ status: "pending", currentStageId: stageId,
+        monitor: { status: "triggered", attemptCount: 1 } });
+      expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId))).toHaveLength(2);
+    } finally {
+      heldResponse?.end();
+      await heartbeat.drainActiveRunExecutions();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 60_000);
 
   it("narrows orchestration cost summaries by subtree and billing code", async () => {
     const { companyId, agentId } = await seedCompanyAndAgent();

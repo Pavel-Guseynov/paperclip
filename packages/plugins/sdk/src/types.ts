@@ -1506,6 +1506,8 @@ export interface PluginIssuesClient {
       reason?: string;
       contextSource?: string;
       idempotencyKey?: string | null;
+      /** Consume only this exact persisted external-service monitor binding. */
+      monitor?: { serviceName: string; externalRef: string };
     } & PluginIssueMutationActor,
   ): Promise<PluginIssueWakeupResult>;
   requestWakeups(

@@ -23,6 +23,7 @@ type MonitorDate = Date | string;
  * wireframe 04 (PAP-14557).
  */
 const WAITING_STATES: readonly MonitorDisplayState[] = [
+  "waiting-event",
   "scheduled",
   "retrying",
   "due-now",
@@ -35,7 +36,7 @@ export function isWaitingMonitorState(state: MonitorDisplayState): boolean {
 
 export function hasVisibleMonitorSurface(issue: Issue): boolean {
   const derived = deriveMonitorState(issue);
-  return isWaitingMonitorState(derived.state) && derived.nextCheckAt !== null;
+  return isWaitingMonitorState(derived.state) && (derived.state === "waiting-event" || derived.nextCheckAt !== null);
 }
 
 export interface MonitorSurfaceCopy {
@@ -66,6 +67,10 @@ export function buildMonitorSurfaceCopy(
   now: MonitorDate,
   scheduledRetryReason?: string | null,
 ): MonitorSurfaceCopy | null {
+  if (derived.state === "waiting-event") {
+    return { bannerTitle: "Waiting for external event", stripTitle: "Waiting for external event",
+      bannerMeta: [`Watching: ${derived.serviceName}`], stripMeta: ["Resumes when the matching event arrives."], tone: "info" };
+  }
   if (!isWaitingMonitorState(derived.state) || !derived.nextCheckAt) return null;
 
   if (derived.source === "scheduled-retry" && scheduledRetryReason === "workspace_busy") {

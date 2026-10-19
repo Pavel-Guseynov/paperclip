@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   DeploymentMode,
   IssueExecutionDecision,
@@ -78,6 +78,12 @@ const MONITOR_INVALID_MESSAGE = "Monitor can only be scheduled on issues assigne
 const MONITOR_BOUNDS_EXHAUSTED_MESSAGE = "Monitor bounds are already exhausted";
 const STAGE_DECISION_COMMENT_HINT = "Include the decision comment in the same PATCH request; prior comments are not considered.";
 export const REDACTED_ISSUE_MONITOR_EXTERNAL_REF = "[redacted]";
+
+/** Event bindings retain only an idempotent digest, never the input reference. */
+export function issueMonitorBindingDigest(reference: string): string {
+  return /^sha256:[a-f0-9]{64}$/.test(reference)
+    ? reference : `sha256:${createHash("sha256").update(reference).digest("hex")}`;
+}
 
 function normalizeMonitorNotes(notes: string | null | undefined) {
   if (typeof notes !== "string") return null;
@@ -171,7 +177,7 @@ function derivePersistedMonitorState(input: {
     scheduledByRaw === "assignee" || scheduledByRaw === "board" ? scheduledByRaw : null;
   const metadata = scheduledMonitor ? monitorMetadataFromPolicy(scheduledMonitor) : monitorMetadataFromState(fromState);
 
-  if (nextCheckAt) {
+  if (nextCheckAt || scheduledMonitor?.nextCheckAt === null) {
     return {
       status: "scheduled",
       nextCheckAt,
@@ -328,12 +334,10 @@ function nextAssigneeIds(input: {
 export function stripMonitorFromExecutionPolicy(policy: IssueExecutionPolicy | null): IssueExecutionPolicy | null {
   if (!policy) return null;
   if (!policy.monitor) return policy;
-  if (policy.stages.length === 0) return null;
-  return {
-    mode: policy.mode,
-    commentRequired: policy.commentRequired,
-    stages: policy.stages,
-  };
+  if (policy.stages.length === 0 && !policy.reviewPreset && !policy.authorizationPolicy && policy.maxReviewRounds == null) return null;
+  const stripped = { ...policy };
+  delete stripped.monitor;
+  return stripped;
 }
 
 export function setIssueExecutionPolicyMonitorScheduledBy(
@@ -394,7 +398,9 @@ export function normalizeIssueExecutionPolicy(input: unknown): IssueExecutionPol
       scheduledBy: parsed.data.monitor.scheduledBy,
       kind: parsed.data.monitor.kind ?? null,
       serviceName: normalizeMonitorText(parsed.data.monitor.serviceName),
-      externalRef: redactIssueMonitorExternalRef(parsed.data.monitor.externalRef),
+      externalRef: parsed.data.monitor.nextCheckAt === null
+        ? issueMonitorBindingDigest(parsed.data.monitor.externalRef!)
+        : redactIssueMonitorExternalRef(parsed.data.monitor.externalRef),
       timeoutAt: parsed.data.monitor.timeoutAt ?? null,
       maxAttempts: parsed.data.monitor.maxAttempts ?? null,
       recoveryPolicy: parsed.data.monitor.recoveryPolicy ?? null,
@@ -1162,7 +1168,8 @@ function applyMonitorTransition(input: TransitionInput, stagePatch: Record<strin
           clearedAt: new Date(),
         });
       } else {
-        patch.monitorNextCheckAt = new Date(input.policy.monitor.nextCheckAt);
+        patch.monitorNextCheckAt = input.policy.monitor.nextCheckAt === null
+          ? null : new Date(input.policy.monitor.nextCheckAt);
         patch.monitorWakeRequestedAt = null;
         patch.monitorNotes = input.policy.monitor.notes ?? null;
         patch.monitorScheduledBy = input.policy.monitor.scheduledBy;
@@ -1210,7 +1217,8 @@ export function buildInitialIssueMonitorFields(input: {
 
   const monitorState = buildScheduledMonitorState(null, input.policy.monitor);
   return {
-    monitorNextCheckAt: new Date(input.policy.monitor.nextCheckAt),
+    monitorNextCheckAt: input.policy.monitor.nextCheckAt === null
+      ? null : new Date(input.policy.monitor.nextCheckAt),
     monitorWakeRequestedAt: null,
     monitorNotes: input.policy.monitor.notes ?? null,
     monitorScheduledBy: input.policy.monitor.scheduledBy,

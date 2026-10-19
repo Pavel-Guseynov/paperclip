@@ -1948,6 +1948,7 @@ export interface WorkerToHostMethods {
       reason?: string;
       contextSource?: string;
       idempotencyKey?: string | null;
+      monitor?: { serviceName: string; externalRef: string };
       actorAgentId?: string | null;
       actorUserId?: string | null;
       actorRunId?: string | null;
