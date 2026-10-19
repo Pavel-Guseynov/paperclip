@@ -11715,6 +11715,8 @@ export function heartbeatService(
           source: input.source,
           triggerDetail: input.triggerDetail,
           reason: wakeReason,
+          // A monitor completion must survive the current run's release.
+          allowRunCoalescing: false,
           idempotencyKey: `issue-monitor:${claimed.id}:${scheduledAtIso ?? claimed.monitorWakeRequestedAt!.toISOString()}`,
           payload: {
             issueId: claimed.id,

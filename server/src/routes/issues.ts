@@ -9448,7 +9448,6 @@ export function issueRoutes(
               lockedIssue.executionPolicy ?? null,
             );
             const transition = applyIssueExecutionPolicyTransition({
-              deploymentMode: opts.deploymentMode,
               issue: lockedIssue,
               policy: executionPolicy,
               previousPolicy: executionPolicy,
@@ -13216,7 +13215,6 @@ export function issueRoutes(
       );
 
       const transition = applyIssueExecutionPolicyTransition({
-        deploymentMode: opts.deploymentMode,
         issue: existing,
         policy: nextExecutionPolicy,
         previousPolicy: previousExecutionPolicy,
@@ -17690,7 +17688,6 @@ export function issueRoutes(
       let goalCommentSteered = false;
       if (shouldAutoApproveReviewComment) {
         const transition = applyIssueExecutionPolicyTransition({
-          deploymentMode: opts.deploymentMode,
           issue: currentIssue,
           policy: currentExecutionPolicy,
           requestedStatus: "done",

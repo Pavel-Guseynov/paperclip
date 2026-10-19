@@ -763,6 +763,7 @@ describeEmbeddedPostgres("plugin orchestration APIs", () => {
     const { companyId, agentId, issue, externalRef, stageId } = await seedCiReviewWait();
     const heartbeat = heartbeatService(db);
     let heldResponse: ServerResponse | null = null;
+    let fixtureRunId: string | null = null;
     const server = createServer((_request, response) => {
       if (!heldResponse) heldResponse = response;
       else response.end("complete");
@@ -780,23 +781,39 @@ describeEmbeddedPostgres("plugin orchestration APIs", () => {
       const run = await heartbeat.wakeup(agentId, { source: "assignment", reason: "execution_review_requested",
         requestedByActorType: "user", requestedByActorId: "review-owner",
         payload: { issueId: issue.id }, contextSnapshot: { issueId: issue.id, wakeReason: "execution_review_requested" } });
+      fixtureRunId = run?.id ?? null;
       expect(run).toBeTruthy();
       await ready;
       const services = buildHostServices(db, "plugin-record-id", "paperclip.ci-wake", createEventBusStub());
       await expect(services.issues.requestWakeup({ companyId, issueId: issue.id,
         monitor: { serviceName: "gitea", externalRef } })).resolves.toEqual({ queued: true, runId: null });
       const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId));
-      const deferred = wakes.find((wake) => wake.reason === "plugin_issue_wakeup_requested");
-      expect(deferred).toMatchObject({ status: "deferred_issue_execution", runId: null });
+      expect(wakes).toEqual(expect.arrayContaining([expect.objectContaining({
+        reason: "issue_execution_deferred", status: "deferred_issue_execution", runId: null,
+        payload: expect.objectContaining({ issueId: issue.id,
+          _paperclipWakeContext: expect.objectContaining({ wakeReason: "plugin_issue_wakeup_requested" }) }),
+      })]));
       heldResponse!.end("complete");
       await heartbeat.drainActiveRunExecutions();
       const [after] = await db.select().from(issues).where(eq(issues.id, issue.id));
       expect(after).toMatchObject({ status: "in_review", assigneeAgentId: agentId, executionRunId: null });
       expect(after.executionState).toMatchObject({ status: "pending", currentStageId: stageId,
         monitor: { status: "triggered", attemptCount: 1 } });
-      expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId))).toHaveLength(2);
+      const completedRuns = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId));
+      expect(completedRuns.map(({ id, status, retryOfRunId, contextSnapshot }) => ({
+        id, status, retryOfRunId, contextSnapshot,
+      }))).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: run!.id, status: "succeeded" }),
+        // The process fixture posts no comment, so native policy requires its one bounded retry.
+        expect.objectContaining({ retryOfRunId: run!.id, status: "succeeded",
+          contextSnapshot: expect.objectContaining({ retryReason: "missing_issue_comment" }) }),
+      ]));
+      expect(completedRuns.filter((entry) => entry.contextSnapshot?.source === "issue.monitor"))
+        .toEqual([expect.objectContaining({ status: "succeeded", retryOfRunId: null,
+          contextSnapshot: expect.objectContaining({ wakeReason: "plugin_issue_wakeup_requested", monitorAttemptCount: 1 }) })]);
     } finally {
       heldResponse?.end();
+      if (fixtureRunId) await heartbeat.cancelRun(fixtureRunId, "CI-wake fixture cleanup");
       await heartbeat.drainActiveRunExecutions();
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

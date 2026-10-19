@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import {
-  approvals, issueApprovals, issueThreadInteractions, applyPendingMigrations, closeRegisteredClients,
+  approvals, issueApprovals, issueThreadInteractions, applyPendingMigrations, closeRegisteredClients, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS,
   agentWakeupRequests, agents, companies, createDb, heartbeatRunEvents, heartbeatRuns, issueComments, issueRecoveryActions,
   issues, nativeRunFinalizations, nativeRunResults, completionContracts, environmentLeases, environments, issueRelations, issueTreeHolds, issueTreeHoldMembers,
 } from "@paperclipai/db";
@@ -34,7 +34,7 @@ const support = await getEmbeddedPostgresTestSupport();
     asciiConnectionString = asciiUrl.toString();
     await applyPendingMigrations(asciiConnectionString);
     asciiDb = createDb(asciiConnectionString);
-  }, 30000);
+  }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
   afterAll(async () => {
     if (asciiConnectionString) await closeRegisteredClients(asciiConnectionString);
     await database?.cleanup();

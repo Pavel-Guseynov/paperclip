@@ -751,19 +751,11 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
       });
       // Admission is committed before adapter-owned setup. This concurrent
       // update must not wait on a lock held by the adapter callback.
-      await new Promise((resolve) => setTimeout(resolve, 25));
       await parkPromise;
       expect(ordering).toEqual(["validated", "parked"]);
     };
     await heartbeat.resumeQueuedRuns();
-    await waitForCondition(async () => {
-      const run = await db
-        .select({ status: heartbeatRuns.status })
-        .from(heartbeatRuns)
-        .where(eq(heartbeatRuns.id, runId))
-        .then((rows) => rows[0] ?? null);
-      return run?.status === "cancelled";
-    });
+    await heartbeat.drainActiveRunExecutions();
     await parkPromise;
 
     const issue = await db
