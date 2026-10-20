@@ -483,6 +483,13 @@ the existing board resolution authorizes its fresh continuation under that
 authenticated board user; historical run identities and issue ownership remain
 unchanged, and current access checks still apply.
 
+On macOS, native file handoff requires `lsof` on the server process's `PATH`
+to verify the actual path of an opened file descriptor before reading or
+writing attachment bytes. A missing command or invalid descriptor response
+rejects the handoff with `paperclip_runner_file_handoff_descriptor_unverifiable`
+and retains the original command failure or response as its cause. The native
+Nix test environment provides `lsof`; deployment packaging must provide it too.
+
 ### Managed MCP authentication
 
 Managed MCP clients send their gateway bearer to

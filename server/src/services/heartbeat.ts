@@ -507,6 +507,7 @@ import {
 import {
   createRunDispatch,
   type PostCommitEffect,
+  type ScheduledRetryGateErrorCode,
   MAX_TURN_CONTINUATION_RETRY_REASON,
   WORKSPACE_BUSY_RETRY_REASON,
   AI_CONNECTION_BUSY_RETRY_REASON,
@@ -15552,12 +15553,11 @@ export function heartbeatService(
           }
         : baseSchedule;
 
-    const requiresIssueGate =
+    const requiresIssueGate = retryReason !== MAX_TURN_CONTINUATION_RETRY_REASON && (
       isTransientWorkspaceGitScanCode(run.errorCode) ||
       hasConversationContinuationPolicy(run.resultJson) ||
       retryReason === AI_CONNECTION_BUSY_RETRY_REASON ||
-      retryReason === MAX_TURN_CONTINUATION_RETRY_REASON ||
-      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON;
+      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON);
     if (requiresIssueGate) {
       const gate = await runDispatch.evaluateScheduledRetryGate({
         runId: run.id,
@@ -15683,13 +15683,7 @@ export function heartbeatService(
       | {
           outcome: "not_scheduled";
           reason: string;
-          errorCode:
-            | "issue_not_found"
-            | "issue_reassigned"
-            | "issue_cancelled"
-            | "issue_terminal_status"
-            | "issue_not_in_progress"
-            | "issue_execution_lock_changed";
+          errorCode: ScheduledRetryGateErrorCode;
           issueId: string | null;
           details: Record<string, unknown>;
         };
@@ -15857,6 +15851,16 @@ export function heartbeatService(
               run: existingContinuation,
               reusedExisting: true,
             };
+          }
+
+          // A duplicate must reuse the successor before testing the predecessor's
+          // lock, which the first successful claim has already transferred.
+          const gate = await createRunDispatch(tx as unknown as Db).evaluateScheduledRetryGate({
+            runId: run.id, companyId: run.companyId, retryReasonOverride: retryReason, now,
+          });
+          if (!gate.allowed) {
+            return { outcome: "not_scheduled", reason: gate.reason, errorCode: gate.errorCode,
+              issueId: gate.issueId, details: gate.details };
           }
 
           if (issueId) {

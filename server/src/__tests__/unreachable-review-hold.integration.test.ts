@@ -111,7 +111,7 @@ describe("unreachable escalated review through native authentication", () => {
     else process.env.PAPERCLIP_AGENT_JWT_SECRET = previousJwtSecret;
   });
 
-  async function fixture(deploymentMode: DeploymentMode = "authenticated", withModeContext = true) {
+  async function fixture(deploymentMode: DeploymentMode = "authenticated") {
     const companyId = randomUUID();
     const userId = randomUUID();
     const reviewerId = randomUUID();
@@ -132,6 +132,16 @@ describe("unreachable escalated review through native authentication", () => {
       companyId, principalType: "user", principalId: userId,
       status: "active", membershipRole: "owner",
     });
+    if (deploymentMode === "local_trusted") {
+      await db.insert(authUsers).values({
+        id: "local-board", name: "Local board", email: "local-board@example.test",
+        createdAt: now, updatedAt: now,
+      }).onConflictDoNothing();
+      await db.insert(companyMemberships).values({
+        companyId, principalType: "user", principalId: "local-board",
+        status: "active", membershipRole: "owner",
+      });
+    }
     await db.insert(agents).values([authorId, reviewerId].map((id) => ({
       id, companyId, name: id === authorId ? "Original author" : "Configured reviewer",
       adapterType: "process", adapterConfig: { command: "node", args: ["--version"] },
@@ -171,7 +181,7 @@ describe("unreachable escalated review through native authentication", () => {
     const app = express();
     app.use(express.json());
     app.use(actorMiddleware(db, { deploymentMode }));
-    app.use("/api", issueRoutes(db, storage, withModeContext ? { deploymentMode } : {}));
+    app.use("/api", issueRoutes(db, storage));
     app.use(errorHandler);
     const server = app.listen(0, "127.0.0.1");
     servers.push(server);
@@ -339,12 +349,18 @@ describe("unreachable escalated review through native authentication", () => {
     expect(await f.decisions()).toHaveLength(1);
   });
 
-  it("keeps the legacy hold when the caller has no deployment context", async () => {
-    const f = await fixture("authenticated", false);
-    const before = await f.read();
-    const refused = await f.patch({ status: "todo", assigneeAgentId: f.authorId, assigneeUserId: null });
-    expect(refused.status, JSON.stringify(refused.body)).toBe(422);
-    expect(await f.read()).toEqual(before);
+  it("repairs the reviewer from authenticated middleware context before applying a requested status", async () => {
+    const f = await fixture();
+    const repaired = await f.patch({ status: "todo", assigneeAgentId: f.authorId, assigneeUserId: null });
+    expect(repaired.status, JSON.stringify(repaired.body)).toBe(200);
+    expect(await f.read()).toMatchObject({
+      status: "in_review", assigneeAgentId: f.reviewerId, assigneeUserId: null,
+      executionPolicy: f.policy,
+      executionState: { currentParticipant: { type: "agent", agentId: f.reviewerId },
+        returnAssignee: f.state.returnAssignee, changesRequestedCount: 3,
+        lastDecisionId: f.state.lastDecisionId },
+    });
+    expect(await f.decisions()).toHaveLength(1);
   });
 
   it("escalates a future agent decision to the real creator when the responsible user is the legacy sentinel", async () => {

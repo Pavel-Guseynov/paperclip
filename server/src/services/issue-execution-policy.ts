@@ -44,7 +44,6 @@ type RequestedAssigneePatch = {
 };
 
 type TransitionInput = {
-  deploymentMode?: DeploymentMode;
   issue: IssueLike;
   policy: IssueExecutionPolicy | null;
   previousPolicy?: IssueExecutionPolicy | null;

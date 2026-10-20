@@ -127,7 +127,6 @@ import {
   type IssueWakeDiagnosticsResponse,
   type IssueRelationIssueSummary,
   type IssueReviewPolicy,
-  type DeploymentMode,
   type IssueThreadInteractionCanonicalResolverPolicy,
   type IssueComment,
   type IssueCommentPresentation,
@@ -3444,7 +3443,6 @@ export function issueRoutes(
   db: Db,
   storage: StorageService,
   opts: {
-    deploymentMode?: DeploymentMode;
     chatRunRetries?: Pick<
       ChatChannelService,
       "prepareFailedChatRunRetry" | "processFailedChatRunRetry"

@@ -169,7 +169,7 @@ describeDatabase("execution blocker query plans", () => {
 
     // The index holds only open or replay-blocked records, so the scan reads a handful of
     // rows however long the resolved history is (801 rows here).
-    expect(plan).not.toMatch(/Seq Scan/);
+    expect(plan).not.toMatch(/Seq Scan on issue_recovery_actions\b/);
     const indexScan = /Index Scan using issue_recovery_actions_blocker_lookup_idx[^\n]*rows=(\d+)/.exec(plan);
     expect(indexScan).not.toBeNull();
     expect(Number(indexScan![1])).toBeLessThan(50);

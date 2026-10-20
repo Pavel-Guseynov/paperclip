@@ -1319,7 +1319,7 @@ describeEmbeddedPostgres("heartbeat bounded retry scheduling", () => {
     });
   });
 
-  it("coalesces duplicate max-turn continuation schedules for the same source run and attempt", async () => {
+  it.each(["concurrent", "after the first claim"])("coalesces duplicate max-turn continuation schedules %s", async (timing) => {
     const { issueId, runId, now } = await seedMaxTurnFixture();
     const retryOptions = {
       now,
@@ -1329,13 +1329,13 @@ describeEmbeddedPostgres("heartbeat bounded retry scheduling", () => {
       delayMs: 1_000,
     };
 
-    const [first, second] = await Promise.all([
-      heartbeat.scheduleBoundedRetry(runId, retryOptions),
-      heartbeat.scheduleBoundedRetry(runId, retryOptions),
-    ]);
+    const schedule = () => heartbeat.scheduleBoundedRetry(runId, retryOptions);
+    const [first, second] = timing === "concurrent"
+      ? await Promise.all([schedule(), schedule()])
+      : [await schedule(), await schedule()];
 
-    expect(first.outcome).toBe("scheduled");
-    expect(second.outcome).toBe("scheduled");
+    expect(first.outcome, JSON.stringify(first.outcome === "not_scheduled" ? first : { outcome: first.outcome })).toBe("scheduled");
+    expect(second.outcome, JSON.stringify(second.outcome === "not_scheduled" ? second : { outcome: second.outcome })).toBe("scheduled");
     if (first.outcome !== "scheduled" || second.outcome !== "scheduled") return;
 
     expect(new Set([first.run.id, second.run.id]).size).toBe(1);

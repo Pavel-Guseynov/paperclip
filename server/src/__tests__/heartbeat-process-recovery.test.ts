@@ -10461,7 +10461,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(issue?.executionRunId).toBeNull();
   });
 
-  it.each([false, true])("enqueues one bounded plan-only continuation with legacy productivity review present: %s", async (withLegacyReview) => {
+  it.each([false, true])("enqueues one first-run plan-only continuation with legacy productivity review present: %s", async (withLegacyReview) => {
     const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({
       status: "in_progress",
       runStatus: "failed",
@@ -10506,6 +10506,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     const heartbeat = heartbeatService(db);
 
     await heartbeat.reconcileStrandedAssignedIssues();
+    const recoveredRuns = await db.select({ id: heartbeatRuns.id })
+      .from(heartbeatRuns).where(eq(heartbeatRuns.retryOfRunId, runId));
+    expect(recoveredRuns).toHaveLength(1);
     await heartbeat.promoteDueScheduledRetries(new Date(Date.now() + 31_000));
     await heartbeat.resumeQueuedRuns();
 
@@ -10514,8 +10517,10 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .select()
       .from(agentWakeupRequests)
       .where(eq(agentWakeupRequests.agentId, agentId));
-    const livenessWake = livenessWakes.find((row) => row.reason === "run_liveness_continuation") ?? null;
-    expect(livenessWake).toBeTruthy();
+    const firstRunWakes = livenessWakes.filter((row) =>
+      row.reason === "run_liveness_continuation" && row.payload?.sourceRunId === recoveredRuns[0]!.id);
+    expect(firstRunWakes).toHaveLength(1);
+    const livenessWake = firstRunWakes[0]!;
     expect(livenessWake?.payload).toMatchObject({
       issueId,
       livenessState: "plan_only",

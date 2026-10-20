@@ -253,24 +253,27 @@ async function openedFilePath(fd: number): Promise<string> {
   if (process.platform === "darwin") {
     const output = await new Promise<Buffer>((resolve, reject) => {
       execFile(
-        "/usr/sbin/lsof",
+        "lsof",
         ["-a", "-p", String(process.pid), "-d", String(fd), "-F0n"],
-        { encoding: "buffer", maxBuffer: 16_384, timeout: 1_000 },
-        (error, stdout) => {
-          if (error) reject(error);
+        { encoding: "buffer", maxBuffer: 16_384 },
+        (error, stdout, stderr) => {
+          if (error) reject(Object.assign(error, { stdout: Buffer.from(stdout).toString("utf8"),
+            stderr: Buffer.from(stderr).toString("utf8") }));
           else resolve(Buffer.from(stdout));
         },
       );
-    }).catch(() => null);
-    const paths = output
-      ? output
-          .toString("utf8")
-          .split("\0")
-          .filter((field) => field.startsWith("n"))
-          .map((field) => decodeLsofPath(field.slice(1)))
-      : [];
+    }).catch((cause: unknown) => {
+      throw new Error("paperclip_runner_file_handoff_descriptor_unverifiable", { cause });
+    });
+    const paths = output.toString("utf8").split("\0")
+      .map((field) => field.replace(/^\n/, ""))
+      .filter((field) => field.startsWith("n"))
+      .map((field) => decodeLsofPath(field.slice(1)));
     if (paths.length !== 1 || !path.isAbsolute(paths[0]!)) {
-      throw new Error("paperclip_runner_file_handoff_descriptor_unverifiable");
+      throw new Error("paperclip_runner_file_handoff_descriptor_unverifiable", {
+        cause: Object.assign(new Error("lsof did not return exactly one absolute descriptor path"),
+          { stdout: output.toString("utf8") }),
+      });
     }
     return realpath(paths[0]!);
   }
