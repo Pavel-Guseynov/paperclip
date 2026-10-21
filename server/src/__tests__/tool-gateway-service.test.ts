@@ -1950,6 +1950,7 @@ describeEmbeddedPostgres("tool gateway service", () => {
     expect(invocations[0]!.argumentsSummary).toMatchObject({
       summary: expect.stringContaining("...[truncated]"),
     });
+    expect(invocations[0]!.argumentsSummary!.summary!.length).toBeLessThanOrEqual(4000);
   });
 
   it("passes original sensitive arguments to plugin executors while redacting stored summaries", async () => {
