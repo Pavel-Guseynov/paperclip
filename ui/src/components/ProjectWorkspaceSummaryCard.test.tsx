@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
-import type { ComponentProps, ReactNode } from "react";
-import { flushSync } from "react-dom";
+import { act, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ExecutionWorkspace, Issue } from "@paperclipai/shared";
@@ -26,8 +25,7 @@ vi.mock("./IssuesQuicklook", () => ({
   IssuesQuicklook: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 /**
  * The card reads the managed-sandbox-only policy through the shared
@@ -41,20 +39,6 @@ function withQueryClient(node: ReactNode, experimentalSettings: Record<string, u
     queryClient.setQueryData(queryKeys.instance.experimentalSettings, experimentalSettings);
   }
   return <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>;
-}
-
-function act(callback: () => void | Promise<void>) {
-  let result: void | Promise<void> = undefined;
-  flushSync(() => {
-    result = callback();
-  });
-  const maybePromise = result as Promise<void> | undefined;
-  if (maybePromise !== undefined && typeof maybePromise.then === "function") {
-    return maybePromise.then(() => {
-      flushSync(() => {});
-    });
-  }
-  return result;
 }
 
 function createIssue(overrides: Partial<Issue> = {}): Issue {
@@ -145,6 +129,7 @@ describe("ProjectWorkspaceSummaryCard", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it("keeps the path row hidden while the policy is still loading", () => {
@@ -340,6 +325,7 @@ describe("ProjectWorkspaceSummaryCard", () => {
   });
 
   it("copies branch and path from both text and icon controls with feedback", async () => {
+    vi.useFakeTimers();
     const root = createRoot(container);
     const summary = createSummary({
       branchName: "PAP-1552-workspace-polish",
@@ -372,14 +358,12 @@ describe("ProjectWorkspaceSummaryCard", () => {
 
     await act(async () => {
       branchTextButton!.click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(writeClipboard).toHaveBeenLastCalledWith(summary.branchName);
     expect(branchTextButton?.nextElementSibling?.className).toContain("opacity-100");
 
     await act(async () => {
       pathTextButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(writeClipboard).toHaveBeenLastCalledWith(summary.cwd);
     expect(pathTextButton?.nextElementSibling?.className).toContain("opacity-100");
@@ -387,10 +371,15 @@ describe("ProjectWorkspaceSummaryCard", () => {
     await act(async () => {
       branchIconButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       pathIconButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(writeClipboard).toHaveBeenCalledWith(summary.branchName);
     expect(writeClipboard).toHaveBeenCalledWith(summary.cwd);
+
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(branchTextButton?.nextElementSibling?.className).toContain("opacity-0");
+    expect(pathTextButton?.nextElementSibling?.className).toContain("opacity-0");
 
     act(() => {
       root.unmount();

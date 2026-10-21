@@ -425,6 +425,10 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
 
   it("test_one_aborted_stream_leaves_the_session_and_the_other_streams_open", async () => {
     const signalsByPath = new Map<string, AbortSignal>();
+    let resolveForwardsStarted!: () => void;
+    const forwardsStarted = new Promise<void>((resolve) => { resolveForwardsStarted = resolve; });
+    let resolveAborted!: () => void;
+    const abortedForward = new Promise<void>((resolve) => { resolveAborted = resolve; });
     let releaseSurvivor: (() => void) | undefined;
     const survivorHeld = new Promise<void>((resolve) => {
       releaseSurvivor = resolve;
@@ -432,12 +436,16 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
     const { handle, bridgeToken, clientSide } = bindTestServer({
       forwardRequest: async (request) => {
         signalsByPath.set(request.pathname, request.signal);
+        if (signalsByPath.size === 2) resolveForwardsStarted();
         if (request.pathname === "/api/agents/aborted") {
           // The RST — not a manual release — is what must end this forward:
           // it settles only when the stream's own signal fires, so the test
           // proves the signal itself unblocks the handler.
           await new Promise<void>((_resolve, reject) => {
-            request.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            request.signal.addEventListener("abort", () => {
+              resolveAborted();
+              reject(new Error("aborted"));
+            }, {
               once: true,
             });
           }).catch(() => undefined);
@@ -479,12 +487,10 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
       });
       abortedStream.end();
       survivorStream.end();
-      // Give both requests time to reach the server and enter forwardRequest.
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await forwardsStarted;
       abortedStream.close(http2.constants.NGHTTP2_CANCEL);
       await abortedStreamClosed;
-      // Give the server's own stream `close` listener a turn to run.
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await abortedForward;
       // The one aborted stream's signal fires. The other, still-open stream's
       // signal stays untouched: the abort is local to its own stream.
       expect(signalsByPath.get("/api/agents/aborted")?.aborted).toBe(true);
@@ -495,6 +501,7 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toEqual({ path: "/api/agents/survivor" });
     } finally {
+      releaseSurvivor!();
       rawClient.close();
       await handle.close();
     }
@@ -509,10 +516,13 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
     // RST regardless of whether its forward call ever settles).
     let liveForwards = 0;
     let maxLiveForwards = 0;
+    let resolveBatchStarted: (() => void) | undefined;
+    let resolveBatchSettled: (() => void) | undefined;
     const { handle, bridgeToken, clientSide } = bindTestServer({
       forwardRequest: async (request) => {
         liveForwards += 1;
         maxLiveForwards = Math.max(maxLiveForwards, liveForwards);
+        if (liveForwards === HTTP2_BRIDGE_MAX_CONCURRENT_STREAMS) resolveBatchStarted?.();
         try {
           await new Promise<void>((resolve, reject) => {
             if (request.signal.aborted) {
@@ -524,12 +534,15 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
           return { status: 200, body: Buffer.from(JSON.stringify({ path: request.pathname }), "utf8") };
         } finally {
           liveForwards -= 1;
+          if (liveForwards === 0) resolveBatchSettled?.();
         }
       },
     });
     const rawClient = connectRawClient(clientSide);
     try {
       const openAndCancelOneBatch = async (label: string) => {
+        const started = new Promise<void>((resolve) => { resolveBatchStarted = resolve; });
+        const settled = new Promise<void>((resolve) => { resolveBatchSettled = resolve; });
         const streams = Array.from({ length: HTTP2_BRIDGE_MAX_CONCURRENT_STREAMS }, (_, index) =>
           rawClient.request({
             ":method": "GET",
@@ -538,9 +551,9 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
           }),
         );
         for (const stream of streams) stream.end();
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        await started;
         for (const stream of streams) stream.close(http2.constants.NGHTTP2_CANCEL);
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        await settled;
       };
 
       // One full batch of maximum-concurrency streams, closed while their
@@ -605,8 +618,12 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
     // The idle bound is well under the total time the whole body takes, so a
     // one-shot bound over the full read would trip. Each chunk resets the
     // bound, so the request still completes.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let resolveServerStream!: (stream: http2.ServerHttp2Stream) => void;
+    const serverStreamReady = new Promise<http2.ServerHttp2Stream>((resolve) => { resolveServerStream = resolve; });
     const { handle, bridgeToken, clientSide } = bindTestServer({
       requestBodyTimeoutMs: 80,
+      onSession: (session) => { session.once("stream", resolveServerStream); },
       forwardRequest: async (request) => ({
         status: 200,
         body: Buffer.from(JSON.stringify({ bodyLength: request.body.byteLength }), "utf8"),
@@ -614,12 +631,12 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
     });
     const rawClient = connectRawClient(clientSide);
     try {
-      const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-        const req = rawClient.request({
-          ":method": "POST",
-          ":path": "/api/issues/abc/comments",
-          authorization: `Bearer ${bridgeToken}`,
-        });
+      const req = rawClient.request({
+        ":method": "POST",
+        ":path": "/api/issues/abc/comments",
+        authorization: `Bearer ${bridgeToken}`,
+      });
+      const responseReady = new Promise<{ status: number; body: string }>((resolve, reject) => {
         let status = 0;
         let body = "";
         req.setEncoding("utf8");
@@ -629,22 +646,22 @@ describe("createHttp2BridgeServer + createSandboxHttp2BridgeGateway", () => {
         req.on("data", (chunk) => (body += chunk));
         req.on("end", () => resolve({ status, body }));
         req.on("error", reject);
-        // Five chunks, each inside the idle bound, summing past it.
-        let sent = 0;
-        const sendNext = () => {
-          if (sent >= 5) {
-            req.end();
-            return;
-          }
-          sent += 1;
-          req.write("chunk");
-          setTimeout(sendNext, 40);
-        };
-        sendNext();
       });
+      const serverStream = await serverStreamReady;
+      // Advance the idle clock only after the real peer consumed each chunk.
+      // Total elapsed time exceeds the idle bound without a scheduling race.
+      for (let sent = 0; sent < 5; sent += 1) {
+        const received = new Promise<void>((resolve) => { serverStream.once("data", () => resolve()); });
+        req.write("chunk");
+        await received;
+        vi.advanceTimersByTime(40);
+      }
+      req.end();
+      const response = await responseReady;
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toEqual({ bodyLength: "chunk".length * 5 });
     } finally {
+      vi.useRealTimers();
       rawClient.close();
       await handle.close();
     }
