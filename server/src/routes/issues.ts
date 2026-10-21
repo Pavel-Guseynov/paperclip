@@ -6550,7 +6550,7 @@ export function issueRoutes(
     req: Request,
     res: Response,
     issue: Parameters<typeof decideIssueAccess>[1],
-    options: { resumeIntent?: boolean } = {},
+    options: { resumeIntent?: boolean; allowLocalReviewHandoff?: boolean } = {},
   ) {
     if (
       await assertLowTrustControlPlaneDenied(req, res, issue.companyId, issue)
@@ -6619,6 +6619,7 @@ export function issueRoutes(
       return false;
     }
     if (!issue.assigneeAgentId) {
+      if (options.allowLocalReviewHandoff && issue.assigneeUserId) return true;
       res.status(409).json({
         error: "Issue follow-up requires an assigned agent",
         details: { issueId: issue.id, actorAgentId },
@@ -13012,13 +13013,6 @@ export function issueRoutes(
           await requireRecoverySourceMutationAuthority(req, existing);
         }
       }
-      if (
-        resumeRequested !== true &&
-        agentStatusTransitionRequiresResumeAuthority &&
-        !(await assertExplicitResumeIntentAllowed(req, res, existing))
-      ) {
-        return;
-      }
       const scheduledRetryForHumanComment =
         shouldHumanCommentResumeInProgressScheduledRetry({
           hasComment: !!commentBody,
@@ -13187,7 +13181,10 @@ export function issueRoutes(
       }
       if (req.body.executionPolicy !== undefined) {
         updateFields.executionPolicy = applyActorMonitorScheduledBy(
-          normalizeIssueExecutionPolicy(req.body.executionPolicy),
+          normalizeIssueExecutionPolicy(req.body.executionPolicy === null ? null : {
+            ...existing.executionPolicy,
+            ...req.body.executionPolicy,
+          }),
           actor.actorType,
         );
       }
@@ -13253,6 +13250,22 @@ export function issueRoutes(
         };
       }
       Object.assign(updateFields, transition.patch);
+
+      const handoffState = parseIssueExecutionState(transition.patch.executionState);
+      const localReviewHandoff = existing.status === "blocked" &&
+        Boolean(existing.assigneeUserId) && !existing.assigneeAgentId &&
+        !existing.checkoutRunId && !existing.executionRunId &&
+        req.body.status === "done" && transition.workflowControlledAssignment === true &&
+        updateFields.status === "in_review" && handoffState?.status === "pending" &&
+        handoffState.currentStageType === "review" &&
+        handoffState.returnAssignee?.type === "user" &&
+        handoffState.returnAssignee.userId === existing.assigneeUserId;
+      if (
+        resumeRequested !== true && agentStatusTransitionRequiresResumeAuthority &&
+        !(await assertExplicitResumeIntentAllowed(req, res, existing, { allowLocalReviewHandoff: localReviewHandoff }))
+      ) return;
+      const pendingReviewPolicyUpdate = req.body.executionPolicy !== undefined &&
+        existing.status === "in_review" && parseIssueExecutionState(existing.executionState)?.status === "pending";
 
       const nextStatus = updateFields.status ?? existing.status;
       if (updateFields.unblockDescriptor && nextStatus !== "blocked") {
@@ -13625,17 +13638,22 @@ export function issueRoutes(
       ) => {
         const lockedExisting = await svc.getByIdForUpdate(id, tx);
         if (!lockedExisting) return false;
-        if (transition.recoveredReviewHold) {
+        if (transition.recoveredReviewHold || localReviewHandoff || pendingReviewPolicyUpdate) {
           const recoveryFields = [
             "status", "assigneeAgentId", "assigneeUserId", "executionPolicy", "executionState",
             "executionRunId", "checkoutRunId", "executionWorkspaceId", "projectWorkspaceId", "projectId",
             "responsibleUserId", "createdByUserId", "reviewPolicy",
           ] as const;
           if (recoveryFields.some((field) => !isDeepStrictEqual(lockedExisting[field], existing[field]))) {
-            throw conflict("The review changed while recovery was being prepared. Read the issue and try again.");
+            throw conflict(transition.recoveredReviewHold
+              ? "The review changed while recovery was being prepared. Read the issue and try again."
+              : "The review changed while its update was being prepared. Read the issue and try again.");
           }
-          if (await resolveActiveIssueRun(lockedExisting)) {
+          if ((transition.recoveredReviewHold || localReviewHandoff) && await resolveActiveIssueRun(lockedExisting)) {
             throw conflict("An active execution must stop before recovering the review participant");
+          }
+          if (localReviewHandoff && (await svc.getDependencyReadiness(id)).unresolvedBlockerCount > 0) {
+            throw conflict("Issue follow-up blocked by unresolved blockers");
           }
         }
         const lockedPolicyChangeRequested =
@@ -13747,12 +13765,13 @@ export function issueRoutes(
         Boolean(decision) ||
         shouldRelayStop ||
         persistReviewActivityTransactionally ||
+        pendingReviewPolicyUpdate ||
         reviewPolicySensitiveMutationRequested;
       try {
         if (shouldUseTransactionalIssueUpdate) {
           issue = await db.transaction(async (tx) => {
             if (
-              (reviewPolicySensitiveMutationRequested || transition.recoveredReviewHold) &&
+              (reviewPolicySensitiveMutationRequested || transition.recoveredReviewHold || localReviewHandoff || pendingReviewPolicyUpdate) &&
               !(await assertLockedReviewPolicyAllowsMutation(tx))
             )
               return null;

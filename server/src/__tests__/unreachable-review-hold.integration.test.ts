@@ -23,6 +23,7 @@ import {
   heartbeatRuns,
   issueComments,
   issueExecutionDecisions,
+  issueRelations,
   issueWorkProducts,
   issues,
   projects,
@@ -233,6 +234,128 @@ describe("unreachable escalated review through native authentication", () => {
     return { cwd, branch, workspace: workspace!, product: product! };
   }
 
+  async function pendingReviewer() {
+    const f = await fixture();
+    const state = { ...f.state, currentParticipant: { type: "agent" as const, agentId: f.reviewerId, userId: null } };
+    await db.update(issues).set({ assigneeAgentId: f.reviewerId, assigneeUserId: null, executionState: state })
+      .where(eq(issues.id, f.issueId));
+    return { ...f, state };
+  }
+
+  const eventMonitor = { nextCheckAt: null, kind: "external_service", serviceName: "gitea", externalRef: "test-review-binding" };
+
+  async function localReviewCandidate() {
+    const f = await fixture();
+    await db.update(issues).set({ status: "blocked", assigneeUserId: f.userId, assigneeAgentId: null,
+      executionPolicy: null, executionState: null }).where(eq(issues.id, f.issueId));
+    const handoff = () => f.patch({ status: "done", executionPolicy: f.policy,
+      comment: "Task Disposition: verified local work is ready for independent review." }, f.reviewerKey.token);
+    return { ...f, handoff };
+  }
+
+  it("keeps the native reviewer checkout in review with its original stage, return author and finding history", async () => {
+    const f = await pendingReviewer();
+    const before = await f.read();
+    const runId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: runId, companyId: f.companyId, agentId: f.reviewerId,
+      status: "running", invocationSource: "on_demand", triggerDetail: "manual", contextSnapshot: { issueId: f.issueId } });
+    const checkout = () => request(f.server).post(`/api/issues/${f.issueId}/checkout`)
+      .set("authorization", `Bearer ${f.reviewerKey.token}`)
+      .set("X-Paperclip-Run-Id", runId)
+      .send({ agentId: f.reviewerId, expectedStatuses: ["in_review"] });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await checkout();
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(await f.read()).toMatchObject({
+        status: "in_review", assigneeAgentId: f.reviewerId,
+        executionPolicy: f.policy, executionState: f.state, startedAt: before.startedAt,
+      });
+    }
+    expect(await f.decisions()).toEqual([expect.objectContaining({ id: f.state.lastDecisionId })]);
+  });
+
+  it("arms a monitor-only PATCH without replacing the pending review or its original return author", async () => {
+    const f = await pendingReviewer();
+    const response = await f.patch({ executionPolicy: { monitor: eventMonitor } }, f.reviewerKey.token);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(await f.read()).toMatchObject({
+      status: "in_review", assigneeAgentId: f.reviewerId,
+      executionPolicy: { ...f.policy, monitor: expect.objectContaining({ serviceName: "gitea" }) },
+      executionState: { ...f.state, monitor: expect.objectContaining({ status: "scheduled" }) },
+    });
+    expect(await f.decisions()).toEqual([expect.objectContaining({ id: f.state.lastDecisionId })]);
+  });
+
+  it("clears only the native monitor while retaining the pending review and finding history", async () => {
+    const f = await pendingReviewer();
+    const armed = await f.patch({ executionPolicy: { ...f.policy, monitor: eventMonitor } }, f.reviewerKey.token);
+    expect(armed.status, JSON.stringify(armed.body)).toBe(200);
+    const cleared = await f.patch({ executionPolicy: { monitor: null } }, f.reviewerKey.token);
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
+    expect(await f.read()).toMatchObject({
+      status: "in_review", assigneeAgentId: f.reviewerId,
+      executionPolicy: f.policy,
+      executionState: { ...f.state, monitor: expect.objectContaining({ status: "cleared", clearReason: "manual" }) },
+    });
+    expect(await f.decisions()).toEqual([expect.objectContaining({ id: f.state.lastDecisionId })]);
+  });
+
+  it("admits resolved-blocked user-owned local work directly to its explicit native review", async () => {
+    const f = await localReviewCandidate();
+    const response = await f.handoff();
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(await f.read()).toMatchObject({ status: "in_review", assigneeAgentId: f.reviewerId, assigneeUserId: null,
+      executionPolicy: f.policy, executionState: { status: "pending", currentStageId: f.policy.stages[0]!.id,
+        returnAssignee: { type: "user", userId: f.userId, agentId: null }, completedStageIds: [] } });
+    expect(await f.decisions()).toEqual([expect.objectContaining({ id: f.state.lastDecisionId })]);
+  });
+
+  it.each(["resume", "no_review", "unresolved_blocker", "active_execution"])(
+    "preserves local handoff guards and ownership for %s", async (scenario) => {
+      const f = await localReviewCandidate();
+      if (scenario === "unresolved_blocker") {
+        const [blocker] = await db.insert(issues).values({ companyId: f.companyId, title: "Unfinished prerequisite",
+          issueNumber: 2, identifier: `BLOCKER-${fixtureNumber}`, status: "todo" }).returning();
+        await db.insert(issueRelations).values({ companyId: f.companyId, issueId: blocker!.id, relatedIssueId: f.issueId, type: "blocks" });
+      }
+      if (scenario === "active_execution") {
+        const child = spawn("cat", [], { stdio: "pipe" });
+        const closed = once(child, "close");
+        children.push({ child, closed });
+        await once(child, "spawn", { signal: AbortSignal.timeout(5_000) });
+        const [run] = await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.reviewerId,
+          status: "running", runtimeMode: "legacy", startedAt: new Date(), processPid: child.pid,
+          invocationSource: "on_demand", contextSnapshot: { issueId: f.issueId } }).returning();
+        await db.update(issues).set({ executionRunId: run!.id }).where(eq(issues.id, f.issueId));
+      }
+      const before = await f.read();
+      const response = scenario === "resume"
+        ? await f.patch({ status: "in_progress" }, f.reviewerKey.token)
+        : scenario === "no_review"
+          ? await f.patch({ status: "done" }, f.reviewerKey.token)
+          : await f.handoff();
+      expect(response.status, JSON.stringify(response.body)).toBe(409);
+      expect(await f.read()).toEqual(before);
+      expect(await f.decisions()).toHaveLength(1);
+      expect(await f.audit()).toEqual([]);
+    },
+  );
+
+  it("rolls a local review handoff back when its native audit cannot commit", async () => {
+    const f = await localReviewCandidate();
+    const before = await f.read();
+    await db.execute(sql`alter table activity_log add constraint local_handoff_audit_must_commit check (action <> 'issue.updated') not valid`);
+    try {
+      const response = await f.handoff();
+      expect(response.status, JSON.stringify(response.body)).toBe(500);
+      expect(await f.read()).toEqual(before);
+      expect(await f.decisions()).toHaveLength(1);
+      expect(await f.audit()).toEqual([]);
+    } finally {
+      await db.execute(sql`alter table activity_log drop constraint local_handoff_audit_must_commit`);
+    }
+  });
+
   it("reselects the configured reviewer without resetting review history, then accepts their genuine changes-requested decision", async () => {
     const f = await fixture();
     const retained = await retainAuthorWorkspace(f);
@@ -427,15 +550,15 @@ describe("unreachable escalated review through native authentication", () => {
     }
   });
 
-  it("refuses a stale recovery when the human owner changes under the issue lock", async () => {
-    const f = await fixture();
+  it.each(["recovery", "monitor"])("refuses a stale %s update when the human owner changes under the issue lock", async (operation) => {
+    const f = operation === "monitor" ? await pendingReviewer() : await fixture();
     const humanState = { ...f.state, currentParticipant: { type: "user" as const, userId: f.userId, agentId: null } };
     let release!: () => void;
     const released = new Promise<void>((resolve) => { release = resolve; });
     const locked = once(queryEvents, "human-owner-locked", { signal: AbortSignal.timeout(5_000) });
     const ownershipChange = db.transaction(async (tx) => {
       await tx.select().from(issues).where(eq(issues.id, f.issueId)).for("update");
-      await tx.update(issues).set({ assigneeUserId: f.userId, executionState: humanState }).where(eq(issues.id, f.issueId));
+      await tx.update(issues).set({ assigneeAgentId: null, assigneeUserId: f.userId, executionState: humanState }).where(eq(issues.id, f.issueId));
       queryEvents.emit("human-owner-locked");
       await released;
     });
@@ -444,7 +567,7 @@ describe("unreachable escalated review through native authentication", () => {
     try {
       await Promise.race([locked, ownershipChange]);
       const mutationStarted = once(queryEvents, "issue-mutation", { signal: AbortSignal.timeout(5_000) });
-      pending = f.patch({}).then((result) => result);
+      pending = f.patch(operation === "monitor" ? { executionPolicy: { monitor: eventMonitor } } : {}).then((result) => result);
       await mutationStarted;
     } finally {
       release();

@@ -68,6 +68,21 @@ A standard-scope agent API key used by an external MCP client may omit the run h
 
 Updatable fields include `title`, `description`, `status`, `priority`, `assigneeAgentId`, `projectId`, `goalId`, `parentId`, `billingCode`, and `blockedByIssueIds`.
 
+`executionPolicy` is a partial policy update: omitted policy fields retain
+their stored values. A monitor-only update or `{"monitor":null}` therefore
+preserves review stages, participants, original return author and decisions.
+An explicit `stages` array replaces the stages; `executionPolicy:null` clears
+the complete policy. A concurrent governance change makes a pending-review
+policy write fail with `409` before mutation. Read the issue again before
+preparing a new update.
+
+A resolved-blocked user-owned local task can request `done` with an explicit
+review policy to enter `in_review` directly. It retains the original user as
+return author and requires resolved blockers, no live execution and the normal
+company/trust/assignment authority. A bare resume or completion without that
+review admission does not gain an agent assignment exception. Review admission
+and its audit commit atomically.
+
 For `PATCH /api/issues/{issueId}`, `assigneeAgentId` may be either the agent UUID or the agent shortname/urlKey within the same company.
 
 ### Update Response
@@ -137,7 +152,9 @@ Headers: X-Paperclip-Run-Id: {runId}
 }
 ```
 
-Atomically claims the task and transitions to `in_progress`. Returns `409 Conflict` if another agent owns it. **Never retry a 409.**
+Atomically claims work and its run locks. A review retains `in_review`, its
+original start and complete execution stage/history; other work transitions to
+`in_progress`. Returns `409 Conflict` if another agent owns it. **Never retry a 409.**
 
 Idempotent if you already own the task.
 

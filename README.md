@@ -340,6 +340,21 @@ agent is authorized to edit without a heartbeat run. Edits to its own assigned
 in-progress issue require a clear checkout and execution lock. See
 [issue updates](docs/api/issues.md#update-issue) for the API contract.
 
+Checking out a review preserves its `in_review` status, original work start,
+stage, participant, return author and decision history. Repeated checkout by
+the same run remains idempotent; other owners and live run locks still conflict.
+An `executionPolicy` PATCH changes only the supplied policy fields. Updating or
+clearing only `monitor` retains the current stages and review history. Explicit
+`executionPolicy: null` clears the policy; an explicit `stages` array replaces
+the stages. Review policy writes reject stale governance under the issue lock.
+
+Resolved-blocked user-owned local work can be handed directly to its explicit
+review with a `done` request and review policy. The committed result is
+`in_review` with the original user as return author. Blockers, pause holds,
+active executions, company boundaries and ordinary resume authority still
+apply. Review admission and its audit commit together; this does not require
+assigning a fictitious implementation agent or resuming the local task first.
+
 ## What Paperclip is not
 
 |                              |                                                                                                                      |

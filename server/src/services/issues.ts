@@ -7428,7 +7428,7 @@ export function issueService(db: Db) {
       }
 
       if (
-        lockedIssue.status !== "in_progress" ||
+        !["in_progress", "in_review"].includes(lockedIssue.status) ||
         lockedIssue.assigneeAgentId !== input.actorAgentId ||
         lockedIssue.checkoutRunId !== input.expectedCheckoutRunId
       ) {
@@ -7475,7 +7475,7 @@ export function issueService(db: Db) {
         .where(
           and(
             eq(issues.id, input.issueId),
-            eq(issues.status, "in_progress"),
+            inArray(issues.status, ["in_progress", "in_review"]),
             eq(issues.assigneeAgentId, input.actorAgentId),
             eq(issues.checkoutRunId, input.expectedCheckoutRunId),
           ),
@@ -11345,6 +11345,7 @@ export function issueService(db: Db) {
             eq(issues.executionRunId, checkoutRunId),
           )
         : isNull(issues.executionRunId);
+      const checkoutStatus = sql<string>`case when ${issues.status} = 'in_review' then ${issues.status} else 'in_progress' end`;
       const updated = await db
         .update(issues)
         .set({
@@ -11352,8 +11353,8 @@ export function issueService(db: Db) {
           assigneeUserId: null,
           checkoutRunId,
           executionRunId: checkoutRunId,
-          status: "in_progress",
-          startedAt: now,
+          status: checkoutStatus,
+          startedAt: sql`case when ${issues.status} = 'in_review' then ${issues.startedAt} else coalesce(${issues.startedAt}, ${now.toISOString()}::timestamptz) end`,
           updatedAt: now,
         })
         .where(
@@ -11385,10 +11386,11 @@ export function issueService(db: Db) {
         .then((rows) => rows[0] ?? null);
 
       if (!current) throw notFound("Issue not found");
+      const checkedOutWorkStatus = current.status === "in_progress" || current.status === "in_review";
 
       if (
         current.assigneeAgentId === agentId &&
-        current.status === "in_progress" &&
+        checkedOutWorkStatus &&
         current.checkoutRunId == null &&
         (current.executionRunId == null ||
           current.executionRunId === checkoutRunId) &&
@@ -11404,7 +11406,7 @@ export function issueService(db: Db) {
           .where(
             and(
               eq(issues.id, id),
-              eq(issues.status, "in_progress"),
+              inArray(issues.status, ["in_progress", "in_review"]),
               eq(issues.assigneeAgentId, agentId),
               isNull(issues.checkoutRunId),
               or(
@@ -11421,7 +11423,7 @@ export function issueService(db: Db) {
       if (
         checkoutRunId &&
         current.assigneeAgentId === agentId &&
-        current.status === "in_progress" &&
+        checkedOutWorkStatus &&
         current.checkoutRunId &&
         current.checkoutRunId !== checkoutRunId
       ) {
@@ -11463,10 +11465,10 @@ export function issueService(db: Db) {
             executionRunId: checkoutRunId,
             executionAgentNameKey: null,
             executionLockedAt: now,
-            status: "in_progress",
+            status: checkoutStatus,
             updatedAt: now,
           };
-          if (current.status !== "in_progress") {
+          if (!checkedOutWorkStatus) {
             adoptionSet.startedAt = now;
           }
           const adopted = await db
@@ -11492,10 +11494,10 @@ export function issueService(db: Db) {
         }
       }
 
-      // If this run already owns it and it's in_progress, return it (no self-409)
+      // A run that already owns active work or its review remains idempotent.
       if (
         current.assigneeAgentId === agentId &&
-        current.status === "in_progress" &&
+        checkedOutWorkStatus &&
         sameRunLock(current.checkoutRunId, checkoutRunId)
       ) {
         const row = await db

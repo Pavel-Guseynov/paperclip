@@ -870,6 +870,7 @@ export const updateIssueSchema = objectWithoutDefaults(
 )
   .partial()
   .extend({
+    executionPolicy: objectWithoutDefaults(issueExecutionPolicySchema).partial().optional().nullable(),
     requestDepth: issueRequestDepthInputSchema.optional(),
     assigneeAgentId: z.string().trim().min(1).optional().nullable(),
     comment: multilineTextSchema.pipe(z.string().min(1)).optional(),

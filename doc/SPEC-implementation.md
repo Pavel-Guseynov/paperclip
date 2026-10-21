@@ -510,6 +510,11 @@ Allowed transitions:
 - `blocked -> todo | in_progress | cancelled`
 - terminal: `done`, `cancelled`
 
+A resolved-blocked user-owned local task may enter `in_review` directly through
+an explicit governed completion request. The review retains its original user
+as return author; ordinary resume authority, blocker/pause/live-run guards and
+atomic review auditing remain enforced.
+
 Side effects:
 
 - entering `in_progress` sets `started_at` if null
@@ -1080,7 +1085,9 @@ Server behavior:
 
 1. single SQL update with `WHERE id = ? AND status IN (?) AND (assignee_agent_id IS NULL OR assignee_agent_id = :agentId)`
 2. if updated row count is 0, return `409` with current owner/status
-3. successful checkout sets `assignee_agent_id`, `status = in_progress`, and `started_at`
+3. successful checkout sets `assignee_agent_id` and run locks; review checkout
+   preserves `in_review`, the original `started_at`, stage and return author,
+   while other work enters `in_progress` and initializes its start if absent
 
 `POST /issues/:issueId/admin/force-release` is an operator recovery endpoint for stale harness locks. It requires board access to the issue company, clears checkout and execution run lock fields, and may clear the agent assignee when `clearAssignee=true` is passed. The route must write an `issue.admin_force_release` activity log entry containing the previous checkout and execution run IDs.
 
