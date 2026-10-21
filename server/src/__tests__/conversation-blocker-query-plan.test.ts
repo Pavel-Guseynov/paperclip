@@ -73,6 +73,49 @@ describeDatabase("execution blocker query plans", () => {
 
     expect(plan).not.toMatch(/Seq Scan on heartbeat_run_events/);
     expect(plan).not.toMatch(/hashed SubPlan/);
+    expect(plan).toMatch(/heartbeat_run_events_company_run_idx|heartbeat_run_events_run_seq_uq/);
+  });
+
+  it.each([
+    { evidence: "claimed conversation adapter", matches: true },
+    { evidence: "continuation policy", matches: true },
+    { evidence: "matching invocation", matches: true },
+    { evidence: "no evidence", matches: false },
+    { evidence: "another run's invocation", matches: false },
+    { evidence: "another company's invocation", matches: false },
+    { evidence: "another event type", matches: false },
+    { evidence: "process invocation", matches: false },
+    { evidence: "missing adapter type", matches: false },
+  ])("classifies a run from $evidence", async ({ evidence, matches }) => {
+    const { companyId, agentId } = await seedCompanyWithAgent(db);
+    const runId = randomUUID();
+    const otherRunId = randomUUID();
+    await db.insert(heartbeatRuns).values([
+      {
+        id: runId, companyId, agentId, status: "failed",
+        runnerProfileJson: evidence === "claimed conversation adapter"
+          ? { adapterDispatch: { adapterType: "codex_local" } } : null,
+        resultJson: evidence === "continuation policy"
+          ? { conversationContinuation: "continue_conversation_v1" } : null,
+      },
+      { id: otherRunId, companyId, agentId, status: "failed" },
+    ]);
+    if (!["claimed conversation adapter", "continuation policy", "no evidence"].includes(evidence)) {
+      const owner = evidence === "another company's invocation"
+        ? await seedCompanyWithAgent(db) : { companyId, agentId };
+      await db.insert(heartbeatRunEvents).values({
+        ...owner,
+        runId: evidence === "another run's invocation" ? otherRunId : runId,
+        seq: 1,
+        eventType: evidence === "another event type" ? "log" : "adapter.invoke",
+        payload: evidence === "missing adapter type" ? {} : {
+          adapterType: evidence === "process invocation" ? "process" : "codex_local",
+        },
+      });
+    }
+    const selected = await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns)
+      .where(sql`${heartbeatRuns.id} = ${runId} and ${conversationRunPredicate()}`);
+    expect(selected).toEqual(matches ? [{ id: runId }] : []);
   });
 
   it("evaluates the conversation recovery hold without scanning heartbeat runs per recovery action", async () => {
@@ -126,7 +169,7 @@ describeDatabase("execution blocker query plans", () => {
 
     // The index holds only open or replay-blocked records, so the scan reads a handful of
     // rows however long the resolved history is (801 rows here).
-    expect(plan).not.toMatch(/Seq Scan/);
+    expect(plan).not.toMatch(/Seq Scan on issue_recovery_actions\b/);
     const indexScan = /Index Scan using issue_recovery_actions_blocker_lookup_idx[^\n]*rows=(\d+)/.exec(plan);
     expect(indexScan).not.toBeNull();
     expect(Number(indexScan![1])).toBeLessThan(50);

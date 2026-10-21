@@ -674,22 +674,10 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
       };
 
       await heartbeat.resumeQueuedRuns();
-      await waitForCondition(async () => {
-        const [run, wakeup] = await Promise.all([
-          db.select({ status: heartbeatRuns.status })
-            .from(heartbeatRuns)
-            .where(eq(heartbeatRuns.id, runId))
-            .then((rows) => rows[0] ?? null),
-          db.select({ status: agentWakeupRequests.status })
-            .from(agentWakeupRequests)
-            .where(eq(agentWakeupRequests.id, wakeupRequestId))
-            .then((rows) => rows[0] ?? null),
-        ]);
-        return run?.status === "cancelled" && wakeup?.status === "skipped";
-      });
+      await heartbeat.drainActiveRunExecutions();
 
       const [run, wakeup, issue] = await Promise.all([
-        db.select({ status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode })
+        db.select({ id: heartbeatRuns.id, status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode })
           .from(heartbeatRuns)
           .where(eq(heartbeatRuns.id, runId))
           .then((rows) => rows[0] ?? null),
@@ -702,7 +690,7 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
           .where(eq(issues.id, issueId))
           .then((rows) => rows[0] ?? null),
       ]);
-      expect(run).toMatchObject({ status: "cancelled", errorCode: expectedErrorCode });
+      expect(run).toMatchObject({ id: runId, status: "cancelled", errorCode: expectedErrorCode });
       expect(wakeup).toMatchObject({ status: "skipped", error: expect.stringContaining(expectedError) });
       expect(issue).toMatchObject(mutation === "parked"
         ? { status: "backlog", assigneeAgentId: agentId }
@@ -763,19 +751,11 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
       });
       // Admission is committed before adapter-owned setup. This concurrent
       // update must not wait on a lock held by the adapter callback.
-      await new Promise((resolve) => setTimeout(resolve, 25));
       await parkPromise;
       expect(ordering).toEqual(["validated", "parked"]);
     };
     await heartbeat.resumeQueuedRuns();
-    await waitForCondition(async () => {
-      const run = await db
-        .select({ status: heartbeatRuns.status })
-        .from(heartbeatRuns)
-        .where(eq(heartbeatRuns.id, runId))
-        .then((rows) => rows[0] ?? null);
-      return run?.status === "cancelled";
-    });
+    await heartbeat.drainActiveRunExecutions();
     await parkPromise;
 
     const issue = await db
@@ -1638,12 +1618,11 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
         originCommentIds: [wakeCommentId],
         interactionResolvedAt: new Date().toISOString(), mutation: "interaction", source: `${interactionKind}.resolved`, forceFreshSession: true } });
     await heartbeat.resumeQueuedRuns();
-    expect(await waitForCondition(async () => (await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, runId)))[0]?.status === "succeeded")).toBe(true);
-    // Terminal status precedes completion bookkeeping. Drain those writes before
-    // afterEach truncates the fixture, otherwise PostgreSQL can deadlock.
-    await heartbeat.waitForRunExecutionDrain(runId);
+    await heartbeat.drainActiveRunExecutions();
+    const [completedRun] = await db.select({ id: heartbeatRuns.id, status: heartbeatRuns.status })
+      .from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
+    expect(completedRun).toEqual({ id: runId, status: "succeeded" });
     expect(countExecuteCallsForRun(runId)).toBe(1);
-    await waitForCondition(async () => claimedIssue !== null);
     expect(claimedIssue).toEqual({ status: "in_progress", executionRunId: runId });
   });
 });

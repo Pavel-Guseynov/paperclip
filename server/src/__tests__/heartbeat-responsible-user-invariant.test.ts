@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter, once } from "node:events";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -21,7 +22,6 @@ import {
 } from "./helpers/embedded-postgres.js";
 import { heartbeatService } from "../services/heartbeat.ts";
 import { runningProcesses } from "../adapters/index.ts";
-import { drainHeartbeatRunsToQuiescence } from "./helpers/drain-heartbeat-runs.js";
 
 const mockAdapterExecute = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -49,35 +49,6 @@ vi.mock("../adapters/index.ts", async () => {
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
-async function waitForRun(db: ReturnType<typeof createDb>, runId: string) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const run = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId)).then((rows) => rows[0] ?? null);
-    if (run && run.status !== "queued" && run.status !== "running") return run;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId)).then((rows) => rows[0] ?? null);
-}
-
-async function deleteHeartbeatRunsAfterEvents(db: ReturnType<typeof createDb>) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await db.delete(heartbeatRunEvents);
-    try {
-      await db.delete(heartbeatRuns);
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (
-        attempt < 4 &&
-        message.includes("heartbeat_run_events_run_id_heartbeat_runs_id_fk")
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        continue;
-      }
-      throw error;
-    }
-  }
-}
-
 describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
   let db!: ReturnType<typeof createDb>;
   let heartbeat!: ReturnType<typeof heartbeatService>;
@@ -90,8 +61,6 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
   }, 20_000);
 
   afterEach(async () => {
-    mockAdapterExecute.mockClear();
-    runningProcesses.clear();
     // Await every in-flight background heartbeat run to quiescence before the
     // deletes below. A wakeup claims a run and dispatches its execution
     // fire-and-forget, and that run can dispatch a follow-up wakeup, so a run or
@@ -99,10 +68,13 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     // and would race the deletes. The shared drain also awaits an in-flight
     // wakeup that is still before run registration, which a plain run table
     // status poll cannot see.
-    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    await heartbeat.drainActiveRunExecutions();
+    mockAdapterExecute.mockClear();
+    runningProcesses.clear();
     await db.delete(issueComments);
     await db.delete(activityLog);
-    await deleteHeartbeatRunsAfterEvents(db);
+    await db.delete(heartbeatRunEvents);
+    await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
     await db.delete(agentRuntimeState);
     await db.delete(issues);
@@ -115,6 +87,31 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
   afterAll(async () => {
     await tempDb?.cleanup();
   }, 60_000);
+
+  async function completedRun(runId: string) {
+    await heartbeat.drainActiveRunExecutions();
+    return db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId)).then(rows => rows[0] ?? null);
+  }
+
+  function holdNextAdapter() {
+    const events = new EventEmitter();
+    let started = false;
+    let finish!: () => void;
+    const blocked = new Promise<void>(resolve => { finish = resolve; });
+    const execute = mockAdapterExecute.getMockImplementation()!;
+    mockAdapterExecute.mockImplementationOnce(async () => {
+      started = true;
+      events.emit("started");
+      await blocked;
+      return execute();
+    });
+    return {
+      finish,
+      waitForStart: async () => {
+        if (!started) await once(events, "started", { signal: AbortSignal.timeout(5_000) });
+      },
+    };
+  }
 
   async function seedCompany() {
     const companyId = randomUUID();
@@ -166,13 +163,13 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     await heartbeat.resumeQueuedCommentInterrupt(companyId, queueId);
     const [receipt] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, queueId));
     expect(receipt.status).toBe("coalesced");
-    const completed = await waitForRun(db, receipt.runId!);
+    const completed = await completedRun(receipt.runId!);
     expect(completed).toMatchObject({ status: "succeeded", responsibleUserId: operatorId });
     expect(completed?.activeIdentityContextId).toBeTruthy();
     expect(completed?.contextSnapshot?.originIdentityContextId).toBeUndefined();
     expect(completed?.contextSnapshot?.retryOfRunId).toBeUndefined();
     expect(mockAdapterExecute).toHaveBeenCalled();
-    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    await heartbeat.drainActiveRunExecutions();
     const runs = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.companyId, companyId));
     expect(runs.every(run => run.responsibleUserId === operatorId && run.status === "succeeded")).toBe(true);
     expect((await db.select().from(issueComments).where(eq(issueComments.id, commentId)))[0].authorUserId).toBe(ownerUserId);
@@ -194,10 +191,10 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
       payload: { issueId }, requestedByActorType: "user", requestedByActorId: operatorId,
       contextSnapshot: { responsibleUserId: operatorId } });
     expect(run?.responsibleUserId).toBe(operatorId);
-    const completed = await waitForRun(db, run!.id);
+    const completed = await completedRun(run!.id);
     expect(completed).toMatchObject({ status: "succeeded", responsibleUserId: operatorId });
     expect(completed?.contextSnapshot?.wakeCommentIds).toEqual([commentId]);
-    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    await heartbeat.drainActiveRunExecutions();
     expect((await db.select().from(heartbeatRuns)).every(row => row.responsibleUserId === operatorId)).toBe(true);
   });
 
@@ -208,14 +205,11 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
       membershipRole: "operator", status: "active" });
     await db.insert(issues).values({ id: issueId, companyId, title: "Deferred manual wake", status: "todo",
       assigneeAgentId: agentId, responsibleUserId: ownerUserId });
-    let finish!: () => void;
-    const blocked = new Promise<void>(resolve => { finish = resolve; });
-    const execute = mockAdapterExecute.getMockImplementation()!;
-    mockAdapterExecute.mockImplementationOnce(async () => { await blocked; return execute(); });
+    const { finish, waitForStart } = holdNextAdapter();
     const first = await heartbeat.wakeup(agentId, { payload: { issueId },
       requestedByActorType: "user", requestedByActorId: ownerUserId });
     try {
-      await vi.waitFor(() => expect(mockAdapterExecute).toHaveBeenCalled(), { timeout: 5_000 });
+      await waitForStart();
       await db.insert(issueComments).values({ id: commentId, companyId, issueId, authorUserId: ownerUserId, body: "Pending work" });
       await db.insert(agentWakeupRequests).values({ id: queueId, companyId, agentId,
         source: "automation", reason: "issue_commented", status: "deferred_issue_execution",
@@ -231,7 +225,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     } finally {
       finish();
     }
-    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    await heartbeat.drainActiveRunExecutions();
     const successors = (await db.select().from(heartbeatRuns)).filter(run => run.id !== first!.id);
     expect(successors.length).toBeGreaterThan(0);
     expect(successors.every(run => run.responsibleUserId === operatorId && run.status === "succeeded")).toBe(true);
@@ -243,15 +237,12 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     const operatorId = `operator-${randomUUID()}`;
     await db.insert(companyMemberships).values({ companyId, principalType: "user", principalId: operatorId,
       membershipRole: "operator", status: "active" });
-    let finish!: () => void;
-    const blocked = new Promise<void>(resolve => { finish = resolve; });
-    const execute = mockAdapterExecute.getMockImplementation()!;
-    mockAdapterExecute.mockImplementationOnce(async () => { await blocked; return execute(); });
+    const { finish, waitForStart } = holdNextAdapter();
     const first = await heartbeat.wakeup(agentId, { manualUserWake: true, source: "on_demand", triggerDetail: "manual",
       requestedByActorType: "user", requestedByActorId: ownerUserId });
     let second: Awaited<ReturnType<typeof heartbeat.wakeup>>;
     try {
-      await vi.waitFor(() => expect(mockAdapterExecute).toHaveBeenCalled(), { timeout: 5_000 });
+      await waitForStart();
       second = await heartbeat.wakeup(agentId, { manualUserWake: true, source: "on_demand", triggerDetail: "manual",
         requestedByActorType: "user", requestedByActorId: operatorId });
       expect(second?.id).not.toBe(first!.id);
@@ -259,9 +250,9 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     } finally {
       finish();
     }
-    await drainHeartbeatRunsToQuiescence(db, heartbeat);
-    expect(await waitForRun(db, second!.id)).toMatchObject({ status: "succeeded", responsibleUserId: operatorId });
-    expect(await waitForRun(db, first!.id)).toMatchObject({ status: "succeeded", responsibleUserId: ownerUserId });
+    await heartbeat.drainActiveRunExecutions();
+    expect(await completedRun(second!.id)).toMatchObject({ status: "succeeded", responsibleUserId: operatorId });
+    expect(await completedRun(first!.id)).toMatchObject({ status: "succeeded", responsibleUserId: ownerUserId });
   });
 
   it("denies a manual wake of another user's private conversation", async () => {
@@ -280,7 +271,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     const run = await heartbeat.wakeup(agentId, { source: "on_demand", triggerDetail: "manual",
       requestedByActorType: "agent", requestedByActorId: agentId, payload: { manualUserWake: true },
       contextSnapshot: { responsibleUserId: ownerUserId } });
-    expect((await waitForRun(db, run!.id))?.status).toBe("succeeded");
+    expect((await completedRun(run!.id))?.status).toBe("succeeded");
     const [wake] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, run!.wakeupRequestId!));
     expect(wake.payload?.manualUserWake).toBeUndefined();
   });
@@ -313,12 +304,12 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
       });
       expect(run).not.toBeNull();
       sourceRunIds.push(run!.id);
-      const completed = await waitForRun(db, run!.id);
+      const completed = await completedRun(run!.id);
       expect(completed?.responsibleUserId).toBe(issueResponsibleUserId);
       expect(completed?.status).toBe("succeeded");
       // A terminal row can precede the execution's final queue/lease cleanup.
       // This test starts independent wakes, not a burst that may be deferred.
-      await drainHeartbeatRunsToQuiescence(db, heartbeat);
+      await heartbeat.drainActiveRunExecutions();
     }
     // The deliberately disposition-free adapter response schedules one bounded
     // handoff per source run. Those automatic continuations retain its identity.
@@ -374,7 +365,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
       });
 
       expect(run).not.toBeNull();
-      const completed = await waitForRun(db, run!.id);
+      const completed = await completedRun(run!.id);
       expect(completed?.status).toBe("succeeded");
       expect(completed?.responsibleUserId).toBe(commenterUserId);
       const [issue] = await db.select().from(issues).where(eq(issues.id, issueId));
@@ -394,7 +385,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     });
 
     expect(run).not.toBeNull();
-    const completed = await waitForRun(db, run!.id);
+    const completed = await completedRun(run!.id);
     expect(completed?.responsibleUserId).toBe(triggeringUserId);
   });
 
@@ -410,7 +401,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     });
 
     expect(run).not.toBeNull();
-    const completed = await waitForRun(db, run!.id);
+    const completed = await completedRun(run!.id);
     expect(completed?.responsibleUserId).toBe(ownerUserId);
   });
 
@@ -437,7 +428,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
       contextSnapshot: { issueId, taskId: issueId, wakeReason: "issue_blockers_resolved" },
     });
     expect(run).not.toBeNull();
-    const completed = await waitForRun(db, run!.id);
+    const completed = await completedRun(run!.id);
     expect(completed?.responsibleUserId).toBe(ownerUserId);
     expect(completed?.responsibleUserId).not.toBe(creatorUserId);
   });

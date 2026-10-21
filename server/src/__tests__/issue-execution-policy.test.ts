@@ -57,6 +57,13 @@ function reviewOnlyPolicy() {
   ]);
 }
 
+function pendingReviewState(policy: IssueExecutionPolicy): IssueExecutionState {
+  return parseIssueExecutionState({ status: "pending", currentStageId: policy.stages[0].id, currentStageIndex: 0,
+    currentStageType: "review", currentParticipant: { type: "agent", agentId: qaAgentId },
+    returnAssignee: { type: "agent", agentId: coderAgentId }, completedStageIds: [],
+    lastDecisionId: null, lastDecisionOutcome: null })!;
+}
+
 function approvalOnlyPolicy() {
   return makePolicy([
     { type: "approval", participants: [{ type: "user", userId: ctoUserId }] },
@@ -1978,6 +1985,58 @@ describe("issue execution policy transitions", () => {
   });
 
   describe("monitor policy", () => {
+    it("arms an event-only monitor without changing the pending review participant", () => {
+      const previousPolicy = reviewOnlyPolicy();
+      const state = pendingReviewState(previousPolicy);
+      const policy = normalizeIssueExecutionPolicy({ ...previousPolicy, monitor: {
+        nextCheckAt: null, kind: "external_service", serviceName: "gitea",
+        externalRef: "https://git.example/repo/pulls/1@head", maxAttempts: 1,
+      } })!;
+      expect(policy.monitor!.externalRef).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(normalizeIssueExecutionPolicy(policy)).toEqual(policy);
+      const result = applyIssueExecutionPolicyTransition({
+        issue: { status: "in_review", assigneeAgentId: qaAgentId, assigneeUserId: null,
+          executionPolicy: previousPolicy, executionState: state },
+        policy, previousPolicy, requestedAssigneePatch: {},
+        actor: { agentId: qaAgentId }, monitorExplicitlyUpdated: true,
+      });
+      expect(result.patch.monitorNextCheckAt).toBeNull();
+      expect(result.patch.status).toBeUndefined();
+      expect(result.patch.assigneeAgentId).toBeUndefined();
+      expect(result.patch.executionState).toMatchObject({ ...state,
+        monitor: { status: "scheduled", nextCheckAt: null, kind: "external_service", serviceName: "gitea" },
+      });
+    });
+
+    it("cancels an already-terminal CI wait while the active reviewer retains its stage", () => {
+      const previousPolicy = reviewOnlyPolicy();
+      const policy = normalizeIssueExecutionPolicy({ ...previousPolicy, monitor: {
+        nextCheckAt: null, kind: "external_service", serviceName: "gitea", externalRef: "exact-ci-binding",
+      } })!;
+      const issue = { status: "in_review", assigneeAgentId: qaAgentId, assigneeUserId: null,
+        executionPolicy: previousPolicy, executionState: pendingReviewState(previousPolicy) };
+      const armed = applyIssueExecutionPolicyTransition({ issue, policy, previousPolicy,
+        requestedAssigneePatch: {}, actor: { agentId: qaAgentId }, monitorExplicitlyUpdated: true });
+      const cleared = applyIssueExecutionPolicyTransition({ issue: { ...issue, executionPolicy: policy,
+        executionState: armed.patch.executionState as Record<string, unknown> },
+        policy: { ...policy, monitor: null }, previousPolicy: policy, requestedAssigneePatch: {},
+        actor: { agentId: qaAgentId }, monitorExplicitlyUpdated: true });
+      expect(cleared.decision).toBeUndefined();
+      expect(cleared.patch.status).toBeUndefined();
+      expect(cleared.patch.assigneeAgentId).toBeUndefined();
+      expect(cleared.patch.monitorNextCheckAt).toBeNull();
+      expect(cleared.patch.executionState).toMatchObject({ ...issue.executionState,
+        monitor: { status: "cleared", clearReason: "manual", nextCheckAt: null },
+      });
+    });
+
+    it.each([{}, { kind: "external_service" }, { kind: "external_service", serviceName: "gitea" }])(
+      "rejects an event-only monitor without its external-service identity (%j)", (metadata) => {
+        expect(() => normalizeIssueExecutionPolicy({ monitor: { nextCheckAt: null, ...metadata } }))
+          .toThrow("Invalid execution policy");
+      },
+    );
+
     it("schedules a one-shot monitor on an active agent-owned issue", () => {
       const policy = normalizeIssueExecutionPolicy({
         stages: [],

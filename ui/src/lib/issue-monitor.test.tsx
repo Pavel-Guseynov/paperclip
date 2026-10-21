@@ -14,6 +14,11 @@ import {
 } from "./issue-monitor";
 
 describe("monitor time formatting", () => {
+  it("shows an armed external wait without manufacturing a timer or countdown", () => {
+    expect(deriveMonitorState({ status: "in_review", executionState: {
+      monitor: { status: "scheduled", nextCheckAt: null, serviceName: "gitea", attemptCount: 0 },
+    } })).toEqual({ state: "waiting-event", source: "monitor", nextCheckAt: null, serviceName: "gitea", attemptCount: 0 });
+  });
   const now = new Date("2026-07-17T19:56:00.000Z");
 
   it.each([

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   DeploymentMode,
   IssueExecutionDecision,
@@ -84,6 +84,7 @@ type TransitionResult = {
   patch: Record<string, unknown>;
   decision?: Pick<IssueExecutionDecision, "stageId" | "stageType" | "outcome" | "body">;
   workflowControlledAssignment?: boolean;
+  recoveredReviewHold?: true;
 };
 
 /**
@@ -100,6 +101,12 @@ const MONITOR_INVALID_MESSAGE = "Monitor can only be scheduled on issues assigne
 const MONITOR_BOUNDS_EXHAUSTED_MESSAGE = "Monitor bounds are already exhausted";
 const STAGE_DECISION_COMMENT_HINT = "Include the decision comment in the same PATCH request; prior comments are not considered.";
 export const REDACTED_ISSUE_MONITOR_EXTERNAL_REF = "[redacted]";
+
+/** Event bindings retain only an idempotent digest, never the input reference. */
+export function issueMonitorBindingDigest(reference: string): string {
+  return /^sha256:[a-f0-9]{64}$/.test(reference)
+    ? reference : `sha256:${createHash("sha256").update(reference).digest("hex")}`;
+}
 
 /**
  * The bootstrap board identity. It is a real `users` row, but outside a
@@ -214,7 +221,7 @@ function derivePersistedMonitorState(input: {
     scheduledByRaw === "assignee" || scheduledByRaw === "board" ? scheduledByRaw : null;
   const metadata = scheduledMonitor ? monitorMetadataFromPolicy(scheduledMonitor) : monitorMetadataFromState(fromState);
 
-  if (nextCheckAt) {
+  if (nextCheckAt || scheduledMonitor?.nextCheckAt === null) {
     return {
       status: "scheduled",
       nextCheckAt,
@@ -371,12 +378,10 @@ function nextAssigneeIds(input: {
 export function stripMonitorFromExecutionPolicy(policy: IssueExecutionPolicy | null): IssueExecutionPolicy | null {
   if (!policy) return null;
   if (!policy.monitor) return policy;
-  if (policy.stages.length === 0) return null;
-  return {
-    mode: policy.mode,
-    commentRequired: policy.commentRequired,
-    stages: policy.stages,
-  };
+  if (policy.stages.length === 0 && !policy.reviewPreset && !policy.authorizationPolicy && policy.maxReviewRounds == null) return null;
+  const stripped = { ...policy };
+  delete stripped.monitor;
+  return stripped;
 }
 
 export function setIssueExecutionPolicyMonitorScheduledBy(
@@ -437,7 +442,9 @@ export function normalizeIssueExecutionPolicy(input: unknown): IssueExecutionPol
       scheduledBy: parsed.data.monitor.scheduledBy,
       kind: parsed.data.monitor.kind ?? null,
       serviceName: normalizeMonitorText(parsed.data.monitor.serviceName),
-      externalRef: redactIssueMonitorExternalRef(parsed.data.monitor.externalRef),
+      externalRef: parsed.data.monitor.nextCheckAt === null
+        ? issueMonitorBindingDigest(parsed.data.monitor.externalRef!)
+        : redactIssueMonitorExternalRef(parsed.data.monitor.externalRef),
       timeoutAt: parsed.data.monitor.timeoutAt ?? null,
       maxAttempts: parsed.data.monitor.maxAttempts ?? null,
       recoveryPolicy: parsed.data.monitor.recoveryPolicy ?? null,
@@ -816,6 +823,8 @@ function applyIssueExecutionStageTransition(input: StageTransitionInput): Transi
     // re-selecting a configured participant — the repair path for rows already
     // stranded by an earlier escalation to the sentinel, or to a human whose
     // active membership has since been archived.
+    const unreachableReviewHold = currentParticipant.type === "user" &&
+      !isSatisfiableUser(currentParticipant.userId);
     const escalatedHold =
       currentParticipant.type === "user" &&
       !stageHasParticipant(activeStage, currentParticipant) &&
@@ -856,6 +865,9 @@ function applyIssueExecutionStageTransition(input: StageTransitionInput): Transi
         exclude: activeStage.type === "review" ? existingState?.returnAssignee ?? null : null,
       });
       if (!participant) {
+        if (unreachableReviewHold) {
+          throw unprocessable(`No eligible ${activeStage.type} participant is configured for this issue`);
+        }
         clearExecutionStatePatch({
           patch,
           issueStatus: input.issue.status,
@@ -877,6 +889,7 @@ function applyIssueExecutionStageTransition(input: StageTransitionInput): Transi
       return {
         patch,
         workflowControlledAssignment: true,
+        ...(unreachableReviewHold ? { recoveredReviewHold: true as const } : {}),
       };
     }
 
@@ -1241,7 +1254,8 @@ function applyMonitorTransition(input: TransitionInput, stagePatch: Record<strin
           clearedAt: new Date(),
         });
       } else {
-        patch.monitorNextCheckAt = new Date(input.policy.monitor.nextCheckAt);
+        patch.monitorNextCheckAt = input.policy.monitor.nextCheckAt === null
+          ? null : new Date(input.policy.monitor.nextCheckAt);
         patch.monitorWakeRequestedAt = null;
         patch.monitorNotes = input.policy.monitor.notes ?? null;
         patch.monitorScheduledBy = input.policy.monitor.scheduledBy;
@@ -1289,7 +1303,8 @@ export function buildInitialIssueMonitorFields(input: {
 
   const monitorState = buildScheduledMonitorState(null, input.policy.monitor);
   return {
-    monitorNextCheckAt: new Date(input.policy.monitor.nextCheckAt),
+    monitorNextCheckAt: input.policy.monitor.nextCheckAt === null
+      ? null : new Date(input.policy.monitor.nextCheckAt),
     monitorWakeRequestedAt: null,
     monitorNotes: input.policy.monitor.notes ?? null,
     monitorScheduledBy: input.policy.monitor.scheduledBy,

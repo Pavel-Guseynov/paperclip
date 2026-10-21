@@ -653,7 +653,8 @@ export interface IssueExecutionStage {
 }
 
 export interface IssueExecutionMonitorPolicy {
-  nextCheckAt: string;
+  /** Null arms an external-service event wait with no timer. */
+  nextCheckAt: string | null;
   notes: string | null;
   scheduledBy: IssueMonitorScheduledBy;
   kind?: IssueExecutionMonitorKind | null;

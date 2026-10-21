@@ -14,7 +14,7 @@ import { applyConnectorSkills, prepareConnectorSkillDelivery, resolveConnectorAs
 import { admitExplicitNativeContinuation, undeliveredLegacyUserCommentIds } from "./explicit-native-continuation.js";
 import { connectionIntentService } from "./connection-intents.js";
 import { managedAiSessionFingerprintConfig, prepareManagedAiRuntime, assertManagedAiProjectAuth, stripAiAuthBindings, isAiConnectionBusy, AI_AUTH_ENV_KEYS } from "./ai-connection-runtime.js";
-import { aiConnectionBindingSchema } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, hasPendingIssueMonitor } from "@paperclipai/shared";
 import { executionBlockerPredicate, getExecutionBlocker } from "./execution-blocker.js";
 import { CONVERSATION_CONTINUATION_POLICY, claimedAdapterType, runUsedConversationAdapter, hasConversationContinuationPolicy, isConversationAdapter } from "./conversation-continuation.js";
 import { recordExecutionWait } from "./execution-wait.js";
@@ -408,6 +408,7 @@ import { ISSUE_BLOCKERS_RESOLVED_WAKE_REASON } from "./issue-dependency-wakeups.
 import {
   buildIssueMonitorClearedPatch,
   buildIssueMonitorTriggeredPatch,
+  issueMonitorBindingDigest,
   normalizeIssueExecutionPolicy,
   parseIssueExecutionState,
 } from "./issue-execution-policy.js";
@@ -506,6 +507,7 @@ import {
 import {
   createRunDispatch,
   type PostCommitEffect,
+  type ScheduledRetryGateErrorCode,
   MAX_TURN_CONTINUATION_RETRY_REASON,
   WORKSPACE_BUSY_RETRY_REASON,
   AI_CONNECTION_BUSY_RETRY_REASON,
@@ -11244,7 +11246,7 @@ export function heartbeatService(
 
   function monitorRecoveryDetails(input: {
     claimed: IssueMonitorDispatchRow;
-    scheduledAtIso: string;
+    scheduledAtIso: string | null;
     nextAttemptCount: number;
     clearReason: IssueExecutionMonitorClearReason;
     recoveryPolicy: IssueExecutionMonitorRecoveryPolicy;
@@ -11321,7 +11323,7 @@ export function heartbeatService(
 
   async function performIssueMonitorRecovery(input: {
     claimed: IssueMonitorDispatchRow;
-    scheduledAtIso: string;
+    scheduledAtIso: string | null;
     nextAttemptCount: number;
     clearReason: IssueExecutionMonitorClearReason;
     recoveryPolicy: IssueExecutionMonitorRecoveryPolicy;
@@ -11503,7 +11505,7 @@ export function heartbeatService(
   async function clearIssueMonitorAndRecover(input: {
     claimed: IssueMonitorDispatchRow;
     policy: ReturnType<typeof normalizeIssueExecutionPolicy>;
-    scheduledAtIso: string;
+    scheduledAtIso: string | null;
     nextAttemptCount: number;
     clearReason: IssueExecutionMonitorClearReason;
     recoveryPolicy: IssueExecutionMonitorRecoveryPolicy;
@@ -11580,11 +11582,11 @@ export function heartbeatService(
       activitySource: "manual" | "scheduled";
     },
   ) {
-    if (!claimed.assigneeAgentId || !claimed.monitorNextCheckAt) {
+    if (!claimed.assigneeAgentId || !hasPendingIssueMonitor(claimed)) {
       throw conflict("Issue monitor is not ready to dispatch");
     }
 
-    const scheduledAtIso = claimed.monitorNextCheckAt.toISOString();
+    const scheduledAtIso = claimed.monitorNextCheckAt?.toISOString() ?? null;
     const nextAttemptCount = (claimed.monitorAttemptCount ?? 0) + 1;
     const policy = normalizeIssueExecutionPolicy(
       claimed.executionPolicy ?? null,
@@ -11714,7 +11716,9 @@ export function heartbeatService(
           source: input.source,
           triggerDetail: input.triggerDetail,
           reason: wakeReason,
-          idempotencyKey: `issue-monitor:${claimed.id}:${scheduledAtIso}`,
+          // A monitor completion must survive the current run's release.
+          allowRunCoalescing: false,
+          idempotencyKey: `issue-monitor:${claimed.id}:${scheduledAtIso ?? claimed.monitorWakeRequestedAt!.toISOString()}`,
           payload: {
             issueId: claimed.id,
             nextCheckAt: scheduledAtIso,
@@ -11842,6 +11846,7 @@ export function heartbeatService(
       agentId?: string | null;
       runId?: string | null;
       wakeReason?: string;
+      expectedMonitor?: { serviceName: string; externalRef: string };
     },
   ) {
     const now = input?.now ?? new Date();
@@ -11861,8 +11866,16 @@ export function heartbeatService(
     if (!issue) {
       throw notFound("Issue not found");
     }
-    if (!issue.monitorNextCheckAt) {
+    if (!hasPendingIssueMonitor(issue)) {
+      if (input?.expectedMonitor) return { outcome: "not_matched" as const };
       throw conflict("Issue has no scheduled monitor");
+    }
+    if (input?.expectedMonitor) {
+      const monitor = parseObject(parseObject(issue.executionPolicy).monitor);
+      if (monitor.kind !== "external_service" || monitor.serviceName !== input.expectedMonitor.serviceName ||
+          monitor.externalRef !== issueMonitorBindingDigest(input.expectedMonitor.externalRef)) {
+        return { outcome: "not_matched" as const };
+      }
     }
     if (!issue.assigneeAgentId || issue.assigneeUserId) {
       throw conflict("Issue monitor requires an agent assignee");
@@ -11884,7 +11897,10 @@ export function heartbeatService(
         .where(
           and(
             eq(issues.id, issueId),
-            sql`${issues.monitorNextCheckAt} is not null`,
+            issue.monitorNextCheckAt ? eq(issues.monitorNextCheckAt, issue.monitorNextCheckAt)
+              : isNull(issues.monitorNextCheckAt),
+            issue.executionState ? eq(issues.executionState, issue.executionState) : isNull(issues.executionState),
+            issue.executionPolicy ? eq(issues.executionPolicy, issue.executionPolicy) : isNull(issues.executionPolicy),
             isNull(issues.assigneeUserId),
             sql`${issues.assigneeAgentId} is not null`,
             inArray(issues.status, ["in_progress", "in_review"]),
@@ -13694,7 +13710,7 @@ export function heartbeatService(
       hasPendingInteractionOrApproval: Boolean(
         pendingInteraction || pendingApproval,
       ),
-      hasPersistedMonitor: Boolean(issue?.monitorNextCheckAt),
+      hasPersistedMonitor: issue ? hasPendingIssueMonitor(issue) : false,
       hasExplicitBlockerPath: Boolean(explicitBlocker),
       hasOpenRecoveryIssue: Boolean(openRecoveryIssue),
       hasPauseHold: Boolean(pauseHold),
@@ -15537,12 +15553,11 @@ export function heartbeatService(
           }
         : baseSchedule;
 
-    const requiresIssueGate =
+    const requiresIssueGate = retryReason !== MAX_TURN_CONTINUATION_RETRY_REASON && (
       isTransientWorkspaceGitScanCode(run.errorCode) ||
       hasConversationContinuationPolicy(run.resultJson) ||
       retryReason === AI_CONNECTION_BUSY_RETRY_REASON ||
-      retryReason === MAX_TURN_CONTINUATION_RETRY_REASON ||
-      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON;
+      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON);
     if (requiresIssueGate) {
       const gate = await runDispatch.evaluateScheduledRetryGate({
         runId: run.id,
@@ -15668,13 +15683,7 @@ export function heartbeatService(
       | {
           outcome: "not_scheduled";
           reason: string;
-          errorCode:
-            | "issue_not_found"
-            | "issue_reassigned"
-            | "issue_cancelled"
-            | "issue_terminal_status"
-            | "issue_not_in_progress"
-            | "issue_execution_lock_changed";
+          errorCode: ScheduledRetryGateErrorCode;
           issueId: string | null;
           details: Record<string, unknown>;
         };
@@ -15842,6 +15851,16 @@ export function heartbeatService(
               run: existingContinuation,
               reusedExisting: true,
             };
+          }
+
+          // A duplicate must reuse the successor before testing the predecessor's
+          // lock, which the first successful claim has already transferred.
+          const gate = await createRunDispatch(tx as unknown as Db).evaluateScheduledRetryGate({
+            runId: run.id, companyId: run.companyId, retryReasonOverride: retryReason, now,
+          });
+          if (!gate.allowed) {
+            return { outcome: "not_scheduled", reason: gate.reason, errorCode: gate.errorCode,
+              issueId: gate.issueId, details: gate.details };
           }
 
           if (issueId) {

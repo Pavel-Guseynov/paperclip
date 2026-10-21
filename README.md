@@ -260,6 +260,58 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 **Plugins** — Instance-wide plugin system with out-of-process workers, capability-gated host services, job scheduling, tool exposure, and UI contributions. Extend Paperclip without forking it.
 
+Local plugin installation validates the canonical filesystem target but retains
+the original absolute source in the registry. A stable system-profile symlink
+therefore remains stable across generations. Instance administrators recover an
+existing local registration with `POST /api/plugins/:id/upgrade` and
+`{"packagePath":"<stable-absolute-source>"}`. The new package must retain the
+manifest ID and approved capabilities. Validation precedes runtime shutdown;
+configuration, secrets and plugin UUID remain attached. Explicit source
+recovery accepts ready, upgrade-pending, installed, error and disabled records;
+disabled plugins remain disabled. Uninstalled records cannot be recovered.
+Cloud-managed sources must still canonicalize inside the bundled plugin root.
+
+Public plugin webhooks can select `?companyId=<uuid>`. The host requires a
+persisted configuration for that plugin and company, records the company on the
+delivery and supplies it as invocation scope. Headers and payloads cannot
+establish that scope. Unscoped instance webhooks remain available to plugins
+whose contract does not require company services. Native secret resolution
+requires a persisted `{type:"secret_ref",secretId:"<uuid>"}` binding and its
+configuration path; secret values never belong in plugin configuration.
+
+An issue can await an external-service event without a timer: retain the
+current execution policy and set its `monitor` to
+`{nextCheckAt:null,kind:"external_service",serviceName:"<service>",externalRef:"<binding>"}`.
+The kind, service and reference are required for a null date. The state remains
+`scheduled` until the event; timer scans do not dispatch it, and review release
+and recovery recognize it as a durable wait. A plugin uses
+`ctx.issues.requestWakeup(issueId,companyId,{monitor:{serviceName,externalRef}})`.
+The native claim compares the exact persisted binding, queues one wake and
+marks the monitor triggered while preserving the review stage, participant,
+return owner and issue status. Mismatches return `{queued:false,runId:null}`
+without consuming the wait. Generic plugin wakeups cannot bypass an armed
+monitor. Issue reads through the plugin SDK include persisted work products
+after enforcing the issue's company boundary.
+
+Event references normalize to `sha256:<hex-digest>` in persisted policies;
+normalizing that form again preserves it. State and activity projections
+redact the reference. Callers supply the original binding to requestWakeup;
+the host compares its digest, so arming never needs to persist the raw input.
+
+Subscribe before observing: arm the monitor, then read the external system's
+current result for that binding. If already complete, the active reviewer uses
+`paperclipUpdateIssue` with the current `executionPolicy` and `monitor: null`,
+then continues the review in that same run. This is native monitor cancellation,
+not a wake request. It records the cleared monitor while retaining the stage,
+participant and return owner. Otherwise the reviewer ends with the wait armed.
+An event received before arming must not be treated as evidence that a later
+wait will be woken. Events received during an active run use the existing
+durable deferred wake queue, which promotes the wake on release. The CI-wake
+binding is `JSON.stringify({pullRequestUrl,headSha,context})` in that property
+order, with `serviceName:"gitea"`, the canonical PR work-product URL, exact
+current head and required check context. A changed head needs a new binding
+and observation. Neither a timer nor repeated CI checks are required.
+
 </td>
 <td>
 
@@ -287,6 +339,21 @@ An external MCP client using a standard agent API key can update issues the
 agent is authorized to edit without a heartbeat run. Edits to its own assigned
 in-progress issue require a clear checkout and execution lock. See
 [issue updates](docs/api/issues.md#update-issue) for the API contract.
+
+Checking out a review preserves its `in_review` status, original work start,
+stage, participant, return author and decision history. Repeated checkout by
+the same run remains idempotent; other owners and live run locks still conflict.
+An `executionPolicy` PATCH changes only the supplied policy fields. Updating or
+clearing only `monitor` retains the current stages and review history. Explicit
+`executionPolicy: null` clears the policy; an explicit `stages` array replaces
+the stages. Review policy writes reject stale governance under the issue lock.
+
+Resolved-blocked user-owned local work can be handed directly to its explicit
+review with a `done` request and review policy. The committed result is
+`in_review` with the original user as return author. Blockers, pause holds,
+active executions, company boundaries and ordinary resume authority still
+apply. Review admission and its audit commit together; this does not require
+assigning a fictitious implementation agent or resuming the local task first.
 
 ## What Paperclip is not
 
@@ -420,6 +487,24 @@ For a run that started, the canonical
 the hold. Unknown action outcomes remain blocked. This changes no configuration
 option. See [execution semantics](doc/execution-semantics.md).
 
+In authenticated deployments, an escalated review assigned to the obsolete
+`local-board` identity can recover through the ordinary issue update API. The
+server selects an eligible participant from the existing review policy while
+preserving its stage, decisions, change-request count and return author. Recovery
+refuses an active execution, a concurrently changed issue or a policy with no
+eligible reviewer. Real human holds and local-trusted board decisions retain
+their existing rules. If the subsequent author execution needs reconciliation,
+the existing board resolution authorizes its fresh continuation under that
+authenticated board user; historical run identities and issue ownership remain
+unchanged, and current access checks still apply.
+
+On macOS, native file handoff requires `lsof` on the server process's `PATH`
+to verify the actual path of an opened file descriptor before reading or
+writing attachment bytes. A missing command or invalid descriptor response
+rejects the handoff with `paperclip_runner_file_handoff_descriptor_unverifiable`
+and retains the original command failure or response as its cause. The native
+Nix test environment provides `lsof`; deployment packaging must provide it too.
+
 ### Managed MCP authentication
 
 Managed MCP clients send their gateway bearer to
@@ -530,6 +615,13 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 ### Nix
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
+
+Database checks start a test-owned PostgreSQL cluster on a private Unix socket,
+with TCP listeners disabled. The fixture supplies `PGHOST`, `PGPORT`, `PGUSER`
+and `PAPERCLIP_TEST_POSTGRES_URL`; the URL selects the database and the native
+PostgreSQL environment selects its private endpoint. Each suite clones the
+migrated template and removes its database at cleanup. The check stops its
+cluster after the test command, including a failed test command.
 
 ## Roadmap
 

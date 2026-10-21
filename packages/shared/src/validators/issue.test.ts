@@ -14,6 +14,19 @@ import {
 import { createAgentSchema } from "./agent.js";
 
 describe("issue validators", () => {
+  it("does not inject workflow defaults into a monitor-only policy PATCH", () => {
+    const parsed = updateIssueSchema.parse({ executionPolicy: { monitor: {
+      nextCheckAt: null, kind: "external_service", serviceName: "gitea", externalRef: "test-binding",
+    } } });
+    expect(Object.keys(parsed.executionPolicy!)).toEqual(["monitor"]);
+    expect(parsed.executionPolicy?.monitor).toMatchObject({ serviceName: "gitea", externalRef: "test-binding" });
+  });
+
+  it("preserves explicit workflow clearing in the policy PATCH contract", () => {
+    expect(updateIssueSchema.parse({ executionPolicy: null }).executionPolicy).toBeNull();
+    expect(updateIssueSchema.parse({ executionPolicy: { stages: [] } }).executionPolicy).toEqual({ stages: [] });
+  });
+
   it("uses the same bounded unique upload ID contract for comment and update requests", () => {
     const id = "9af8228f-0be7-45ae-a104-6fbe0af6f1d3";
     expect(

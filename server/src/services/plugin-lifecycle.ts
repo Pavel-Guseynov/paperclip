@@ -43,7 +43,7 @@ import type {
   PaperclipPluginManifestV1,
 } from "@paperclipai/shared";
 import { pluginRegistryService } from "./plugin-registry.js";
-import { pluginLoader, type PluginLoader } from "./plugin-loader.js";
+import { pluginLoader, type PluginLoader, type PluginLocalSource } from "./plugin-loader.js";
 import type { PluginWorkerManager, WorkerStartOptions } from "./plugin-worker-manager.js";
 import { badRequest, notFound } from "../errors.js";
 import { logger } from "../middleware/logger.js";
@@ -185,7 +185,7 @@ export interface PluginLifecycleManager {
    * If the upgrade adds new capabilities, transitions to `upgrade_pending`.
    * Otherwise, transitions to `ready` directly.
    */
-  upgrade(pluginId: string, version?: string): Promise<PluginRecord>;
+  upgrade(pluginId: string, version?: string, source?: PluginLocalSource): Promise<PluginRecord>;
 
   /**
    * Start the worker process for a plugin that is already in `ready` state.
@@ -636,14 +636,16 @@ export function pluginLifecycleManager(
      * @returns The updated `PluginRecord`.
      * @throws {BadRequest} If the plugin is not in a ready or upgrade_pending state.
      */
-    async upgrade(pluginId: string, version?: string): Promise<PluginRecord> {
+    async upgrade(pluginId: string, version?: string, source?: PluginLocalSource): Promise<PluginRecord> {
       const plugin = await requirePlugin(pluginId);
 
-      // Can only upgrade plugins that are ready or already in upgrade_pending
-      if (plugin.status !== "ready" && plugin.status !== "upgrade_pending") {
+      // An explicit local source can also recover a failed install or retain
+      // a disabled registration while advancing its package generation.
+      if (plugin.status !== "ready" && plugin.status !== "upgrade_pending" &&
+          !(source && ["disabled", "error", "installed"].includes(plugin.status))) {
         throw badRequest(
           `Cannot upgrade plugin in status '${plugin.status}'. ` +
-            `Plugin must be in 'ready' or 'upgrade_pending' status to be upgraded.`,
+            `Plugin must be ready or upgrade_pending, or have an explicit local recovery source in installed, error or disabled status.`,
         );
       }
 
@@ -652,11 +654,10 @@ export function pluginLifecycleManager(
         "plugin lifecycle: upgrade requested",
       );
 
-      await deactivatePluginRuntime(pluginId, plugin.pluginKey);
-
       // 1. Download and validate new package via loader
       const { oldManifest, newManifest, discovered } =
-        await pluginLoaderInstance.upgradePlugin(pluginId, { version });
+        await pluginLoaderInstance.upgradePlugin(pluginId, { version, ...source },
+          () => deactivatePluginRuntime(pluginId, plugin.pluginKey));
 
       log.info(
         {
@@ -687,6 +688,8 @@ export function pluginLifecycleManager(
           pluginKey: result.pluginKey,
         });
         return result;
+      } else if (plugin.status === "disabled") {
+        return requirePlugin(pluginId);
       } else {
         const result = await transition(pluginId, "ready", null, {
           ...plugin,

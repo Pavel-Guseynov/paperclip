@@ -51,6 +51,7 @@ import {
   getPluginUiContributionMetadata,
   listMissingDeclaredPluginEntrypoints,
   pluginLoader,
+  type PluginLocalSource,
   REPO_ROOT,
 } from "../services/plugin-loader.js";
 import { logActivity } from "../services/activity-log.js";
@@ -1204,7 +1205,7 @@ export function pluginRoutes(
 
     try {
       const installOptions = canonicalLocalPath !== undefined
-        ? { localPath: canonicalLocalPath }
+        ? { localPath: canonicalLocalPath, localSourcePath: path.resolve(trimmedPackage) }
         : { packageName: trimmedPackage, version: version?.trim() };
 
       const discovered = await loader.installPlugin(installOptions);
@@ -2225,7 +2226,7 @@ export function pluginRoutes(
     assertInstanceAdmin(req);
     assertPluginManagementVisible();
     const { pluginId } = req.params;
-    const body = req.body as { version?: string } | undefined;
+    const body = req.body as { version?: string; packagePath?: unknown } | undefined;
     const version = body?.version;
 
     const plugin = await resolvePlugin(registry, pluginId);
@@ -2235,12 +2236,29 @@ export function pluginRoutes(
     }
 
     try {
+      let source: PluginLocalSource | undefined;
+      if (body?.packagePath !== undefined) {
+        if (typeof body.packagePath !== "string" || !body.packagePath.trim() || !plugin.packagePath) {
+          res.status(400).json({ error: "packagePath must name a local plugin source" });
+          return;
+        }
+        const validated = await canonicalizeLocalPluginPath(body.packagePath.trim());
+        if (!validated.ok) {
+          res.status(400).json({ error: validated.reason });
+          return;
+        }
+        if (isCloudManagedInstance() && !(await isWithinBundledPluginRoot(validated.canonicalPath))) {
+          res.status(403).json({ error: "cloud-managed instances may only retain bundled plugin sources" });
+          return;
+        }
+        source = { localPath: validated.canonicalPath, localSourcePath: path.resolve(body.packagePath.trim()) };
+      }
       // Upgrade the plugin - this would typically:
       // 1. Download the new version
       // 2. Compare capabilities
       // 3. If new capabilities, mark as upgrade_pending
       // 4. Otherwise, transition to ready
-      const result = await lifecycle.upgrade(plugin.id, version);
+      const result = await lifecycle.upgrade(plugin.id, version, source);
       await logPluginMutationActivity(req, "plugin.upgraded", plugin.id, {
         pluginId: plugin.id,
         pluginKey: plugin.pluginKey,
@@ -2739,6 +2757,22 @@ export function pluginRoutes(
       return;
     }
 
+    // Bind a requested company only through this plugin's persisted config.
+    // A payload/header cannot establish an invocation's company scope.
+    let companyId: string | undefined;
+    if (req.query.companyId !== undefined) {
+      if (typeof req.query.companyId !== "string" || !UUID_REGEX.test(req.query.companyId.trim())) {
+        res.status(400).json({ error: "companyId must be one UUID" });
+        return;
+      }
+      const config = await registry.getConfig(plugin.id, req.query.companyId.trim());
+      if (!config) {
+        res.status(404).json({ error: "Plugin is not configured for this company" });
+        return;
+      }
+      companyId = config.companyId;
+    }
+
     // Step 5: Extract request data
     const requestId = randomUUID();
     const rawHeaders: Record<string, string> = {};
@@ -2765,6 +2799,7 @@ export function pluginRoutes(
       .values({
         pluginId: plugin.id,
         webhookKey: endpointKey,
+        companyId: companyId ?? null,
         status: "pending",
         payload,
         headers: rawHeaders,
@@ -2775,6 +2810,7 @@ export function pluginRoutes(
     // Step 7: Dispatch to the worker via handleWebhook RPC
     try {
       await webhookDeps.workerManager.call(plugin.id, "handleWebhook", {
+        ...(companyId ? { companyId } : {}),
         endpointKey,
         headers: req.headers as Record<string, string | string[]>,
         rawBody,

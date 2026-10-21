@@ -1,3 +1,4 @@
+import { hasPendingIssueMonitor } from "@paperclipai/shared";
 import { enrichPromotedWakeContext } from "../domain/context.js";
 import {
   decideQueuedCommentAction,
@@ -564,7 +565,7 @@ async function runReleaseRecoveryTail(
     readNonEmptyString(run.contextSnapshot.retryReason) !==
       ISSUE_DISPOSITION_REPAIR_RETRY_REASON &&
     !hasExistingExecutionPath &&
-    !issue.monitorNextCheckAt &&
+    !hasPendingIssueMonitor(issue) &&
     !hasExplicitBlockerPath &&
     !suppressedByPauseHold &&
     !isStrandedRecoveryOrigin
@@ -598,7 +599,7 @@ async function runReleaseRecoveryTail(
     },
     shared: {
       hasExistingExecutionPath,
-      hasPersistedMonitor: Boolean(issue.monitorNextCheckAt),
+      hasPersistedMonitor: hasPendingIssueMonitor(issue),
       suppressedByPauseHold,
       isStrandedRecoveryOrigin,
       recoveryAgentPresent: recoveryAgent !== null,

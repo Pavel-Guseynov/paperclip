@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
-import type { ComponentProps, ReactNode } from "react";
-import { flushSync } from "react-dom";
+import { act, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Agent } from "@paperclipai/shared";
@@ -44,21 +43,11 @@ vi.mock("../api/agents", () => ({
   agentsApi: mockAgentsApi,
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-
-async function act(callback: () => void | Promise<void>) {
-  let result: void | Promise<void> = undefined;
-  flushSync(() => {
-    result = callback();
-  });
-  await result;
-}
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 }
 
@@ -127,11 +116,13 @@ describe("AgentActionButtons", () => {
 
   function render(agent: Agent, props: Partial<ComponentProps<typeof AgentActionButtons>> = {}) {
     root ??= createRoot(container);
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <AgentActionButtons agent={agent} companyId="company-1" runLabel="Run Heartbeat" {...props} />
-      </QueryClientProvider>,
-    );
+    act(() => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentActionButtons agent={agent} companyId="company-1" runLabel="Run Heartbeat" {...props} />
+        </QueryClientProvider>,
+      );
+    });
   }
 
   it("replaces the pause slot with Clear error for error agents", async () => {
