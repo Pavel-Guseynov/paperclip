@@ -1372,7 +1372,7 @@ export function toolAccessPolicyService(db: Db) {
           ...(input.request.legacyToolName ? [input.request.legacyToolName] : []),
         ],
         riskLevel,
-        argumentsHash: redaction.summary.sha256 ?? sha256(input.request.arguments ?? {}),
+        argumentsHash: sha256(input.request.arguments ?? {}),
         arguments: input.request.arguments ?? {},
       },
     };
@@ -1828,7 +1828,7 @@ export function toolAccessPolicyService(db: Db) {
     const loaded = await loadContext(input);
     if (!loaded.ok) throw new Error("Cannot record invocation for invalid tool access context");
     const { ctx, redaction } = loaded;
-    const argumentsHash = redaction.summary.sha256 ?? sha256(input.request.arguments ?? {});
+    const argumentsHash = ctx.argumentsHash;
     const idempotencyKey = input.request.idempotencyKey
       ?? (input.request.sideEffecting ? sideEffectIdempotencyKey(ctx, argumentsHash) : null);
     if (idempotencyKey) {
@@ -1837,6 +1837,13 @@ export function toolAccessPolicyService(db: Db) {
         eq(toolInvocations.idempotencyKey, idempotencyKey),
       ));
       if (existing) {
+        if (existing.argumentsHash !== argumentsHash) {
+          throw conflict("Idempotency key was already used with different tool arguments", {
+            code: "idempotency_key_conflict",
+            invocationId: existing.id,
+            tool: ctx.toolName,
+          });
+        }
         if (existing.status === "timed_out") {
           throw conflict(
             "A previous write invocation timed out with an ambiguous outcome; cannot be automatically replayed",

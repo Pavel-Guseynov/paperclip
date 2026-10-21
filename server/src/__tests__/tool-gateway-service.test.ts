@@ -43,6 +43,7 @@ import {
   ToolGatewayHttpError,
 } from "../services/tool-gateway.js";
 import { canonicalToolArguments, signToolArguments } from "../services/tool-content-guards.js";
+import { replayWriteRequests } from "./fixtures/tool-write-identity.js";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -164,6 +165,39 @@ function fakePluginDispatcher(): PluginToolDispatcher {
       throw new Error("not implemented");
     },
   };
+}
+
+async function createWriteReplayFixture(db: ReturnType<typeof createDb>) {
+  const { company, agent, run } = await createRunFixture(db);
+  const { catalogEntry } = await createRemoteMcpToolFixture(db, company.id);
+  await db.update(toolCatalogEntries).set({
+    name: "issue_write", toolName: "issue_write", riskLevel: "write", isReadOnly: false,
+  }).where(eq(toolCatalogEntries.id, catalogEntry.id));
+  await db.insert(toolPolicies).values({
+    companyId: company.id, name: "Allow fixture writes", policyType: "allow",
+    selectors: { riskLevel: "write" },
+  });
+  const requests: Array<Record<string, unknown>> = [];
+  const gateway = createTestToolGatewayService(db, {
+    remoteHttpRequest: async (_url, init) => {
+      const payload = JSON.parse(String(init.body));
+      expect(payload.method).toBe("tools/call");
+      expect(payload.params.name).toBe("issue_write");
+      requests.push(payload.params.arguments);
+      return new Response(JSON.stringify({
+        jsonrpc: "2.0", id: payload.id,
+        result: { content: [{ type: "text", text: "saved" }] },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+  const tool = (await gateway.listToolsForSession(session.token))
+    .find((candidate) => candidate.catalogEntryId === catalogEntry.id);
+  if (!tool) throw new Error("Write fixture tool was not discovered");
+  const execute = (parameters: Record<string, unknown>, idempotencyKey?: string) => gateway.executeTool({
+    sessionToken: session.token, tool: tool.name, parameters, idempotencyKey,
+  });
+  return { execute, requests };
 }
 
 describeEmbeddedPostgres("tool gateway service", () => {
@@ -1859,6 +1893,64 @@ describeEmbeddedPostgres("tool gateway service", () => {
       metadata: { findings: ["ignore_previous_instructions", "reveal_system_prompt"] },
     });
     expect(serialized).not.toContain(maliciousContent);
+  });
+
+  it("sends all three incident PR bodies despite their identical display prefix", async () => {
+    const fixture = await createWriteReplayFixture(db);
+    for (const parameters of replayWriteRequests) {
+      expect((await fixture.execute(parameters)).status).toBe("completed");
+    }
+    expect(fixture.requests).toEqual(replayWriteRequests);
+    expect(await db.select().from(toolInvocations)).toHaveLength(3);
+  });
+
+  it("replays a canonical duplicate without sending a second upstream write", async () => {
+    const fixture = await createWriteReplayFixture(db);
+    const parameters = replayWriteRequests[1]!;
+    const first = await fixture.execute(parameters);
+    const reordered = Object.fromEntries(Object.entries(parameters).reverse());
+    expect(await fixture.execute(reordered)).toMatchObject({ status: "replayed", invocationId: first.invocationId });
+    expect(fixture.requests).toEqual([parameters]);
+  });
+
+  it.each([
+    { name: "nested string tail", first: { nested: { body: "a".repeat(501) } }, second: { nested: { body: "a".repeat(500) + "b" } } },
+    { name: "array tail", first: { entries: Array.from({ length: 51 }, () => "a") }, second: { entries: [...Array.from({ length: 50 }, () => "a"), "b"] } },
+    { name: "redacted value", first: { apiKey: "sk-fixture-first-value" }, second: { apiKey: "sk-fixture-second-value" } },
+  ])("distinguishes changed $name arguments", async ({ first, second }) => {
+    const fixture = await createWriteReplayFixture(db);
+    await fixture.execute(first);
+    expect((await fixture.execute(second)).status).toBe("completed");
+    expect(fixture.requests).toEqual([first, second]);
+  });
+
+  it("rejects an explicit replay key reused with changed arguments before dispatch", async () => {
+    const fixture = await createWriteReplayFixture(db);
+    const first = replayWriteRequests[0]!;
+    await fixture.execute(first, "pr-body-update");
+    await expect(fixture.execute(replayWriteRequests[1]!, "pr-body-update")).rejects.toMatchObject({
+      status: 409, details: { code: "idempotency_key_conflict" },
+    });
+    expect(fixture.requests).toEqual([first]);
+  });
+
+  it("keeps audit arguments bounded and secret-safe while dispatching their complete values", async () => {
+    const fixture = await createWriteReplayFixture(db);
+    const body = "x".repeat(6000);
+    const parameters = { body, apiKey: "sk-fixture-private-value" };
+    await fixture.execute(parameters);
+    expect(fixture.requests).toEqual([parameters]);
+    const invocations = await db.select().from(toolInvocations);
+    const calls = await db.select().from(toolCallEvents);
+    const audits = await db.select().from(toolAccessAuditEvents);
+    const activities = await db.select().from(activityLog);
+    const persisted = JSON.stringify({ invocations, calls, audits, activities });
+    expect(persisted).not.toContain(parameters.apiKey);
+    expect(persisted).not.toContain(body);
+    expect(invocations[0]!.argumentsSummary).toMatchObject({
+      summary: expect.stringContaining("...[truncated]"),
+    });
+    expect(invocations[0]!.argumentsSummary!.summary!.length).toBeLessThanOrEqual(4000);
   });
 
   it("passes original sensitive arguments to plugin executors while redacting stored summaries", async () => {

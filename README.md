@@ -443,6 +443,13 @@ The shared configuration renderer applies this setting for CLI and ACPX runs
 and removes it with the managed block. Unmanaged MCP entries retain their own
 approval settings. See [execution semantics](doc/execution-semantics.md).
 
+Gateway write replay identity uses the complete canonical arguments, including
+nested values. Different writes remain distinct when their audit display prefixes
+match. Exact duplicates reuse their recorded invocation; an explicit idempotency
+key reused with different arguments returns HTTP 409 `idempotency_key_conflict`
+before provider execution. Audit displays remain bounded and secret-redacted;
+the stored argument identity is a digest. See [connection reviews](doc/connections/TASK-REVIEWS.md).
+
 ## FAQ
 
 **What does a typical setup look like?**
