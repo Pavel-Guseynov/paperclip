@@ -29,6 +29,8 @@ import {
   toolGatewaySessions,
   toolInvocations,
   toolPolicies,
+  toolProfiles,
+  toolProfileEntries,
 } from "@paperclipai/db";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import type { VercelConnectClient } from "../services/vercel-connect.js";
@@ -166,6 +168,26 @@ function fakePluginDispatcher(): PluginToolDispatcher {
   };
 }
 
+function oversizedRemoteResponse(contentType: string, declared: boolean) {
+  let cancelled = false;
+  let reads = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      reads += 1;
+      controller.enqueue(new Uint8Array(reads === 1 ? 1_000_000 : 1));
+    },
+    cancel() { cancelled = true; },
+  }, { highWaterMark: 0 });
+  const response = new Response(body, {
+    headers: { "content-type": contentType, ...(declared ? { "content-length": "1000001" } : {}) },
+  });
+  return { response, assertReleased() {
+    expect(cancelled).toBe(true);
+    expect(body.locked).toBe(false);
+    expect(reads).toBe(declared ? 0 : 2);
+  } };
+}
+
 describeEmbeddedPostgres("tool gateway service", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
@@ -202,6 +224,57 @@ describeEmbeddedPostgres("tool gateway service", () => {
   afterAll(async () => {
     await tempDb?.cleanup();
   });
+
+  for (const contentType of ["application/json", "text/event-stream"]) {
+    for (const declared of [true, false]) {
+      it(`keeps tools and the authenticated session usable after ${contentType} ${declared ? "declared" : "streamed"} overflow`, async () => {
+        const { company, agent, run } = await createRunFixture(db);
+        const { connection, catalogEntry } = await createRemoteMcpToolFixture(db, company.id);
+        await db.update(toolConnections).set({
+          config: { url: "https://example.invalid/mcp", mcpSessionRequired: true }, lastError: "stale error",
+        }).where(eq(toolConnections.id, connection.id));
+        await db.insert(toolPolicies).values({ companyId: company.id, name: "Allow reads", policyType: "allow", selectors: { riskLevel: "read" } });
+        const oversized = oversizedRemoteResponse(contentType, declared);
+        const requests: Array<{ method: string; sessionId: string | null }> = [];
+        let calls = 0;
+        const gateway = createTestToolGatewayService(db, {
+          remoteHttpRequest: async (_url, init) => {
+            const request = JSON.parse(String(init.body)) as { method: string; id: string };
+            requests.push({ method: request.method, sessionId: new Headers(init.headers).get("mcp-session-id") });
+            if (request.method === "notifications/initialized") return new Response(null, { status: 202 });
+            if (request.method === "tools/call" && ++calls === 1) return oversized.response;
+            return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "initialize"
+              ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fixture", version: "1" } }
+              : { content: [{ type: "text", text: "subsequent call succeeded" }] },
+            }), { headers: { "content-type": "application/json", "mcp-session-id": "retained-session" } });
+          },
+        });
+        const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+        const toolsBefore = await gateway.listToolsForSession(session.token);
+        const tool = toolsBefore.find((candidate) => candidate.connectionId === connection.id)!;
+        await expect(gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).rejects.toMatchObject({
+          status: 502, reasonCode: "mcp_remote_response_too_large", details: {
+            maxBytes: 1_000_000, responseBytes: 1_000_001, connectionId: connection.id,
+            catalogEntryId: catalogEntry.id, toolName: tool.name, upstreamToolName: catalogEntry.toolName,
+            failureKind: "protocol_failure", execution: { response: { httpStatus: 200, contentType, bodySizeBytes: 1_000_001 } },
+          },
+        });
+        oversized.assertReleased();
+        expect(await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id))).toMatchObject([{ healthStatus: "ok", lastError: null }]);
+        expect((await gateway.listToolsForSession(session.token)).map((candidate) => candidate.name)).toEqual(toolsBefore.map((candidate) => candidate.name));
+        expect(await db.select().from(issueThreadInteractions)).toEqual([]);
+        expect(await gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).toMatchObject({ status: "completed" });
+        expect(requests).toEqual([
+          { method: "initialize", sessionId: null },
+          { method: "notifications/initialized", sessionId: "retained-session" },
+          { method: "tools/call", sessionId: "retained-session" },
+          { method: "tools/call", sessionId: "retained-session" },
+        ]);
+        expect(await db.select().from(toolInvocations).where(eq(toolInvocations.errorCode, "mcp_remote_response_too_large"))).toHaveLength(1);
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "mcp_remote_response_too_large"))).toHaveLength(1);
+      });
+    }
+  }
 
   it("gates write tools with an action request and executes only stored reviewed arguments once", async () => {
     const { company, agent, run } = await createRunFixture(db);
