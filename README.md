@@ -443,6 +443,23 @@ The shared configuration renderer applies this setting for CLI and ACPX runs
 and removes it with the managed block. Unmanaged MCP entries retain their own
 approval settings. See [execution semantics](doc/execution-semantics.md).
 
+### Remote MCP response size
+
+The gateway accepts at most 1,000,000 bytes in an individual remote MCP tool
+or context response. This bound applies to JSON and SSE, including resource
+and prompt requests and their `paperclip_*` wrapper tools. A declared length
+above the bound rejects the response before body consumption; streamed
+overflow cancels and releases the reader at the first chunk beyond the bound.
+
+An oversized HTTP success response fails that request with HTTP 502 and
+`mcp_remote_response_too_large`. Error details include `maxBytes`, the declared
+or observed `responseBytes`, and the connection and tool or context method.
+The gateway retains the authenticated MCP session and healthy connection so
+subsequent calls can proceed. Actual authentication, transport and protocol
+faults retain connection failure handling. The size error carries bounded
+metadata without the rejected payload; callers should request a smaller
+result. No configuration option raises this bound.
+
 ## FAQ
 
 **What does a typical setup look like?**

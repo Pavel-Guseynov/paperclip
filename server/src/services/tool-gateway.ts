@@ -408,7 +408,7 @@ type RemoteHttpExecutionAudit = {
   response?: {
     httpStatus: number;
     contentType: string | null;
-    bodySizeBytes: number;
+    bodySizeBytes?: number;
     upstreamRequestId: string | null;
   };
   failureKind?: "invocation_timeout" | "transport_failure" | "protocol_failure";
@@ -5604,7 +5604,10 @@ export function createToolGatewayService(
       input.connection.config.proxy.trim().length > 0
         ? input.connection.config.proxy.trim()
         : null;
-    const response = await guardedRemoteHttpFetch(
+    const dispatchRemote = (target: string, init: RequestInit) => options.remoteHttpRequest
+      ? options.remoteHttpRequest(target, init)
+      : guardedRemoteHttpFetch(target, init, remoteHttpFetchOptions(proxy));
+    const response = await dispatchRemote(
       endpoint,
       {
         method: "POST",
@@ -5617,10 +5620,9 @@ export function createToolGatewayService(
           params: input.params,
         }),
       },
-      remoteHttpFetchOptions(proxy),
     );
-    const body = await readBoundedRemoteResponse(response);
     if (!response.ok) {
+      await discardResponse(response);
       await markRemoteConnectionHealth(
         input.connection,
         "error",
@@ -5640,10 +5642,17 @@ export function createToolGatewayService(
     let payload: unknown;
     try {
       payload = parseMcpHttpResponseBody(
-        body,
+        await readBoundedRemoteResponse(response),
         response.headers.get("content-type"),
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof ToolGatewayHttpError && error.reasonCode === "mcp_remote_response_too_large") {
+        await markRemoteConnectionHealth(input.connection, "ok", null);
+        throw new ToolGatewayHttpError(error.status, error.message, error.reasonCode, {
+          ...error.details, connectionId: input.connection.id, method: input.method,
+        });
+      }
+      await markRemoteConnectionHealth(input.connection, "error", "Remote MCP context response was invalid.");
       throw new ToolGatewayHttpError(
         502,
         "Remote MCP context response was invalid",
@@ -5660,6 +5669,7 @@ export function createToolGatewayService(
       record.error !== undefined ||
       !Object.prototype.hasOwnProperty.call(record, "result")
     ) {
+      await markRemoteConnectionHealth(input.connection, "error", "Remote MCP context request returned an error.");
       throw new ToolGatewayHttpError(
         502,
         "Remote MCP context request returned an error",
@@ -5949,31 +5959,45 @@ export function createToolGatewayService(
     };
   }
 
-  function responseTooLargeError() {
+  function responseTooLargeError(responseBytes: number | null) {
     return new ToolGatewayHttpError(
       502,
       "Remote MCP response exceeded the gateway size limit",
       "mcp_remote_response_too_large",
-      { maxBytes: MAX_REMOTE_MCP_RESPONSE_BYTES },
+      { maxBytes: MAX_REMOTE_MCP_RESPONSE_BYTES, ...(responseBytes != null ? { responseBytes } : {}) },
     );
   }
 
   async function readBoundedRemoteResponse(
     response: Response,
   ): Promise<string> {
-    const contentLength = response.headers.get("content-length");
-    if (
-      contentLength &&
-      Number(contentLength) > MAX_REMOTE_MCP_RESPONSE_BYTES
-    ) {
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_MCP_RESPONSE_BYTES) {
       await discardResponse(response);
-      throw responseTooLargeError();
+      throw responseTooLargeError(contentLength);
     }
-    const body = await response.text();
-    if (Buffer.byteLength(body, "utf8") > MAX_REMOTE_MCP_RESPONSE_BYTES) {
-      throw responseTooLargeError();
+    const reader = response.body?.getReader();
+    if (!reader) {
+      const body = await response.text();
+      const bytes = Buffer.byteLength(body, "utf8");
+      if (bytes > MAX_REMOTE_MCP_RESPONSE_BYTES) throw responseTooLargeError(bytes);
+      return body;
     }
-    return body;
+    const decoder = new TextDecoder();
+    let body = "";
+    let bytes = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        bytes += value?.byteLength ?? 0;
+        if (bytes > MAX_REMOTE_MCP_RESPONSE_BYTES) throw responseTooLargeError(bytes);
+        body += decoder.decode(value, { stream: !done });
+        if (done) return body;
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
   }
 
   function malformedRemoteMcpResponse(): ToolGatewayHttpError {
@@ -6477,6 +6501,11 @@ export function createToolGatewayService(
         // automatically: the failed call may have changed app data.
         forgetMcpHttpSessions(connection.id);
       }
+      execution.response = {
+        httpStatus: response.status,
+        contentType: response.headers.get("content-type"),
+        upstreamRequestId: response.headers.get("x-request-id") ?? response.headers.get("x-zapier-request-id") ?? response.headers.get("traceparent"),
+      };
       const body = response.ok
         ? JSON.stringify(await readMcpHttpResponse(response, requestId, {
             maxBytes: MAX_REMOTE_MCP_RESPONSE_BYTES,
@@ -6643,11 +6672,14 @@ export function createToolGatewayService(
     } catch (error) {
       if (error instanceof McpHttpResponseError) {
         execution.failureKind = "protocol_failure";
-        const failure = error.reason === "too_large" ? responseTooLargeError()
+        if (execution.response && error.responseBytes != null) execution.response.bodySizeBytes = error.responseBytes;
+        const failure = error.reason === "too_large" ? responseTooLargeError(error.responseBytes ?? null)
           : error.reason === "malformed_response" ? malformedRemoteMcpResponse()
           : new ToolGatewayHttpError(502, "Remote MCP server returned invalid JSON", "mcp_remote_invalid_json");
-        await markRemoteConnectionHealth(connection, "error", failure.message);
+        await markRemoteConnectionHealth(connection, error.reason === "too_large" ? "ok" : "error", error.reason === "too_large" ? null : failure.message);
         throw new ToolGatewayHttpError(failure.status, failure.message, failure.reasonCode, {
+          ...failure.details,
+          toolName: tool.name, upstreamToolName: entry.toolName,
           connectionId: connection.id, catalogEntryId: entry.id, execution, failureKind: "protocol_failure",
         });
       }

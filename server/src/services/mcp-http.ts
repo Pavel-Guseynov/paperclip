@@ -17,9 +17,18 @@ export const MCP_HTTP_ACCEPT = "application/json, text/event-stream";
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 
 export class McpHttpResponseError extends Error {
-  constructor(readonly reason: "invalid_json" | "malformed_response" | "too_large", message: string) {
+  readonly maxBytes?: number;
+  readonly responseBytes?: number | null;
+
+  constructor(
+    readonly reason: "invalid_json" | "malformed_response" | "too_large",
+    message: string,
+    size?: { maxBytes: number; responseBytes: number | null },
+  ) {
     super(message);
     this.name = "McpHttpResponseError";
+    this.maxBytes = size?.maxBytes;
+    this.responseBytes = size?.responseBytes;
   }
 }
 
@@ -193,13 +202,19 @@ export async function readMcpHttpResponse(
   options: { maxBytes?: number; onRequest?: (message: Record<string, unknown>) => Promise<void> } = {},
 ): Promise<unknown> {
   const maxBytes = options.maxBytes ?? 8 * 1024 * 1024;
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+    await discardResponse(response);
+    throw new McpHttpResponseError("too_large", "MCP response exceeded the size limit", { maxBytes, responseBytes: declaredBytes });
+  }
   const isStream = response.headers.get("content-type")?.toLowerCase().includes("text/event-stream");
   const reader = response.body?.getReader();
   // Injected HTTP transports can expose a buffered text response rather than a
   // Web ReadableStream. Keep the same size and message-ID checks for both forms.
   if (!reader) {
     const body = await response.text();
-    if (Buffer.byteLength(body, "utf8") > maxBytes) throw new McpHttpResponseError("too_large", "MCP response exceeded the size limit");
+    const bytes = Buffer.byteLength(body, "utf8");
+    if (bytes > maxBytes) throw new McpHttpResponseError("too_large", "MCP response exceeded the size limit", { maxBytes, responseBytes: bytes });
     return readMcpHttpResponse(new Response(body, {
       headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
     }), requestId, options);
@@ -227,7 +242,7 @@ export async function readMcpHttpResponse(
     while (true) {
       const { value, done } = await reader.read();
       bytes += value?.byteLength ?? 0;
-      if (bytes > maxBytes) throw new McpHttpResponseError("too_large", "MCP response exceeded the size limit");
+      if (bytes > maxBytes) throw new McpHttpResponseError("too_large", "MCP response exceeded the size limit", { maxBytes, responseBytes: bytes });
       buffer += decoder.decode(value, { stream: !done });
       if (isStream) {
         // Normalize CRLF after concatenating chunks, including split CR/LF pairs.
