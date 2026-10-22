@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import express from "express";
+import request from "supertest";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -40,6 +42,7 @@ import { commitToolActionReview } from "../services/tool-action-review.js";
 import { materializeNativeInteractionResponses } from "../services/native-runtime/native-interaction-bridge.js";
 import { toolActionDeliveryService } from "../services/tool-action-delivery.js";
 import { secretService } from "../services/secrets.js";
+import { mcpGatewayProtocolRoutes } from "../routes/tool-gateway.js";
 import {
   createToolGatewayService,
   ToolGatewayHttpError,
@@ -252,7 +255,9 @@ describeEmbeddedPostgres("tool gateway service", () => {
         const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
         const toolsBefore = await gateway.listToolsForSession(session.token);
         const tool = toolsBefore.find((candidate) => candidate.connectionId === connection.id)!;
-        await expect(gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).rejects.toMatchObject({
+        const failure = await gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} }).catch((error: unknown) => error);
+        expect(await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id))).toMatchObject([{ healthStatus: "ok", lastError: null }]);
+        expect(failure).toMatchObject({
           status: 502, reasonCode: "mcp_remote_response_too_large", details: {
             maxBytes: 1_000_000, responseBytes: 1_000_001, connectionId: connection.id,
             catalogEntryId: catalogEntry.id, toolName: tool.name, upstreamToolName: catalogEntry.toolName,
@@ -260,7 +265,6 @@ describeEmbeddedPostgres("tool gateway service", () => {
           },
         });
         oversized.assertReleased();
-        expect(await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id))).toMatchObject([{ healthStatus: "ok", lastError: null }]);
         expect((await gateway.listToolsForSession(session.token)).map((candidate) => candidate.name)).toEqual(toolsBefore.map((candidate) => candidate.name));
         expect(await db.select().from(issueThreadInteractions)).toEqual([]);
         expect(await gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).toMatchObject({ status: "completed" });
@@ -274,6 +278,83 @@ describeEmbeddedPostgres("tool gateway service", () => {
         expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "mcp_remote_response_too_large"))).toHaveLength(1);
       });
     }
+  }
+
+  for (const [method, wrapper] of [
+    ["resources/list", "paperclip_list_resources"], ["resources/read", "paperclip_read_resource"],
+    ["prompts/list", "paperclip_list_prompts"], ["prompts/get", "paperclip_get_prompt"],
+  ] as const) {
+    for (const contentType of ["application/json", "text/event-stream"]) {
+      for (const declared of [true, false]) {
+        for (const wrapped of [true, false]) {
+          it(`preserves context and tools after ${wrapped ? wrapper : method} ${contentType} ${declared ? "declared" : "streamed"} overflow`, async () => {
+            const { company } = await createRunFixture(db);
+            const { connection } = await createRemoteMcpToolFixture(db, company.id);
+            await db.update(toolConnections).set({ config: { url: "https://example.invalid/mcp", mcpSessionRequired: true } }).where(eq(toolConnections.id, connection.id));
+            const [profile] = await db.insert(toolProfiles).values({ companyId: company.id, profileKey: randomUUID(), name: "Context profile", defaultAction: "deny" }).returning();
+            await db.insert(toolProfileEntries).values({ companyId: company.id, profileId: profile!.id, selectorType: "connection", effect: "include", connectionId: connection.id });
+            const oversized = oversizedRemoteResponse(contentType, declared);
+            const toolSessions: Array<string | null> = [];
+            let rejected = false;
+            let initialized = 0;
+            const gateway = createTestToolGatewayService(db, { remoteHttpRequest: async (_url, init) => {
+              const body = JSON.parse(String(init.body)) as { id: string; method: string };
+              if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+              if (body.method === "tools/call") toolSessions.push(new Headers(init.headers).get("mcp-session-id"));
+              if (body.method === method && !rejected) { rejected = true; return oversized.response; }
+              if (body.method === "initialize") initialized += 1;
+              return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: body.method === "initialize"
+                ? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fixture", version: "1" } }
+                : { content: [{ type: "text", text: "ok" }] },
+              }), { headers: { "content-type": "application/json", "mcp-session-id": "context-session" } });
+            } });
+            const named = await gateway.createNamedGateway({ companyId: company.id, body: { name: "Context gateway", profileId: profile!.id } });
+            const token = await gateway.createNamedGatewayToken({ companyId: company.id, gatewayId: named.id, body: { name: "Context token" } });
+            const tools = await gateway.listToolsForNamedGateway({ gatewayId: named.id, bearerToken: token.token });
+            const tool = tools.tools.find((candidate) => candidate.connectionId === connection.id)!;
+            const app = express();
+            app.use(express.json());
+            app.use(mcpGatewayProtocolRoutes(gateway));
+            const call = (body: Record<string, unknown>) => request(app).post(`/mcp/gateways/${named.gatewayPublicId}`).set("authorization", `Bearer ${token.token}`).send({ jsonrpc: "2.0", id: "test", ...body });
+            const toolCall = { method: "tools/call", params: { name: tool.name, arguments: {} } };
+            await call(toolCall).expect(200);
+            const params = method === "resources/read" ? { uri: `paperclip-resource://${connection.id}/${Buffer.from("notes://one").toString("base64url")}` }
+              : method === "prompts/get" ? { name: `paperclip-prompt://${connection.id}/${Buffer.from("summary").toString("base64url")}` } : {};
+            const contextCall = wrapped ? { method: "tools/call", params: { name: wrapper, arguments: params } } : { method, params };
+            const failed = await call(contextCall).expect(502);
+            expect(failed.body.error.data).toMatchObject({ reasonCode: "mcp_remote_response_too_large", maxBytes: 1_000_000, responseBytes: 1_000_001, connectionId: connection.id, method });
+            oversized.assertReleased();
+            expect(await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id))).toMatchObject([{ healthStatus: "ok", lastError: null }]);
+            await call(contextCall).expect(200);
+            await call(toolCall).expect(200);
+            expect(initialized).toBe(1);
+            expect(toolSessions).toEqual(["context-session", "context-session"]);
+            expect(await db.select().from(issueThreadInteractions)).toEqual([]);
+          });
+        }
+      }
+    }
+  }
+
+  for (const fault of ["authentication", "status", "invalid_json", "malformed", "rpc_error", "transport"] as const) {
+    it(`keeps connection failure handling for a real ${fault} fault`, async () => {
+      const { company, agent, run } = await createRunFixture(db);
+      const { connection } = await createRemoteMcpToolFixture(db, company.id);
+      await db.insert(toolPolicies).values({ companyId: company.id, name: "Allow reads", policyType: "allow", selectors: { riskLevel: "read" } });
+      const gateway = createTestToolGatewayService(db, { remoteHttpRequest: async (_url, init) => {
+        if (fault === "transport") throw new Error("test-owned transport failure");
+        const { id } = JSON.parse(String(init.body)) as { id: string };
+        return new Response(fault === "invalid_json" ? "invalid" : JSON.stringify({ jsonrpc: "2.0", id,
+          ...(fault === "rpc_error" ? { error: { code: -32603, message: "fixture failure" } } : fault === "malformed" ? {} : { result: {} }),
+        }), { status: fault === "authentication" ? 401 : fault === "status" ? 503 : 200, headers: { "content-type": "application/json" } });
+      } });
+      const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      const tool = (await gateway.listToolsForSession(session.token)).find((candidate) => candidate.connectionId === connection.id)!;
+      const reasonCode = fault === "transport" ? "mcp_remote_fetch_failed" : fault === "rpc_error" ? "remote_mcp_error"
+        : fault === "malformed" ? "remote_mcp_malformed_response" : fault === "invalid_json" ? "mcp_remote_invalid_json" : "mcp_remote_status";
+      await expect(gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: {} })).rejects.toMatchObject({ status: 502, reasonCode });
+      expect(await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id))).toMatchObject([{ healthStatus: "error", lastError: expect.any(String) }]);
+    });
   }
 
   it("gates write tools with an action request and executes only stored reviewed arguments once", async () => {
