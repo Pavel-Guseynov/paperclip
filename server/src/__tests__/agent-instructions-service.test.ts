@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { agentInstructionsService } from "../services/agent-instructions.js";
+import { agentFileTokenFromHash } from "../services/agent-instruction-file-revision.js";
 
 type TestAgent = {
   id: string;
@@ -380,5 +382,121 @@ describe("agent instructions service", () => {
       "Recovered managed instructions entry file from disk as AGENTS.md; previous entry docs/MISSING.md was missing.",
     ]);
     expect(exported.files).toEqual({ "AGENTS.md": "# Managed Agent\n" });
+  });
+});
+
+describe("agent instruction file revisions", () => {
+  const cleanupDirs = new Set<string>();
+
+  afterEach(async () => {
+    await Promise.all([...cleanupDirs].map(async (dir) => {
+      await fs.rm(dir, { recursive: true, force: true });
+      cleanupDirs.delete(dir);
+    }));
+  });
+
+  async function externalBundle(files: Record<string, string>) {
+    const root = await makeTempDir("paperclip-agent-instructions-revisions-");
+    cleanupDirs.add(root);
+    for (const [name, content] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(root, name)), { recursive: true });
+      await fs.writeFile(path.join(root, name), content, "utf8");
+    }
+    const agent = makeAgent({
+      instructionsBundleMode: "external",
+      instructionsRootPath: root,
+      instructionsEntryFile: "AGENTS.md",
+    });
+    return { root, agent, svc: agentInstructionsService() };
+  }
+
+  const sha256 = (text: string) => createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+
+  it("reads a file with the sha256 of its bytes and a content token as revision id", async () => {
+    const { svc, agent } = await externalBundle({ "AGENTS.md": "# Agent\n" });
+
+    const file = await svc.readFile(agent, "AGENTS.md");
+
+    expect(file.contentHash).toBe(sha256("# Agent\n"));
+    expect(file.revision).toEqual({ id: agentFileTokenFromHash(sha256("# Agent\n")), contentHash: sha256("# Agent\n") });
+    expect(file.revision?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it("hashes the bytes, not the character count, of non-ASCII content", async () => {
+    const { svc, agent } = await externalBundle({ "AGENTS.md": "café ✓\n" });
+
+    const file = await svc.readFile(agent, "AGENTS.md");
+
+    expect(file.contentHash).toBe(sha256("café ✓\n"));
+  });
+
+  it("saves the entry file when the base matches the current revision and returns the new revision", async () => {
+    const { svc, agent, root } = await externalBundle({ "AGENTS.md": "# v1\n" });
+    const base = (await svc.readFile(agent, "AGENTS.md")).revision!.id;
+
+    const result = await svc.writeFile(agent, "AGENTS.md", "# v2\n", { baseRevisionId: base });
+
+    await expect(fs.readFile(path.join(root, "AGENTS.md"), "utf8")).resolves.toBe("# v2\n");
+    expect(result.file.contentHash).toBe(sha256("# v2\n"));
+    expect(result.file.revision?.id).toBe(agentFileTokenFromHash(sha256("# v2\n")));
+  });
+
+  it("rejects a stale base with a revision conflict and leaves the file unchanged", async () => {
+    const { svc, agent, root } = await externalBundle({ "AGENTS.md": "# v1\n" });
+    const stale = (await svc.readFile(agent, "AGENTS.md")).revision!.id;
+    await fs.writeFile(path.join(root, "AGENTS.md"), "# changed elsewhere\n", "utf8");
+
+    await expect(svc.writeFile(agent, "AGENTS.md", "# mine\n", { baseRevisionId: stale })).rejects.toMatchObject({
+      status: 409,
+      details: {
+        code: "INSTRUCTION_REVISION_CONFLICT",
+        baseRevisionId: stale,
+        currentRevisionId: agentFileTokenFromHash(sha256("# changed elsewhere\n")),
+      },
+    });
+    await expect(fs.readFile(path.join(root, "AGENTS.md"), "utf8")).resolves.toBe("# changed elsewhere\n");
+  });
+
+  it("rejects an entry-file save that supplies no base", async () => {
+    const { svc, agent, root } = await externalBundle({ "AGENTS.md": "# v1\n" });
+
+    await expect(svc.writeFile(agent, "AGENTS.md", "# v2\n")).rejects.toMatchObject({
+      status: 422,
+      details: { code: "INSTRUCTION_BASE_REQUIRED" },
+    });
+    await expect(fs.readFile(path.join(root, "AGENTS.md"), "utf8")).resolves.toBe("# v1\n");
+  });
+
+  it("rejects a null base for an entry file that already exists", async () => {
+    const { svc, agent } = await externalBundle({ "AGENTS.md": "# v1\n" });
+
+    await expect(svc.writeFile(agent, "AGENTS.md", "# v2\n", { baseRevisionId: null })).rejects.toMatchObject({
+      status: 409,
+      details: { code: "INSTRUCTION_REVISION_CONFLICT", baseRevisionId: null },
+    });
+  });
+
+  it("accepts a null base to create a new file and rejects a non-null base for a file that does not exist", async () => {
+    const { svc, agent, root } = await externalBundle({ "AGENTS.md": "# v1\n" });
+
+    await svc.writeFile(agent, "docs/NEW.md", "new\n", { baseRevisionId: null });
+    await expect(fs.readFile(path.join(root, "docs", "NEW.md"), "utf8")).resolves.toBe("new\n");
+
+    await expect(
+      svc.writeFile(agent, "docs/OTHER.md", "x\n", { baseRevisionId: agentFileTokenFromHash(sha256("x\n")) }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "INSTRUCTION_REVISION_CONFLICT", currentRevisionId: null } });
+    await expect(fs.stat(path.join(root, "docs", "OTHER.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("checks a supplied base for a non-entry file and lets it be omitted", async () => {
+    const { svc, agent, root } = await externalBundle({ "AGENTS.md": "# v1\n", "docs/TOOLS.md": "t1\n" });
+
+    await svc.writeFile(agent, "docs/TOOLS.md", "t2\n");
+    await expect(fs.readFile(path.join(root, "docs", "TOOLS.md"), "utf8")).resolves.toBe("t2\n");
+
+    await expect(
+      svc.writeFile(agent, "docs/TOOLS.md", "t3\n", { baseRevisionId: agentFileTokenFromHash(sha256("t1\n")) }),
+    ).rejects.toMatchObject({ status: 409, details: { code: "INSTRUCTION_REVISION_CONFLICT" } });
+    await expect(fs.readFile(path.join(root, "docs", "TOOLS.md"), "utf8")).resolves.toBe("t2\n");
   });
 });

@@ -284,6 +284,7 @@ export type {
   AgentInstructionsBundleMode,
   AgentInstructionsFileSummary,
   AgentInstructionsFileDetail,
+  AgentInstructionsFileRevision,
   AgentInstructionsBundle,
   AgentKeyCreated,
   AgentConfigRevision,
