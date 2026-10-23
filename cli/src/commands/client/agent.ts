@@ -83,6 +83,9 @@ interface AgentInstructionsFilePutOptions extends BaseClientOptions {
   content?: string;
   contentFile?: string;
   clearLegacyPromptTemplate?: boolean;
+  baseRevisionId?: string;
+  baseHash?: string;
+  newFile?: boolean;
 }
 
 interface CreatedAgentKey {
@@ -694,6 +697,9 @@ export function registerAgentCommands(program: Command): void {
       .option("--content <text>", "File content")
       .option("--content-file <path>", "Read file content from disk")
       .option("--clear-legacy-prompt-template", "Clear legacy prompt template")
+      .option("--base-revision-id <id>", "revision.id from instructions-file:get; the entry file requires a base")
+      .option("--base-hash <sha256>", "contentHash from instructions-file:get, as an alternative to --base-revision-id")
+      .option("--new-file", "The file does not exist yet (sends a null base)")
       .action(async (agentId: string, opts: AgentInstructionsFilePutOptions) => {
         try {
           const ctx = resolveCommandContext(opts);
@@ -702,6 +708,8 @@ export function registerAgentCommands(program: Command): void {
             path: opts.path,
             content,
             clearLegacyPromptTemplate: Boolean(opts.clearLegacyPromptTemplate),
+            baseRevisionId: opts.newFile ? null : opts.baseRevisionId,
+            baseHash: opts.baseHash,
           });
           const result = await ctx.api.put(apiPath`/api/agents/${agentId}/instructions-bundle/file`, payload);
           printOutput(result, { json: ctx.json });

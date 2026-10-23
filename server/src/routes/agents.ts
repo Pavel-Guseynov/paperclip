@@ -1,4 +1,5 @@
 import { resolveAgentAppearance, agentAvatarUrl } from "@paperclipai/shared";
+import { agentFileTokenFromHash } from "../services/agent-instruction-file-revision.js";
 import { listOpenRouterModels } from "../services/openrouter-models.js";
 import { prepareManagedAiRuntime, assertManagedAiProjectAuth, stripAiAuthBindings } from "../services/ai-connection-runtime.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE, AI_CONNECTION_CAPABILITIES, aiConnectionBindingSchema, type AiConnectionBinding } from "@paperclipai/shared";
@@ -5115,6 +5116,9 @@ export function agentRoutes(
     const actor = getActorInfo(req);
     const result = await instructions.writeFile(existing, req.body.path, req.body.content, {
       clearLegacyPromptTemplate: req.body.clearLegacyPromptTemplate,
+      baseRevisionId: req.body.baseHash === undefined
+        ? req.body.baseRevisionId
+        : req.body.baseHash === null ? null : agentFileTokenFromHash(req.body.baseHash),
     });
     const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
       existing.companyId,
