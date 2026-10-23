@@ -41,8 +41,16 @@ export interface AgentInstructionsFileSummary {
   virtual: boolean;
 }
 
+/** One version of an instruction file: id is a content token and contentHash the sha256 hex of the file bytes. */
+export interface AgentInstructionsFileRevision {
+  id: string;
+  contentHash: string;
+}
+
 export interface AgentInstructionsFileDetail extends AgentInstructionsFileSummary {
   content: string;
+  contentHash: string;
+  revision: AgentInstructionsFileRevision;
 }
 
 export interface AgentInstructionsBundle {

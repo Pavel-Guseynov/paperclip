@@ -181,9 +181,12 @@ function makeDetail(
   content = "# Agent instructions",
   overrides: Partial<AgentInstructionsFileDetail> = {},
 ): AgentInstructionsFileDetail {
+  const contentHash = "c".repeat(64);
   return {
     ...summary,
     content,
+    contentHash,
+    revision: { id: "cccccccc-cccc-8ccc-accc-cccccccccccc", contentHash },
     ...overrides,
   };
 }

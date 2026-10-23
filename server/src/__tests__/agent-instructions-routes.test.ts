@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { agentFileTokenFromHash } from "../services/agent-instruction-file-revision.js";
 
 const mockAgentService = vi.hoisted(() => ({
   create: vi.fn(),
@@ -616,6 +617,69 @@ describe("agent instructions bundle routes", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  describe("instruction file base", () => {
+    const fileUrl = "/api/agents/11111111-1111-4111-8111-111111111111/instructions-bundle/file?companyId=company-1";
+    const hash = "a".repeat(64);
+
+    // The errors come from the module registry the app was just built with, so the error handler recognizes them.
+    async function putFile(body: Record<string, unknown>, rejectWith?: (errors: typeof import("../errors.js")) => Error) {
+      const app = await createApp();
+      if (rejectWith) mockAgentInstructionsService.writeFile.mockRejectedValueOnce(rejectWith(await import("../errors.js")));
+      return requestApp(app, (baseUrl) => request(baseUrl).put(fileUrl).send({
+        path: "AGENTS.md",
+        content: "# Updated Agent\n",
+        ...body,
+      }));
+    }
+
+    it("passes baseRevisionId, including null for a new file, to the service", async () => {
+      const token = "11111111-2222-8333-a444-555555555555";
+
+      expect((await putFile({ baseRevisionId: token })).status).toBe(200);
+      expect((await putFile({ baseRevisionId: null })).status).toBe(200);
+      expect((await putFile({})).status).toBe(200);
+
+      expect(mockAgentInstructionsService.writeFile.mock.calls.map((call) => call[3].baseRevisionId)).toEqual([token, null, undefined]);
+    });
+
+    it("maps baseHash to the content token the read returns as revision id", async () => {
+      expect((await putFile({ baseHash: hash })).status).toBe(200);
+      expect((await putFile({ baseHash: null })).status).toBe(200);
+
+      expect(mockAgentInstructionsService.writeFile.mock.calls.map((call) => call[3].baseRevisionId))
+        .toEqual([agentFileTokenFromHash(hash), null]);
+    });
+
+    it.each([
+      ["a hash that is not 64 lowercase hex digits", { baseHash: "A".repeat(64) }],
+      ["a hash that is too short", { baseHash: "abc" }],
+      ["a revision id that is not a uuid", { baseRevisionId: "not-a-uuid" }],
+    ])("rejects %s before the service is reached", async (_name, body) => {
+      const res = await putFile(body);
+
+      expect(res.status, JSON.stringify(res.body)).toBe(400);
+      expect(mockAgentInstructionsService.writeFile).not.toHaveBeenCalled();
+    });
+
+    it("answers a stale base with 409 and the revision conflict code", async () => {
+      const res = await putFile({ baseHash: hash }, ({ conflict }) =>
+        conflict("The file changed since it was read", { code: "INSTRUCTION_REVISION_CONFLICT" }));
+
+      expect(res.status).toBe(409);
+      expect(res.body.details).toMatchObject({ code: "INSTRUCTION_REVISION_CONFLICT" });
+      expect(mockAgentService.update).not.toHaveBeenCalled();
+    });
+
+    it("answers a missing entry-file base with 422 and the base-required code", async () => {
+      const res = await putFile({}, ({ unprocessable }) =>
+        unprocessable("Read the entry file and supply baseRevisionId", { code: "INSTRUCTION_BASE_REQUIRED" }));
+
+      expect(res.status).toBe(422);
+      expect(res.body.details).toMatchObject({ code: "INSTRUCTION_BASE_REQUIRED" });
+      expect(mockAgentService.update).not.toHaveBeenCalled();
+    });
   });
 
   it("preserves managed instructions config when switching adapters", async () => {

@@ -118,6 +118,25 @@ describe("agent lifecycle commands", () => {
       ["DELETE", `http://localhost:3100/api/agents/${AGENT_ID}/instructions-bundle/file?path=AGENTS.md`],
     ]);
   });
+
+  it.each([
+    ["a revision id", ["--base-revision-id", REVISION_ID], { baseRevisionId: REVISION_ID }],
+    ["a content hash", ["--base-hash", "b".repeat(64)], { baseHash: "b".repeat(64) }],
+    ["a new file", ["--new-file"], { baseRevisionId: null }],
+    ["no base", [], {}],
+  ])("sends %s as the base of an instructions file save", async (_name, flags, expected) => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await run(["agent", "instructions-file:put", AGENT_ID, "--path", "AGENTS.md", "--content", "hello", ...flags]);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({
+      path: "AGENTS.md",
+      content: "hello",
+      clearLegacyPromptTemplate: false,
+      ...expected,
+    });
+  });
 });
 
 function jsonResponse(body: unknown = { ok: true }, init: ResponseInit = { status: 200 }): Response {
