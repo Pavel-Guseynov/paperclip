@@ -1,10 +1,11 @@
 {
   description = "Paperclip fork: cached workspace dependencies and per-package checks";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/419fe0f449b3fbe3bdd53d9840288db4509ec32e";
+  inputs.nix.url = "git+https://git.guseynov.org/guseynov/nix.git?ref=main";
+  inputs.nixpkgs.follows = "nix/nixpkgs";
 
   outputs =
-    { self, nixpkgs }:
+    { self, nix, nixpkgs }:
     let
       lib = nixpkgs.lib;
       systems = [
@@ -340,6 +341,9 @@
             pkgs.git
           ]
           ++ lib.optional withDatabase pkgs.postgresql_18
+          ++ lib.optional (name == "test-paperclipai-server-local-task-handoff") (
+            nix.lib.tmpdirAuditCorrection { inherit pkgs; }
+          )
           ++ lib.optionals (kind == "test") (
             [
               pkgs.bashInteractive

@@ -572,6 +572,13 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
 
+The locked fleet Nix input supplies the single Nixpkgs authority. The local-task
+handoff derivation includes its `lib.tmpdirAuditCorrection` setup hook. This
+keeps the native temporary-directory audit enabled, waits for every audit child
+and fails the derivation on a child failure. The hook affects only that selected
+derivation; other dependency recipes remain unchanged. Its failure diagnostics
+and original child output remain in the native Nix build log.
+
 ## Roadmap
 
 - ✅ Plugin system (e.g. add a knowledge base, custom tracing, queues, etc)
