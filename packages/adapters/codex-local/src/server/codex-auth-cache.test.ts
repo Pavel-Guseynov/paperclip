@@ -51,6 +51,49 @@ describe("codex auth cache store", () => {
     };
   }
 
+  async function expectSerializedLock(
+    lock: typeof withCodexAccountHomePromotionLock,
+  ): Promise<void> {
+    const env = envFor(await makeInstanceRoot());
+    const events: string[] = [];
+    let entered!: () => void;
+    const firstEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const operations: Promise<string>[] = [];
+    try {
+      const firstCall = lock(env, "company-shared", async () => {
+        events.push("first-enter");
+        entered();
+        await firstGate;
+        events.push("first-exit");
+        return "first";
+      });
+      operations.push(firstCall);
+      // A failed acquire must reject the test instead of leaving entry pending.
+      await Promise.race([firstEntered, firstCall]);
+      operations.push(
+        lock(env, "company-shared", async () => {
+          events.push("second-enter");
+          events.push("second-exit");
+          return "second";
+        }),
+      );
+      expect(events).toEqual(["first-enter"]);
+    } finally {
+      // Settle every operation before afterEach can remove its instance root,
+      // including when an entry or exclusion assertion fails.
+      release();
+      await Promise.allSettled(operations);
+    }
+    expect(await Promise.all(operations)).toEqual(["first", "second"]);
+    expect(events).toEqual(["first-enter", "first-exit", "second-enter", "second-exit"]);
+  }
+
   function subscriptionAuth(input: { accountId: string; lastRefresh?: string; marker?: string }): string {
     const suffix = input.marker ?? input.accountId;
     return JSON.stringify({
@@ -381,39 +424,7 @@ describe("codex auth cache store", () => {
       // binding its own secret to that same directory. This proves the lock
       // itself enforces that: two concurrent callers for one company never run
       // their callbacks at the same time, whichever caller goes first.
-      const home = await makeInstanceRoot();
-      const env = envFor(home);
-      const events: string[] = [];
-      let releaseFirstCaller!: () => void;
-      const firstCallerGate = new Promise<void>((resolve) => {
-        releaseFirstCaller = resolve;
-      });
-
-      const firstCall = withCodexAccountHomePromotionLock(env, "company-shared", async () => {
-        events.push("first-enter");
-        await firstCallerGate;
-        events.push("first-exit");
-        return "first";
-      });
-      // Give the first caller a chance to acquire the lock and enter its
-      // callback before the second caller starts racing for the same lock.
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      const secondCall = withCodexAccountHomePromotionLock(env, "company-shared", async () => {
-        events.push("second-enter");
-        events.push("second-exit");
-        return "second";
-      });
-      // The second caller must stay blocked on the lock while the first
-      // caller still holds it: it must never log `second-enter` before the
-      // first caller's `first-exit`.
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(events).toEqual(["first-enter"]);
-
-      releaseFirstCaller();
-      const [first, second] = await Promise.all([firstCall, secondCall]);
-      expect(first).toBe("first");
-      expect(second).toBe("second");
-      expect(events).toEqual(["first-enter", "first-exit", "second-enter", "second-exit"]);
+      await expectSerializedLock(withCodexAccountHomePromotionLock);
     });
 
     it("withCodexAccountHomePromotionLock keeps two different companies independent", async () => {
@@ -455,37 +466,7 @@ describe("codex auth cache store", () => {
       // scan holds it for the whole of its final check-and-delete step. This
       // proves the lock itself enforces mutual exclusion between any two
       // holders for one company, whichever caller goes first.
-      const home = await makeInstanceRoot();
-      const env = envFor(home);
-      const events: string[] = [];
-      let releaseFirstCaller!: () => void;
-      const firstCallerGate = new Promise<void>((resolve) => {
-        releaseFirstCaller = resolve;
-      });
-
-      const firstCall = withAccountHomeSecretMutationLock(env, "company-shared", async () => {
-        events.push("first-enter");
-        await firstCallerGate;
-        events.push("first-exit");
-        return "first";
-      });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      const secondCall = withAccountHomeSecretMutationLock(env, "company-shared", async () => {
-        events.push("second-enter");
-        events.push("second-exit");
-        return "second";
-      });
-      // The second caller must stay blocked on the lock while the first
-      // caller still holds it: it must never log `second-enter` before the
-      // first caller's `first-exit`.
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(events).toEqual(["first-enter"]);
-
-      releaseFirstCaller();
-      const [first, second] = await Promise.all([firstCall, secondCall]);
-      expect(first).toBe("first");
-      expect(second).toBe("second");
-      expect(events).toEqual(["first-enter", "first-exit", "second-enter", "second-exit"]);
+      await expectSerializedLock(withAccountHomeSecretMutationLock);
     });
 
     it("withAccountHomeSecretMutationLock keeps two different companies independent", async () => {

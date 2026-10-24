@@ -597,8 +597,62 @@
             ++ lib.optionals hasTests (testBucketChecks pkgs dir)
           ) workspaceDirs
         );
+      gatewayCoverage = pkgs:
+        (mkCheck pkgs "test" "server" ''
+          cd "$ROOT"
+          git init -q
+          cat > vitest.config.ts <<'CONFIG'
+          import { defineConfig } from "vitest/config";
+          export default defineConfig({
+            test: {
+              projects: [
+                { extends: "./server/vitest.config.ts", test: { name: "server", root: "./server" } },
+                { extends: "./packages/adapters/codex-local/vitest.config.ts", test: { name: "codex-local", root: "./packages/adapters/codex-local" } }
+              ],
+              maxWorkers: 1, minWorkers: 1,
+              coverage: {
+                provider: "v8",
+                include: [
+                  "server/src/services/heartbeat.ts",
+                  "server/src/services/tool-gateway.ts",
+                  "server/src/services/tool-access-policy.ts",
+                  "packages/adapters/codex-local/src/server/execute.ts",
+                  "packages/adapters/codex-local/src/server/codex-home.ts",
+                  "packages/adapters/codex-local/src/server/codex-args.ts",
+                  "packages/adapters/codex-local/src/server/acp.ts"
+                ],
+                reporter: ["text", "json", "json-summary"],
+                reportsDirectory: "coverage"
+              }
+            }
+          });
+          CONFIG
+          ${pnpmExec "vitest run --coverage --reporter=verbose --testTimeout=60000 --hookTimeout=60000 server/src/__tests__/tool-gateway.test.ts server/src/__tests__/tool-access-policy-service.test.ts server/src/__tests__/codex-local-execute.test.ts packages/adapters/codex-local/src/server/codex-home.test.ts packages/adapters/codex-local/src/server/execute.remote.test.ts packages/adapters/codex-local/src/server/acp.test.ts packages/adapters/codex-local/src/server/codex-args.test.ts"}
+          node --input-type=module <<'REPORT'
+          import fs from "node:fs";
+          import path from "node:path";
+          const coverage = JSON.parse(fs.readFileSync("coverage/coverage-final.json", "utf8"));
+          const statements = Object.fromEntries(Object.entries(coverage).map(([file, data]) => [
+            path.relative(process.cwd(), file), {
+              total: Object.keys(data.s).length,
+              covered: Object.values(data.s).filter(hits => hits > 0).length,
+              uncovered: Object.entries(data.statementMap)
+                .filter(([id]) => data.s[id] === 0)
+                .map(([, location]) => [location.start.line, location.end.line])
+            }
+          ]));
+          fs.writeFileSync("coverage/statement-lines.json", JSON.stringify(statements) + "\n");
+          REPORT
+        '').overrideAttrs (_: {
+          name = "coverage-run-gateway-auth";
+          installPhase = ''mkdir -p "$out"; cp -R coverage/. "$out/"'';
+        });
     in
     {
+      legacyPackages = forAllSystems (pkgs: {
+        coverage.run-gateway-auth = gatewayCoverage pkgs;
+      });
+
       checks = forAllSystems (
         pkgs:
         checksFor pkgs
@@ -652,7 +706,7 @@
           src = installSource;
           fetcherVersion = 4;
           pnpm = pkgs.pnpm_11;
-          hash = "sha256-hqI26FrN1mXOArrZemdfPs9jZolRkS2a44D0KRYfFcE=";
+          hash = "sha256-BuMJR9pEgn8GdEIUz4KhEacfmC3JjA8nkbZD363AZwk=";
         };
 
         nodeModules = pkgs.stdenv.mkDerivation (finalAttrs: {

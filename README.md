@@ -569,6 +569,16 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
 
+The separately requested `coverage.run-gateway-auth` output measures native
+Vitest V8 statements for heartbeat, gateway, policy and Codex credential source
+files, using the route, policy, execution and profile suites. It preserves
+`coverage-final.json`, `coverage-summary.json` and repository-relative
+`statement-lines.json` (statement totals and uncovered start/end lines) in its output and
+prints a text report in the retained Nix log. A successful measurement does not
+assert 100 percent coverage: uncovered statements must be reviewed against the
+source diff. Test or report generation failure fails the operation. The provider
+is a locked development dependency and adds nothing to the production runtime.
+
 ## Roadmap
 
 - ✅ Plugin system (e.g. add a knowledge base, custom tracing, queues, etc)
