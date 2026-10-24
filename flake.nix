@@ -645,7 +645,7 @@
           REPORT
         '').overrideAttrs (_: {
           name = "coverage-run-gateway-auth";
-          installPhase = ''mkdir -p "$out"; cp -R coverage/. "$out/"'';
+          installPhase = ''mkdir -p "$out"; cp -R "$ROOT/coverage/." "$out/"'';
         });
     in
     {
