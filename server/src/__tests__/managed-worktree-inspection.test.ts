@@ -77,8 +77,9 @@ describe("managed worktree registration inspection with real Git", () => {
       process.stderr.write(`${JSON.stringify({ jsonrpc: "2.0", method: "test.phase", params: record })}\n`);
       return JSON.stringify(record);
     };
-    onTestFailed(({ errors }) => {
+    onTestFailed(({ task }) => {
       failed = true;
+      const errors = task.result?.errors ?? [];
       const context = report("failed", errors.map(error => error.message));
       for (const error of errors) error.message = `${error.message}\n${context}`;
     });
