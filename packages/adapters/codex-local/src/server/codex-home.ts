@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
 import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 import { isCodexAuthCachePath, readSubscriptionAccountId } from "./codex-auth-cache.js";
@@ -289,6 +290,7 @@ function buildManagedMcpBlock(input: {
   gateways: ManagedCodexMcpGateway[];
   apiBaseUrl: string;
   existingNames: Set<string>;
+  runId?: string;
 }): { block: string; warnings: string[] } {
   const warnings: string[] = [];
   const usedNames = new Set<string>();
@@ -316,7 +318,7 @@ function buildManagedMcpBlock(input: {
       "",
       `[mcp_servers.${tomlString(managedName)}]`,
       `url = ${tomlString(url)}`,
-      `http_headers = { Authorization = ${tomlString(`Bearer ${gateway.bearerToken}`)} }`,
+      `http_headers = { Authorization = ${tomlString(`Bearer ${gateway.bearerToken}`)}${input.runId ? `, "X-Paperclip-Run-Id" = ${tomlString(input.runId)}` : ""} }`,
       // The gateway owns live per-tool approval decisions, including human cards.
       'default_tools_approval_mode = "approve"',
     );
@@ -329,8 +331,11 @@ export async function writeManagedCodexMcpConfig(input: {
   codexHome: string;
   apiBaseUrl: string;
   gateways: ManagedCodexMcpGateway[];
+  configName?: string;
+  existingNames?: Set<string>;
+  runId?: string;
 }): Promise<{ configPath: string; warnings: string[] }> {
-  const configPath = path.join(input.codexHome, "config.toml");
+  const configPath = path.join(input.codexHome, input.configName ?? "config.toml");
   await fs.mkdir(input.codexHome, { recursive: true });
   const existing = await fs.readFile(configPath, "utf8").catch((error) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
@@ -340,7 +345,8 @@ export async function writeManagedCodexMcpConfig(input: {
   const { block, warnings } = buildManagedMcpBlock({
     gateways: input.gateways,
     apiBaseUrl: input.apiBaseUrl,
-    existingNames: readCodexMcpServerNames(unmanagedConfig),
+    existingNames: new Set([...readCodexMcpServerNames(unmanagedConfig), ...(input.existingNames ?? [])]),
+    runId: input.runId,
   });
   const next = input.gateways.length > 0
     ? `${unmanagedConfig}${unmanagedConfig ? "\n\n" : ""}${block}\n`
@@ -348,6 +354,52 @@ export async function writeManagedCodexMcpConfig(input: {
   await fs.writeFile(configPath, next, { mode: 0o600 });
   await fs.chmod(configPath, 0o600);
   return { configPath, warnings };
+}
+
+/** A native Codex profile keeps run bearers out of the shared config layer. */
+export async function prepareManagedCodexMcpProfile(input: {
+  codexHome: string;
+  apiBaseUrl: string;
+  gateways: ManagedCodexMcpGateway[];
+  extraArgs: string[];
+  runId: string;
+}): Promise<{ profileName: string; args: string[]; configPath: string; warnings: string[]; cleanup: () => Promise<void> }> {
+  const args: string[] = [];
+  let selectedProfile: string | null = null;
+  for (let index = 0; index < input.extraArgs.length; index += 1) {
+    const arg = input.extraArgs[index]!;
+    const inline = /^(?:--profile=|-p=?)(.+)$/.exec(arg);
+    if (arg === "--profile" || arg === "-p" || inline) {
+      if (selectedProfile !== null) throw new Error("Codex profile may only be selected once");
+      const name = inline?.[1] ?? input.extraArgs[++index];
+      if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) throw new Error("Invalid Codex profile name");
+      selectedProfile = name;
+    } else {
+      args.push(arg);
+    }
+  }
+  // Remove credentials left by earlier adapter versions before selecting a
+  // profile. A run without assigned gateways must not inherit an old bearer.
+  const base = await writeManagedCodexMcpConfig({ ...input, gateways: [] });
+  const baseText = await fs.readFile(base.configPath, "utf8");
+  const profileText = selectedProfile
+    ? await fs.readFile(path.join(input.codexHome, `${selectedProfile}.config.toml`), "utf8")
+    : "";
+  const profileName = `paperclip-run-${randomUUID()}`;
+  const configName = `${profileName}.config.toml`;
+  const configPath = path.join(input.codexHome, configName);
+  const cleanup = () => fs.rm(configPath, { force: true });
+  try {
+    await fs.writeFile(configPath, profileText, { mode: 0o600, flag: "wx" });
+    const result = await writeManagedCodexMcpConfig({
+      ...input, configName,
+      existingNames: readCodexMcpServerNames(baseText),
+    });
+    return { ...result, profileName, args: [...args, "--profile", profileName], cleanup };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
 }
 
 /**
@@ -366,6 +418,7 @@ export async function writeApiKeyAuthJson(home: string, apiKey: string): Promise
 export interface StageCodexHomeForSyncOptions {
   /** Run id, used only to make the staged temp-dir name traceable in logs. */
   runId?: string;
+  profileName?: string;
 }
 
 /**
@@ -583,6 +636,9 @@ export async function stageCodexHomeForSync(
   try {
     for (const entry of CODEX_SYNC_ALLOWLIST) {
       await stageCodexHomeEntry(effectiveCodexHome, stagedHome, entry);
+    }
+    if (options.profileName) {
+      await stageCodexHomeEntry(effectiveCodexHome, stagedHome, `${options.profileName}.config.toml`);
     }
     return stagedHome;
   } catch (error) {

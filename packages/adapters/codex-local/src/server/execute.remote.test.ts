@@ -316,8 +316,11 @@ describe("codex remote execution", () => {
       authJson: string;
     };
     // Allowlist present; decoys gone.
+    const commandArgs = runChildProcess.mock.calls[0]![2] as string[];
+    const selectedProfile = commandArgs[commandArgs.indexOf("--profile") + 1]!;
+    expect(selectedProfile).toMatch(/^paperclip-run-[0-9a-f-]{36}$/);
     expect(snap.entries).toEqual(
-      ["auth.json", "config.json", "config.toml", "instructions.md", "skills"]
+      ["auth.json", "config.json", "config.toml", "instructions.md", "skills", `${selectedProfile}.config.toml`]
         .filter((e) => e !== "config.json") // no config.json was seeded
         .sort(),
     );
@@ -395,6 +398,8 @@ describe("codex remote execution", () => {
       "exec",
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
+      "--profile",
+      expect.stringMatching(/^paperclip-run-[0-9a-f-]{36}$/),
       "-",
     ]);
   });
@@ -468,6 +473,8 @@ describe("codex remote execution", () => {
       "exec",
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
+      "--profile",
+      expect.stringMatching(/^paperclip-run-[0-9a-f-]{36}$/),
       "resume",
       "session-123",
       "-",
@@ -549,6 +556,8 @@ describe("codex remote execution", () => {
       "exec",
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
+      "--profile",
+      expect.stringMatching(/^paperclip-run-[0-9a-f-]{36}$/),
       "resume",
       "session-123",
       "-",

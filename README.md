@@ -422,6 +422,26 @@ option. See [execution semantics](doc/execution-semantics.md).
 
 ### Managed MCP authentication
 
+Codex CLI runs require native profile-file support (Codex 0.134.0 or later).
+Each run selects a fresh `paperclip-run-<uuid>.config.toml` profile in its
+effective `CODEX_HOME`. The profile contains only that run's managed MCP
+bearers and preserves an explicitly selected operator profile. Base config,
+authentication and session storage retain their existing home. Profiles are
+written with mode 0600, staged individually for remote runs, and removed on
+normal or failed exit. A later run never selects a prior run's profile, including
+after server interruption. Obsolete shared managed MCP blocks are removed
+before profile preparation. Missing or malformed operator profiles and profile
+write failures reject launch. No credential is added to command arguments.
+
+Authentication refusals retain `tokenSubjectType`, `tokenSubjectId`,
+`subjectRunId`, `subjectRunStatus`, `presentingRunId` and
+`presentingRunIdSource` in `named_gateway_auth_failed`. Unknown values are null.
+The presenting run comes from a UUID-validated `X-Paperclip-Run-Id` header;
+`client_header` marks it as client-reported diagnostic evidence, never
+authorization. Codex CLI profiles send this header. Token material and token
+hashes are excluded from these fields. The normal run-finalization revocation
+and active-run checks remain authoritative.
+
 Managed MCP clients send their gateway bearer to
 `POST /api/tool-gateway/gateways/:gatewayId/mcp`. Paperclip validates it against
 that gateway and its current token and run state; it does not grant the bearer
@@ -439,8 +459,9 @@ Paperclip-managed Codex MCP entries set native
 `default_tools_approval_mode = "approve"` so calls reach the gateway under
 noninteractive execution. The gateway applies current tool policies, denies
 unauthorized calls and creates a human approval card when review is required.
-The shared configuration renderer applies this setting for CLI and ACPX runs
-and removes it with the managed block. Unmanaged MCP entries retain their own
+CLI profiles apply this setting. ACP supplies managed servers through its
+native per-session MCP options rather than writing run bearers to shared
+configuration. Unmanaged MCP entries retain their own
 approval settings. See [execution semantics](doc/execution-semantics.md).
 
 ### Remote MCP response size

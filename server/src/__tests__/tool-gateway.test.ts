@@ -65,6 +65,7 @@ import {
 } from "../services/tool-content-guards.js";
 import { createToolGatewayService, ToolGatewayHttpError, formatClientSafeGatewayToolBaseName } from "../services/tool-gateway.js";
 import { secretService } from "../services/secrets.js";
+import { logger } from "../middleware/logger.js";
 import { createKvDemoHttpServer, type KvDemoHttpServer } from "../../../packages/kv-demo-mcp-server/src/http.js";
 import {
   getEmbeddedPostgresTestSupport,
@@ -696,7 +697,9 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     await fs.writeFile(command, `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.readFileSync(0, "utf8");
-fs.writeFileSync(process.env.CAPTURE, fs.readFileSync(process.env.CODEX_HOME + "/config.toml"));
+const profileIndex = process.argv.indexOf("--profile");
+const configName = profileIndex < 0 ? "config.toml" : process.argv[profileIndex + 1] + ".config.toml";
+fs.writeFileSync(process.env.CAPTURE, fs.readFileSync(process.env.CODEX_HOME + "/" + configName));
 console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_tokens:1}}));
 `, { mode: 0o700 });
     let release!: () => void;
@@ -740,6 +743,29 @@ console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_t
       await live.catch(() => undefined);
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+
+  it.each(["known", "absent", "malformed"])("records revoked-token subject and %s presenting-run evidence", async (kind) => {
+    const fixture = await createRunGatewayProtocolFixture(db, "authenticated");
+    await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, fixture.run.id));
+    await revokeHeartbeatRunGatewayTokens({ db, companyId: fixture.company.id, runId: fixture.run.id });
+    const warn = vi.spyOn(logger, "warn");
+    try {
+      const presentingRunId = randomUUID();
+      const call = request(fixture.app).post(fixture.endpoints.managed)
+        .set("authorization", `Bearer ${fixture.token.token}`);
+      if (kind !== "absent") call.set("x-paperclip-run-id", kind === "known" ? presentingRunId : "invalid");
+      await call.send({ jsonrpc: "2.0", id: 1, method: "initialize" }).expect(401);
+      const records = warn.mock.calls.map(([record]) => record);
+      expect(records).toContainEqual(expect.objectContaining({
+        event: "named_gateway_auth_failed", reasonCode: "gateway_token_revoked",
+        tokenSubjectType: "heartbeat_run", tokenSubjectId: fixture.run.id,
+        subjectRunId: fixture.run.id, subjectRunStatus: "succeeded",
+        presentingRunId: kind === "known" ? presentingRunId : null,
+        presentingRunIdSource: kind === "known" ? "client_header" : "unavailable",
+      }));
+      expect(JSON.stringify(records)).not.toContain(fixture.token.token);
+    } finally { warn.mockRestore(); }
   });
 
   it("exposes a named gateway with scoped bearer-token auth and revocation", async () => {
