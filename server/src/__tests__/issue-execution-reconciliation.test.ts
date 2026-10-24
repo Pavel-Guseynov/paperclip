@@ -11,8 +11,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog, agents, agentRuntimeState, agentWakeupRequests, authUsers, companies, companySkills,
-  createDb, documentRevisions, documents, heartbeatRunEvents, heartbeatRuns,
-  issueComments, issueDocuments, issueRecoveryActions, issueRelations, issues,
+  createDb, documentRevisions, documents, executionWorkspaces, heartbeatRunEvents, heartbeatRuns, projects,
+  issueComments, issueDocuments, issueRecoveryActions, issueRelations, issues, issueWorkProducts,
 } from "@paperclipai/db";
 import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
@@ -22,7 +22,7 @@ import { agentRoutes } from "../routes/agents.js";
 import { createPostgresRunDispatchAdapter } from "../modules/run-dispatch/adapters/postgres.js";
 import { heartbeatService } from "../services/heartbeat.js";
 import { trackWakeupDecision } from "../services/heartbeat-wake-lifecycle.js";
-import { settleUnrecoverableExecutions } from "../services/execution-recovery-resolution.js";
+import { deliverReconciledExecutions, settleUnrecoverableExecutions } from "../services/execution-recovery-resolution.js";
 import { terminalizeLegacyExecution } from "../services/legacy-execution-recovery.js";
 import { preserveIssueWakeEvidence } from "./helpers/issue-wake-evidence.js";
 
@@ -48,6 +48,7 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
         await closed;
       }
       await db.delete(activityLog);
+      await db.delete(issueWorkProducts);
       await db.delete(issueRecoveryActions);
       await db.delete(issueComments);
       await db.delete(issueDocuments);
@@ -56,6 +57,8 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
       await db.delete(heartbeatRunEvents);
       await db.delete(issueRelations);
       await db.delete(issues);
+      await db.delete(executionWorkspaces);
+      await db.delete(projects);
       await db.delete(heartbeatRuns);
       await db.delete(agentWakeupRequests);
       await db.delete(agentRuntimeState);
@@ -71,14 +74,15 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
   });
 
   async function startProvider() {
-    const child = spawn("cat", [], { stdio: "pipe" });
+    const child = spawn("cat", [], { stdio: "pipe", detached: true });
     const closed = once(child, "close");
     children.push({ child, closed });
     await once(child, "spawn");
     return { child, closed, startedAt: new Date() };
   }
 
-  async function fixture() {
+  async function fixture(asAgent = false) {
+    const actorRunId = randomUUID();
     const userId = randomUUID();
     await db.insert(authUsers).values({ id: userId, name: "Test operator",
       email: `${userId}@example.test`, emailVerified: true, createdAt: new Date(), updatedAt: new Date() });
@@ -94,13 +98,15 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
-      req.actor = { type: "board", userId, source: "local_implicit", isInstanceAdmin: true };
+      req.actor = asAgent
+        ? { type: "agent", companyId: company!.id, agentId: agent!.id, runId: actorRunId, source: "agent_jwt" }
+        : { type: "board", userId, source: "local_implicit", isInstanceAdmin: true };
       next();
     });
     app.use("/api", issueRoutes(db, {} as Parameters<typeof issueRoutes>[1]));
     app.use("/api", agentRoutes(db));
     app.use(errorHandler);
-    return { company: company!, agent: agent!, issue: issue!, app };
+    return { company: company!, agent: agent!, issue: issue!, app, actorRunId };
   }
 
   async function occupyDispatchSlot(f: Awaited<ReturnType<typeof fixture>>) {
@@ -240,12 +246,12 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     expect(successors).toHaveLength(contradictory ? 0 : 1);
   });
 
-  async function settledProcessHold(stopped = true) {
-    const f = await fixture();
+  async function settledProcessHold(stopped = true, asAgent = false) {
+    const f = await fixture(asAgent);
     const provider = await startProvider();
     const [run] = await db.insert(heartbeatRuns).values({ companyId: f.company.id,
       agentId: f.agent.id, invocationSource: "on_demand", status: "running",
-      startedAt: provider.startedAt, processPid: provider.child.pid,
+      startedAt: provider.startedAt, processPid: provider.child.pid, processGroupId: provider.child.pid,
       contextSnapshot: { issueId: f.issue.id } }).returning();
     if (stopped) {
       provider.child.stdin.end();
@@ -262,6 +268,65 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
       executionReconciliation: { runId, providerStopped: true, actionOutcome: "not_performed",
         outcomeEvidence: "The test-owned cat process exited after stdin closed and performed no external actions." } };
   }
+
+  it.each(["legacy_execution_requires_reconciliation", "uncertain_external_action", "native_continuation_requires_reconciliation"])("continues an active %s guard with unknown outcomes", async cause => {
+    const f = await settledProcessHold();
+    await occupyDispatchSlot(f);
+    await db.update(issueRecoveryActions).set({ status: "active", outcome: null, resolvedAt: null, cause })
+      .where(eq(issueRecoveryActions.sourceIssueId, f.issue.id));
+    const body = resolutionBody(f.run.id);
+    body.executionReconciliation.actionOutcome = "unknown";
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(body).expect(200);
+    await heartbeat.drainActiveRunExecutions();
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toBeNull();
+  });
+
+  it.each(["queued", "claimed", "running"])("rejects continuation of a %s source run without changing its guard", async status => {
+    const f = await settledProcessHold();
+    await db.update(heartbeatRuns).set({ status }).where(eq(heartbeatRuns.id, f.run.id));
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(resolutionBody(f.run.id)).expect(409);
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toMatchObject({ runId: f.run.id });
+  });
+
+  it("rejects an unconfirmed provider stop without changing its guard", async () => {
+    const f = await settledProcessHold();
+    const body = resolutionBody(f.run.id);
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send({
+      ...body, executionReconciliation: { ...body.executionReconciliation, providerStopped: false },
+    }).expect(409);
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toMatchObject({ runId: f.run.id });
+  });
+
+  it("allows the authenticated task owner to reconcile unknown outcomes", async () => {
+    const f = await settledProcessHold(true, true);
+    await db.insert(heartbeatRuns).values({ id: f.actorRunId, companyId: f.company.id,
+      agentId: f.agent.id, status: "running", invocationSource: "on_demand",
+      startedAt: new Date(), contextSnapshot: { issueId: f.issue.id } });
+    const body = resolutionBody(f.run.id);
+    body.executionReconciliation.actionOutcome = "unknown";
+    const response = await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(body).expect(200);
+    expect(response.body.recoveryAction.evidence.executionReconciliation).toMatchObject({
+      actorId: f.agent.id, recordedByUserId: null, actionOutcome: "unknown" });
+    await heartbeat.drainActiveRunExecutions();
+  });
+
+  it("rejects a live process group even when the process PID is missing", async () => {
+    const f = await settledProcessHold(false);
+    await db.update(heartbeatRuns).set({ processPid: null }).where(eq(heartbeatRuns.id, f.run.id));
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(resolutionBody(f.run.id)).expect(409);
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toMatchObject({ runId: f.run.id });
+  });
+
+  it("accepts a retained stop receipt after the local process identity was cleared", async () => {
+    const f = await settledProcessHold();
+    await occupyDispatchSlot(f);
+    await db.insert(heartbeatRunEvents).values({ companyId: f.company.id, runId: f.run.id,
+      agentId: f.agent.id, seq: 100, eventType: "native.local_process_stopped", level: "info",
+      stream: "system", message: "The test-owned provider exited." });
+    await db.update(heartbeatRuns).set({ processPid: null, processGroupId: null }).where(eq(heartbeatRuns.id, f.run.id));
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(resolutionBody(f.run.id)).expect(200);
+    await heartbeat.drainActiveRunExecutions();
+  });
 
   it("a run cancelled after process start retains a settled hold accepted by the canonical resolve route", async () => {
     const f = await settledProcessHold();
@@ -282,6 +347,88 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     expect(resolution.body.issue).toMatchObject({ status: "todo" });
     expect(resolution.body.recoveryAction).toMatchObject({ id: settled.id, status: "resolved", outcome: "handed_back" });
     expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toBeNull();
+  });
+
+  it.each(["completed", "not_performed", "mixed", "unknown"])("retains audit history and task state while continuing a settled %s outcome", async actionOutcome => {
+    const f = await settledProcessHold();
+    await occupyDispatchSlot(f);
+    const [project] = await db.insert(projects).values({ companyId: f.company.id, name: "Task project" }).returning();
+    const [workspace] = await db.insert(executionWorkspaces).values({ companyId: f.company.id,
+      projectId: project!.id, mode: "isolated_workspace", strategyType: "git_worktree",
+      name: "Task workspace", branchName: "tasks/fixture", cwd: process.cwd() }).returning();
+    const state = { status: "changes_requested", currentStageId: randomUUID(),
+      returnAssignee: { type: "agent", agentId: f.agent.id }, changesRequestedCount: 2 };
+    await db.update(issues).set({ status: "blocked", executionState: state, projectId: project!.id,
+      executionWorkspaceId: workspace!.id }).where(eq(issues.id, f.issue.id));
+    const [product] = await db.insert(issueWorkProducts).values({ companyId: f.company.id,
+      issueId: f.issue.id, type: "branch", provider: "gitea", title: "Task branch", status: "active",
+      externalId: "tasks/fixture", metadata: { workspace: "/test-owned/workspace" } }).returning();
+    const [before] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issue.id));
+    const body = resolutionBody(f.run.id);
+    body.executionReconciliation.actionOutcome = actionOutcome;
+    const response = await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(body).expect(200);
+    await heartbeat.drainActiveRunExecutions();
+    expect(response.body.issue).toMatchObject({ status: "todo", assigneeAgentId: f.agent.id,
+      executionState: state, executionWorkspaceId: workspace!.id });
+    const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.id, before!.id));
+    expect(action!.evidence.automaticRecovery).toEqual(before!.evidence.automaticRecovery);
+    expect(action!.evidence.executionReconciliation).toMatchObject({ ...body.executionReconciliation,
+      recordedByUserId: f.company.defaultResponsibleUserId, recordedAt: expect.any(String) });
+    expect(action!.evidence).toMatchObject({ continuationDelivery: "delivered", continuationRunId: expect.any(String) });
+    const [successor] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, String(action!.evidence.continuationRunId)));
+    expect(successor).toMatchObject({ retryOfRunId: f.run.id,
+      contextSnapshot: { forceFreshSession: true, previousRunId: f.run.id } });
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toBeNull();
+    expect(await db.select().from(issueWorkProducts).where(eq(issueWorkProducts.id, product!.id))).toEqual([product]);
+    expect(await db.select().from(executionWorkspaces).where(eq(executionWorkspaces.id, workspace!.id))).toEqual([workspace]);
+  });
+
+  it.each([true, false])("replays a reconciled receipt with actionId=%s and repairs pending delivery once", async withActionId => {
+    const f = await settledProcessHold();
+    await occupyDispatchSlot(f);
+    const body = resolutionBody(f.run.id);
+    const first = await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(body).expect(200);
+    await deliverReconciledExecutions(db, heartbeat.wakeup);
+    await heartbeat.drainActiveRunExecutions();
+    const actionId = first.body.recoveryAction.id;
+    const [action] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.id, actionId));
+    const successorId = action!.evidence.continuationRunId;
+    expect(successorId).toEqual(expect.any(String));
+    await db.update(issueRecoveryActions).set({ evidence: { ...action!.evidence,
+      continuationDelivery: "pending", continuationRunId: undefined } }).where(eq(issueRecoveryActions.id, actionId));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const replay = await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`)
+        .send({ ...body, ...(withActionId ? { actionId } : {}) }).expect(200);
+      expect(replay.body).toMatchObject({ replayed: true,
+        recoveryAction: { id: actionId, cause: "legacy_execution_requires_reconciliation" } });
+      expect(replay.body.recoveryAction.companyId).toBe(f.company.id);
+    }
+    const [delivered] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.id, actionId));
+    expect(delivered!.evidence).toMatchObject({ continuationDelivery: "delivered", continuationRunId: successorId });
+    const successors = await db.select().from(heartbeatRuns).where(sql`${heartbeatRuns.contextSnapshot}->>'recoveryActionId' = ${actionId}`);
+    expect(successors).toHaveLength(1);
+  });
+
+  it.each([true, false])("rejects conflicting run or outcome on a settled receipt with actionId=%s", async withActionId => {
+    const f = await settledProcessHold();
+    await occupyDispatchSlot(f);
+    const body = resolutionBody(f.run.id);
+    const first = await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(body).expect(200);
+    await deliverReconciledExecutions(db, heartbeat.wakeup);
+    await heartbeat.drainActiveRunExecutions();
+    for (const delta of [{ runId: randomUUID() }, { actionOutcome: "completed" }]) {
+      await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send({
+        ...body, ...(withActionId ? { actionId: first.body.recoveryAction.id } : {}),
+        executionReconciliation: { ...body.executionReconciliation, ...delta },
+      }).expect(409);
+    }
+  });
+
+  it("rejects a local run whose process identity and stop evidence are missing", async () => {
+    const f = await settledProcessHold();
+    await db.update(heartbeatRuns).set({ processPid: null, processGroupId: null }).where(eq(heartbeatRuns.id, f.run.id));
+    await request(f.app).post(`/api/issues/${f.issue.id}/recovery-actions/resolve`).send(resolutionBody(f.run.id)).expect(409);
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker).toMatchObject({ runId: f.run.id });
   });
 
   it.each(["live_provider", "wrong_source", "missing_evidence"])("preserves a settled hold on %s", async kind => {
@@ -320,11 +467,11 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     const otherRun = rows.filter(row => row.evidence.runId === otherRunId);
     expect(sameRun).toHaveLength(3);
     for (const row of sameRun) {
-      expect((row.evidence.automaticRecovery as { replay?: string } | undefined)?.replay).not.toBe("blocked");
+      expect((row.evidence.automaticRecovery as { replay?: string } | undefined)?.replay).toBe("blocked");
       expect(row.evidence.executionReconciliation).toMatchObject({ runId: f.run.id });
     }
     // Only the resolved hold delivers the continuation; its duplicates must not wake the agent again.
-    expect(sameRun.filter(row => row.evidence.continuationDelivery === "pending")).toHaveLength(1);
+    expect(sameRun.filter(row => ["pending", "delivered"].includes(String(row.evidence.continuationDelivery)))).toHaveLength(1);
     expect(otherRun).toHaveLength(1);
     expect((otherRun[0]!.evidence.automaticRecovery as { replay?: string }).replay).toBe("blocked");
     const after = (await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker;

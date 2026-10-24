@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EXECUTION_RECONCILIATION_ACTION_OUTCOMES } from "../types/execution-projection.js";
 import {
   ISSUE_EXECUTION_DECISION_OUTCOMES,
   ISSUE_EXECUTION_MONITOR_CLEAR_REASONS,
@@ -561,7 +562,7 @@ export const resolveIssueRecoveryActionSchema = z
       .object({
         runId: z.string().guid(),
         providerStopped: z.literal(true),
-        actionOutcome: z.enum(["completed", "not_performed", "mixed"]),
+        actionOutcome: z.enum(EXECUTION_RECONCILIATION_ACTION_OUTCOMES),
         outcomeEvidence: z.string().trim().min(20).max(12000),
       })
       .strict()

@@ -22,6 +22,8 @@ import {
 } from "@paperclipai/shared";
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
 import { isSupersededConversationRun } from "./agent-conversations.js";
+import { isCancelledNativeStartup } from "./cancelled-native-startup.js";
+import { hasNativeLocalProcessStop, hasHistoricalSuspendedNativeSession } from "./native-local-process-stop.js";
 
 /** An operator records observed outcomes; this is not permission to blindly retry. */
 export async function validateExecutionReconciliation(input: {
@@ -33,11 +35,17 @@ export async function validateExecutionReconciliation(input: {
   decision: ExecutionReconciliation | undefined;
 }) {
   const { db, companyId, issueId, agentId, decision } = input;
-  if (!decision || decision.runId !== input.sourceRunId || !agentId) {
+  if (!decision || decision.providerStopped !== true || decision.runId !== input.sourceRunId || !agentId) {
     throw conflict(
       "Reconcile the recorded execution and its action outcomes before continuing this task.",
     );
   }
+  // The caller holds the issue lock. Follow the controller -> run lock order
+  // before consuming a never-invoked startup or suspended-session proof.
+  const [coordinator] = await db.select().from(nativeRunFinalizations).where(and(
+    eq(nativeRunFinalizations.companyId, companyId),
+    eq(nativeRunFinalizations.runId, decision.runId),
+  )).for("update");
   const [run] = await db
     .select()
     .from(heartbeatRuns)
@@ -46,7 +54,7 @@ export async function validateExecutionReconciliation(input: {
         eq(heartbeatRuns.companyId, companyId),
         eq(heartbeatRuns.id, decision.runId),
       ),
-    );
+    ).for("update");
   const [task] = await db
     .select()
     .from(issues)
@@ -71,6 +79,20 @@ export async function validateExecutionReconciliation(input: {
       "The recovery source or task owner changed. Inspect the current execution before continuing.",
     );
   }
+  const leases = await db.select().from(environmentLeases).where(and(
+    eq(environmentLeases.companyId, companyId),
+    eq(environmentLeases.heartbeatRunId, run.id),
+  ));
+  const unusedAdmission = run.status === "cancelled" && !run.startedAt &&
+    run.errorCode === "execution_reconciliation_required" &&
+    !run.processPid && !run.processGroupId && !run.nativeSessionId;
+  if (leases.every(lease => lease.provider === "local") &&
+      !run.processPid && !run.processGroupId && !unusedAdmission &&
+      !await isCancelledNativeStartup(db, run, coordinator) &&
+      !await hasNativeLocalProcessStop(db, companyId, run.id) &&
+      !await hasHistoricalSuspendedNativeSession(db, run)) {
+    throw conflict("The previous provider has no verified process identity or stop record.");
+  }
   for (const pid of [
     run.processPid,
     run.processGroupId ? -run.processGroupId : null,
@@ -92,31 +114,11 @@ export async function validateExecutionReconciliation(input: {
       "The previous provider is still running. Stop it before continuing.",
     );
   }
-  const [coordinator] = await db
-    .select()
-    .from(nativeRunFinalizations)
-    .where(
-      and(
-        eq(nativeRunFinalizations.companyId, companyId),
-        eq(nativeRunFinalizations.runId, run.id),
-      ),
-    );
   if (coordinator?.leaseOwner || coordinator?.failureDetail?.successorRunId)
     throw conflict(
       "This execution still has a coordinator or a linked continuation. Inspect that run first.",
     );
-  const leases = await db
-    .select({ id: environmentLeases.id })
-    .from(environmentLeases)
-    .where(
-      and(
-        eq(environmentLeases.companyId, companyId),
-        eq(environmentLeases.heartbeatRunId, run.id),
-        isNull(environmentLeases.releasedAt),
-      ),
-    )
-    .limit(1);
-  if (leases.length)
+  if (leases.some(lease => !lease.releasedAt))
     throw conflict(
       "The previous execution environment has not finished releasing its authority.",
     );
@@ -162,6 +164,7 @@ export async function markExecutionReconciliation(
   decision: ExecutionReconciliation,
   actorId: string,
   deliveryOwner?: { kind: "chat_failed_run_retry"; actionId: string },
+  recordedByUserId: string | null = null,
 ) {
   if (deliveryOwner) {
     const [retry] = await db
@@ -201,10 +204,10 @@ export async function markExecutionReconciliation(
     .set({
       evidence: {
         ...action.evidence,
-        automaticRecovery: undefined,
         executionReconciliation: {
           ...decision,
           actorId,
+          recordedByUserId,
           recordedAt: new Date().toISOString(),
         },
         continuationDelivery: deliveryOwner ? "delegated" : "pending",
@@ -224,10 +227,11 @@ export async function markExecutionReconciliation(
   await db
     .update(issueRecoveryActions)
     .set({
-      evidence: sql`(${issueRecoveryActions.evidence} - 'automaticRecovery') || ${JSON.stringify({
+      evidence: sql`${issueRecoveryActions.evidence} || ${JSON.stringify({
         executionReconciliation: {
           ...decision,
           actorId,
+          recordedByUserId,
           recordedAt: new Date().toISOString(),
         },
         continuationDelivery: "superseded",
@@ -249,6 +253,7 @@ export async function markExecutionReconciliation(
 export async function deliverReconciledExecutions(
   db: Db,
   wake: ReturnType<typeof import("./heartbeat.js").heartbeatService>["wakeup"],
+  actionId?: string,
 ) {
   const pending = await db
     .select()
@@ -256,6 +261,7 @@ export async function deliverReconciledExecutions(
     .where(
       and(
         eq(issueRecoveryActions.status, "resolved"),
+        actionId ? eq(issueRecoveryActions.id, actionId) : undefined,
         sql`${issueRecoveryActions.evidence}->>'continuationDelivery' = 'pending'`,
       ),
     )

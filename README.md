@@ -414,11 +414,36 @@ a new user message, or previously saved input. Ordinary operator cancellations
 keep their existing stop safeguards.
 
 For a run that started, the canonical
-`POST /api/issues/:id/recovery-actions/resolve` endpoint accepts board-owned
+`POST /api/issues/:id/recovery-actions/resolve` endpoint accepts board or
+authorized recovery-owner agent
 `executionReconciliation` evidence for the current settled hold without an
 `actionId`. It verifies the source run, owner, process and leases before clearing
-the hold. Unknown action outcomes remain blocked. This changes no configuration
-option. See [execution semantics](doc/execution-semantics.md).
+the hold. The decision names the source `runId`, confirms `providerStopped: true`,
+and records `actionOutcome` (`completed`, `not_performed`, `mixed`, or `unknown`)
+with 20-12000 characters of `outcomeEvidence`. Missing local process identity
+requires retained stop or pre-invocation evidence; the assertion alone is
+insufficient. Live runs, live process ownership and unreleased leases return
+409 and retain the guard.
+
+An explicit `unknown` decision preserves uncertainty and starts a fresh
+execution without resuming the ambiguous provider session or replaying its
+actions. The recovery record retains both the automatic disposition and the
+dated reconciliation actor/evidence, plus durable continuation delivery and
+successor identity. Task execution stages, assignment, workspace and work
+products are preserved. Duplicate resolution with or without `actionId`
+returns the projected receipt with `replayed: true`, retries pending delivery
+using the same idempotency key, and rejects a different run or action outcome
+with 409.
+
+CLI operators use `paperclipai issue recovery:resolve <issue-id> --outcome restored
+--source-issue-status todo --run-id <source-run-id> --provider-stopped
+--action-outcome unknown --outcome-evidence "<audit evidence>"`.
+`--outcome-evidence` is repeatable and joins entries with newlines. On this
+command, `--run-id` selects the guarded source; agent authentication uses
+`PAPERCLIP_RUN_ID` for its current heartbeat header. This changes no
+configuration option. Real PostgreSQL route tests, CLI request tests and the
+continuation-envelope tests verify this contract through the declared Flake
+bucket checks. See [execution semantics](doc/execution-semantics.md).
 
 ### Managed MCP authentication
 

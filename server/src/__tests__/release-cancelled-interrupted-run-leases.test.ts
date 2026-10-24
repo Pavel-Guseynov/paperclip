@@ -214,7 +214,7 @@ describeEmbeddedPostgres("release-cancelled-interrupted-run-leases", () => {
     );
     expect(blocker).toBeNull();
 
-    // After release, validateExecutionReconciliation accepts the run
+    // Lease release does not establish missing local process-stop evidence.
     await expect(
       validateExecutionReconciliation({
         db,
@@ -229,7 +229,7 @@ describeEmbeddedPostgres("release-cancelled-interrupted-run-leases", () => {
           outcomeEvidence: "Inspected process and verified stopped.",
         },
       }),
-    ).resolves.toMatchObject({ id: fixture.runId });
+    ).rejects.toThrow("no verified process identity or stop record");
   });
 
   it("a run cancelled with no in-process execution releases its lease", async () => {
@@ -270,7 +270,7 @@ describeEmbeddedPostgres("release-cancelled-interrupted-run-leases", () => {
     );
     expect(blocker).toBeNull();
 
-    // After release, validateExecutionReconciliation accepts the run
+    // Lease release does not establish missing local process-stop evidence.
     await expect(
       validateExecutionReconciliation({
         db,
@@ -285,7 +285,7 @@ describeEmbeddedPostgres("release-cancelled-interrupted-run-leases", () => {
           outcomeEvidence: "Inspected process and verified stopped.",
         },
       }),
-    ).resolves.toMatchObject({ id: fixture.runId });
+    ).rejects.toThrow("no verified process identity or stop record");
   });
 
   it("a run terminalized by the stale-lock sweep's backstop after its owning server process died releases its lease", async () => {
@@ -395,7 +395,7 @@ describeEmbeddedPostgres("release-cancelled-interrupted-run-leases", () => {
           outcomeEvidence: "Stranded lease recovered by sweep.",
         },
       }),
-    ).resolves.toMatchObject({ id: fixture.runId });
+    ).rejects.toThrow("no verified process identity or stop record");
   });
 
   it("a lease whose run's process is still alive is not released", async () => {
