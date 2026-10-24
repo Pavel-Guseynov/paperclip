@@ -13,7 +13,7 @@ const {
   syncDirectoryToSsh,
   startAdapterExecutionTargetPaperclipBridge,
 } = vi.hoisted(() => ({
-  runChildProcess: vi.fn(async () => ({
+  runChildProcess: vi.fn<typeof import("@paperclipai/adapter-utils/server-utils").runChildProcess>(async () => ({
     exitCode: 1,
     signal: null,
     timedOut: false,
@@ -316,7 +316,7 @@ describe("codex remote execution", () => {
       authJson: string;
     };
     // Allowlist present; decoys gone.
-    const commandArgs = runChildProcess.mock.calls[0]![2] as string[];
+    const commandArgs = runChildProcess.mock.calls[0]![2];
     const selectedProfile = commandArgs[commandArgs.indexOf("--profile") + 1]!;
     expect(selectedProfile).toMatch(/^paperclip-run-[0-9a-f-]{36}$/);
     expect(snap.entries).toEqual(
