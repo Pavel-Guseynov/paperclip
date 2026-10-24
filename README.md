@@ -483,6 +483,30 @@ By default, agents run on scheduled heartbeats and event-based triggers (task as
 
 <br/>
 
+## Local task review handoff
+
+The native `PATCH /api/issues/:id` route accepts a project lead's completion
+handoff of human-owned local work from `blocked` (after blockers resolve) or
+`in_progress` into the configured pending agent review stage. The request uses
+`status: "done"`, a review execution policy and a `## Task Disposition` comment,
+without assignee overrides, `resume` or `reopen`. The issue must have Gitea
+`branch`, `commit` and `pull_request` work products with non-empty external IDs,
+`status: "ready_for_review"` and `reviewState: "needs_board_review"`.
+
+The authenticated agent must lead the issue's same-company, unpaused project.
+Low-trust actors, unresolved dependencies, subtree pause holds, active recovery
+actions and execution blockers cannot use this handoff. Invalid authority
+returns HTTP 403; incomplete handoffs and execution holds return HTTP 409.
+Ordinary unassigned blocked-task follow-ups still require an assigned agent.
+
+The native policy transition assigns the reviewer and preserves the original
+human in `executionState.returnAssignee`. Existing issue-update handling clears
+blocked bookkeeping, attributes update/comment activity to the lead, and queues
+`execution_review_requested`. Handoff creates no execution decision; the first
+decision remains the reviewer's verdict. The Flake check
+`test-paperclipai-server-local-task-handoff` proves the route against test-owned
+PostgreSQL state, including rejection without issue mutation or reviewer wakeup.
+
 ## Development
 
 Adapters using `@paperclipai/adapter-utils` `runChildProcess` receive a failed
