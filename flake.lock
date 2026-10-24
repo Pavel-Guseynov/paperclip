@@ -21,11 +21,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1792821151,
-        "narHash": "sha256-I5BP752R/pPOAxPUddmKXKJY0+ff/VksLgqja8l/5LY=",
+        "lastModified": 1792826802,
+        "narHash": "sha256-CZuEEPKAW42CehDD18Cm9CgNfs/tZN6ri2vcpp/6q+8=",
         "ref": "main",
-        "rev": "9a8c9b1fc8414adcdb0297a53e5eac8973b3e121",
-        "revCount": 332,
+        "rev": "b12fedcbcea18b26e59998cb00f634769ead2484",
+        "revCount": 334,
         "type": "git",
         "url": "https://git.guseynov.org/guseynov/nix.git"
       },
