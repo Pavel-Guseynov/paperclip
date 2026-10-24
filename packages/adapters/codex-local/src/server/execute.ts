@@ -40,6 +40,7 @@ import {
 import {
   asString,
   asNumber,
+  asStringArray,
   parseObject,
   buildPaperclipEnv,
   buildInvocationEnvForLogs,
@@ -86,7 +87,7 @@ import {
   seedManagedCodexHome,
   stageCodexHomeForSync,
   mergeManagedCodexMcpGateways,
-  writeManagedCodexMcpConfig,
+  prepareManagedCodexMcpProfile,
   type ManagedCodexMcpGateway,
 } from "./codex-home.js";
 import {
@@ -783,6 +784,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // here so the outer `finally` can remove it on every exit path (teardown and
   // error), never only the happy path.
   let stagedCodexHomeDir: string | null = null;
+  let managedMcpProfile: Awaited<ReturnType<typeof prepareManagedCodexMcpProfile>> | null = null;
   try {
     for (const note of preparedRuntimeConfig.notes) {
       await onLog("stdout", `[paperclip] ${note}\n`);
@@ -797,11 +799,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       runtimeMcpGateways,
       managedMcpGatewaysFromContext(context),
     );
-    const managedMcp = await writeManagedCodexMcpConfig({
+    const managedMcp = await prepareManagedCodexMcpProfile({
       codexHome: effectiveCodexHome,
       apiBaseUrl: resolvedCallback.url,
       gateways: managedMcpGateways,
+      runId,
+      extraArgs: asStringArray(config.extraArgs).length > 0 ? asStringArray(config.extraArgs) : asStringArray(config.args),
     });
+    managedMcpProfile = managedMcp;
     if (managedMcpGateways.length > 0) {
       await onLog(
         "stdout",
@@ -844,7 +849,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           // the single-use `auth.json`) are dereferenced to bytes. This drops the
           // large runtime state (`sessions/`, `*.sqlite`, `plugins/`, …) that the
           // 4-name denylist missed and that a sandbox run never needs.
-          stagedCodexHomeDir = await stageCodexHomeForSync(effectiveCodexHome, { runId });
+          stagedCodexHomeDir = await stageCodexHomeForSync(effectiveCodexHome, { runId, profileName: managedMcp.profileName });
           return await prepareAdapterExecutionTargetRuntime({
             runId,
             target: executionTarget,
@@ -1268,6 +1273,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           resumeSessionId,
           skipGitRepoCheck: executionTargetIsSandbox,
           networkAccess: env.PAPERCLIP_RUNNER_NETWORK_ACCESS !== "disabled",
+          managedMcpArgs: managedMcp.args,
         },
       );
       const args = execArgs.args;
@@ -1649,6 +1655,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       }
     }
   } finally {
+    await managedMcpProfile?.cleanup();
     // Remove the staged CODEX_HOME allowlist temp dir on every exit path
     // (teardown AND error), never only the happy path. Cleanup failure is
     // logged, not fatal — a leaked temp dir must not crash the run.
