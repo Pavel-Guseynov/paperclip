@@ -435,6 +435,15 @@ usage or run identity. Invalid credentials remain subject to gateway failure
 throttling and auditing. The same notification behavior applies to the public
 MCP gateway endpoint. No new configuration option is required.
 
+Both gateway endpoints answer an authenticated, unsupported JSON-RPC method
+with HTTP 200 and error `-32601` (`Method not found`), preserving its request
+id, including zero or null. An unknown notification without an id returns an
+empty HTTP 202. Credential failures retain their HTTP authentication status.
+The HTTP request log includes `mcpMethod` through the logger's credential
+redaction even on successful transport responses, without logging request
+arguments on those responses. The native gateway route tests exercise these
+responses and capture the emitted log record.
+
 Paperclip-managed Codex MCP entries set native
 `default_tools_approval_mode = "approve"` so calls reach the gateway under
 noninteractive execution. The gateway applies current tool policies, denies
