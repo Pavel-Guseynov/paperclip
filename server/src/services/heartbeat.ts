@@ -14,7 +14,7 @@ import { applyConnectorSkills, prepareConnectorSkillDelivery, resolveConnectorAs
 import { admitExplicitNativeContinuation, undeliveredLegacyUserCommentIds } from "./explicit-native-continuation.js";
 import { connectionIntentService } from "./connection-intents.js";
 import { managedAiSessionFingerprintConfig, prepareManagedAiRuntime, assertManagedAiProjectAuth, stripAiAuthBindings, isAiConnectionBusy, AI_AUTH_ENV_KEYS } from "./ai-connection-runtime.js";
-import { aiConnectionBindingSchema } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, EXECUTION_RECONCILIATION_ACTION_OUTCOMES } from "@paperclipai/shared";
 import { executionBlockerPredicate, getExecutionBlocker } from "./execution-blocker.js";
 import { CONVERSATION_CONTINUATION_POLICY, claimedAdapterType, runUsedConversationAdapter, hasConversationContinuationPolicy, isConversationAdapter } from "./conversation-continuation.js";
 import { recordExecutionWait } from "./execution-wait.js";
@@ -27305,9 +27305,7 @@ export function heartbeatService(
               !sourceRunId ||
               !isUuidLike(sourceRunId) ||
               decision.providerStopped !== true ||
-              !["completed", "not_performed", "mixed"].includes(
-                String(decision.actionOutcome),
-              ) ||
+              !EXECUTION_RECONCILIATION_ACTION_OUTCOMES.some(value => value === decision.actionOutcome) ||
               !readNonEmptyString(decision.outcomeEvidence) ||
               enrichedContextSnapshot.previousRunId !== sourceRunId ||
               enrichedContextSnapshot.retryOfRunId !== sourceRunId ||

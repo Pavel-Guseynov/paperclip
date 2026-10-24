@@ -925,12 +925,32 @@ future execution until Resume, and missing stop proof still blocks continuation.
 
 A permanently unusable native runner session may be replaced only with evidence that its predecessor is stopped and fenced, completed results and workspace state are preserved, required task history is available, and pending effects have been reconciled. A provider-native shell command or external write without a reliable outcome receipt is unknown. Unknown effects, integrity failures, and unverified process ownership never authorize speculative replay. Once automatic recovery is ruled out, Paperclip selects a conservative default: preserve recorded work, stop the affected task, and retain a durable no-replay hold. Unknown action outcomes remain unknown. No reconciliation form or user diagnosis is required.
 
-The canonical recovery-resolution API can accept new board-owned execution
+The canonical recovery-resolution API can accept new board or authorized
+recovery-owner agent execution
 evidence for that settled hold. When no active recovery action remains and the
 request carries `executionReconciliation`, the server selects the current
 `executionBlocker.recoveryActionId` under the issue lock. The same source,
 ownership, termination and action-outcome validation applies as for an explicit
 `actionId`; rejected evidence leaves the settled record and hold intact.
+
+An explicit reconciliation may record `actionOutcome: "unknown"` when the
+audit cannot establish an outcome. It authorizes one fresh observable attempt,
+never replay of an uncertain external action. The prior `automaticRecovery`
+record remains immutable history alongside `executionReconciliation`; only
+unreconciled automatic no-replay records remain effective guards. The receipt
+records the source run, provider stop confirmation, action outcome, evidence,
+actor and timestamp, with `continuationDelivery` and `continuationRunId`
+tracking delivery through the existing idempotent wake path. The continuation
+prompt includes these recovery outcomes as evidence. Existing task execution
+state, assignee, workspace binding and work products are retained.
+
+Matching duplicate resolution requests select the reconciled source receipt
+even without `actionId`, return `replayed: true`, and finish pending delivery
+with the same wake idempotency key. A different run or outcome returns 409.
+Local runs without process identity require a verified unused admission,
+pre-invocation cancellation, server-authored local stop receipt or historical
+suspended native session. Current launch evidence invalidates an older stop
+receipt. Terminal status and an operator assertion alone do not prove exit.
 
 Local Codex crash replacement can use a complete interrupted-turn inventory,
 authenticated process-stop evidence, and unchanged retained-state fingerprints.
