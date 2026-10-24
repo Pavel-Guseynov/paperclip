@@ -21,14 +21,20 @@
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
       auditHook = pkgs: nix.lib.tmpdirAuditCorrection { inherit pkgs; };
+      tmpdirAuditPolicy = nix.lib.tmpdirAuditPolicy;
       mkAuditedDerivation =
         pkgs: attrs:
-        pkgs.stdenv.mkDerivation (
-          attrs
-          // {
+        let
+          recipe = attrs // {
             nativeBuildInputs = (attrs.nativeBuildInputs or [ ]) ++ [ (auditHook pkgs) ];
-          }
-        );
+          };
+          before = pkgs.stdenv.mkDerivation recipe;
+          after = pkgs.stdenv.mkDerivation (recipe // tmpdirAuditPolicy);
+          otherRecipe = drv: builtins.removeAttrs drv.drvAttrs (builtins.attrNames tmpdirAuditPolicy);
+        in
+        assert lib.assertMsg (builtins.toJSON (otherRecipe before) == builtins.toJSON (otherRecipe after))
+          "tmpdirAuditPolicy must preserve outputs, toolchains, dependencies and every other recipe attribute";
+        after;
 
       # Workspace members of the tree at `root`, as pnpm-workspace.yaml declares
       # them: the listed globs that hold a package.json, minus the explicit exclusion.
@@ -676,6 +682,20 @@
             ++ lib.optionals hasTests (testBucketChecks pkgs dir)
           ) workspaceDirs
         );
+
+      handoffPrerequisites =
+        pkgs:
+        map (mkDist pkgs) (distDirs "server")
+        ++ map (mkGenerated pkgs) (generatedDirs "test" "server")
+        ++ [
+          (mkTestPostgresTemplate pkgs)
+          (mkTestGraph pkgs)
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-graph-current
+          self.checks.${pkgs.stdenv.hostPlatform.system}.typecheck-paperclipai-server
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-b17
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-b15
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-local-task-handoff
+        ];
     in
     {
       checks = forAllSystems (
@@ -686,20 +706,14 @@
             inherit pkgs;
             prerequisite = mkDist pkgs "packages/plugins/sdk";
             hook = auditHook pkgs;
-            prerequisites =
-              map (mkDist pkgs) (distDirs "server")
-              ++ map (mkGenerated pkgs) (generatedDirs "test" "server")
-              ++ [
-                (mkTestPostgresTemplate pkgs)
-                (mkTestGraph pkgs)
-                self.checks.${pkgs.stdenv.hostPlatform.system}.test-graph-current
-                self.checks.${pkgs.stdenv.hostPlatform.system}.typecheck-paperclipai-server
-                self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-b17
-                self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-b15
-              ];
+            prerequisites = handoffPrerequisites pkgs;
           };
         }
         // {
+          prerequisite-audit-policy = import ./nix/prerequisite-audit-policy.nix {
+            inherit pkgs tmpdirAuditPolicy;
+            prerequisites = handoffPrerequisites pkgs;
+          };
           test-graph-current = mkAuditedDerivation pkgs {
             name = "test-graph-current";
             dontUnpack = true;

@@ -9,6 +9,9 @@ let
   # Use the released producer's unreadable-directory injection, scoped to the
   # native audit so other fixup consumers still see readable output.
   injected = prerequisite.overrideAttrs (old: {
+    # This test-owned control deliberately runs the audit. Production recipes
+    # retain the producer policy verified by prerequisite-audit-policy.
+    noAuditTmpdir = false;
     preFixup = (old.preFixup or "") + ''
       mkdir -p "$PWD/audit-tmp"
       export TMPDIR="$PWD/audit-tmp"

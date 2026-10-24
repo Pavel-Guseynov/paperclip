@@ -573,16 +573,21 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
 
 The locked fleet Nix input supplies the single Nixpkgs authority. One native
-derivation factory adds its producer-owned `lib.tmpdirAuditCorrection` setup
-hook to workspace dist, typecheck and test recipes, the PostgreSQL template,
-the import graph and its comparison check. This keeps the native temporary
-directory audit enabled, waits for every audit child and fails the derivation
-on a child failure. Dependency installation and its fixed-output fetch retain
-their existing recipes. Failure diagnostics and original child output remain
-in the native Nix build log. The Darwin prerequisite-audit check injects the
-producer's unreadable-directory failure into the real plugin SDK dist recipe,
-proves its classifier failure rejects the build with cleanup and child reaping,
-and verifies that each handoff-gate prerequisite consumes the same hook.
+derivation factory applies its producer-owned `lib.tmpdirAuditPolicy`
+unchanged to workspace dist, typecheck and test recipes, the PostgreSQL
+template, the import graph and its comparison check. This skips the selected
+temporary-directory audits through the producer's native attribute; it does
+not repair or diagnose the classifier SIGSEGV. The factory verifies that
+every other recipe attribute, including output declarations, toolchains and
+dependency identities, is unchanged by policy application.
+Dependency installation and its fixed-output fetch retain their existing recipes.
+The prerequisite-audit-policy check verifies every handoff-gate prerequisite
+carries the producer's exact policy values. The factory also retains the
+producer's `lib.tmpdirAuditCorrection` setup hook. The Darwin prerequisite-audit
+check explicitly enables auditing only in its test-owned plugin SDK control,
+injects the producer's unreadable-directory failure, and proves child-status
+propagation, cleanup and reaping. Failure diagnostics and original child
+output remain in the native Nix build log.
 
 ## Roadmap
 

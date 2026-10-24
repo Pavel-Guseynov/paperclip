@@ -191,6 +191,8 @@ The fork's `flake.nix` caches dependencies and test results so a repeated run bu
 
 - `nix build --no-link .#checks.<system>.prerequisite-audit` (Darwin) proves the real plugin SDK dist recipe rejects the producer's injected audit-classifier failure and verifies shared-hook consumption across handoff-gate prerequisites. Run it when changing native prerequisite audit wiring.
 
+- `nix build --no-link .#checks.<system>.prerequisite-audit-policy` verifies the producer's policy values on every handoff-gate prerequisite; factory assertions preserve all other recipe attributes, output declarations and dependency identities. Run it when changing native prerequisite policy wiring.
+
 - `nix flake check` runs every typecheck (`typecheck-<package>`) and every test bucket (`test-<package>-b<N>`). A check re-runs only when a file it reads changed.
 - `nix run .#update-test-graph` regenerates `nix/test-graph.json`, the import graph that decides which files each test bucket reads. Run it after changing imports or adding a test; `test-graph-current` fails when it is stale.
 - `nix develop` provides node 24 and pnpm 11. `packages.<system>.nodeModules` is the installed workspace, keyed only by the lockfile, the manifests, `pnpm-workspace.yaml`, `patches/` and `.pnpmfile.cjs`; `checks.<system>.node-modules-inputs` proves a source-only change leaves it unchanged.
