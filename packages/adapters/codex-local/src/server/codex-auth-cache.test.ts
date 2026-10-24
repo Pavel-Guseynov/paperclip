@@ -1,7 +1,8 @@
+import { promises as fs } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   assertAccountHomeCacheDirStillValid,
@@ -54,7 +55,8 @@ describe("codex auth cache store", () => {
   async function expectSerializedLock(
     lock: typeof withCodexAccountHomePromotionLock,
   ): Promise<void> {
-    const env = envFor(await makeInstanceRoot());
+    const home = await makeInstanceRoot();
+    const env = envFor(home);
     const events: string[] = [];
     let entered!: () => void;
     const firstEntered = new Promise<void>((resolve) => {
@@ -63,6 +65,27 @@ describe("codex auth cache store", () => {
     let release!: () => void;
     const firstGate = new Promise<void>((resolve) => {
       release = resolve;
+    });
+    let contended!: () => void;
+    const secondContended = new Promise<"contended">((resolve) => {
+      contended = () => resolve("contended");
+    });
+    const realMkdir = fs.mkdir;
+    const mkdirSpy = vi.spyOn(fs, "mkdir").mockImplementation(async (target, options) => {
+      try {
+        return await realMkdir(target, options);
+      } catch (error) {
+        // Observe the real exclusive acquire, without changing its result.
+        // Recursive prerequisite mkdir calls cannot signal lock contention.
+        if (
+          options === undefined && typeof target === "string" &&
+          target.startsWith(home + path.sep) &&
+          (error as NodeJS.ErrnoException).code === "EEXIST"
+        ) {
+          contended();
+        }
+        throw error;
+      }
     });
     const operations: Promise<string>[] = [];
     try {
@@ -76,19 +99,22 @@ describe("codex auth cache store", () => {
       operations.push(firstCall);
       // A failed acquire must reject the test instead of leaving entry pending.
       await Promise.race([firstEntered, firstCall]);
-      operations.push(
-        lock(env, "company-shared", async () => {
-          events.push("second-enter");
-          events.push("second-exit");
-          return "second";
-        }),
-      );
+      const secondCall = lock(env, "company-shared", async () => {
+        events.push("second-enter");
+        events.push("second-exit");
+        return "second";
+      });
+      operations.push(secondCall);
+      // A non-exclusive lock completes the second callback instead of
+      // observing EEXIST, so it fails here without a timer or hanging wait.
+      expect(await Promise.race([secondContended, secondCall])).toBe("contended");
       expect(events).toEqual(["first-enter"]);
     } finally {
       // Settle every operation before afterEach can remove its instance root,
       // including when an entry or exclusion assertion fails.
       release();
       await Promise.allSettled(operations);
+      mkdirSpy.mockRestore();
     }
     expect(await Promise.all(operations)).toEqual(["first", "second"]);
     expect(events).toEqual(["first-enter", "first-exit", "second-enter", "second-exit"]);
