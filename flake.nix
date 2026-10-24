@@ -1,10 +1,15 @@
 {
   description = "Paperclip fork: cached workspace dependencies and per-package checks";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/419fe0f449b3fbe3bdd53d9840288db4509ec32e";
+  inputs.nix.url = "git+https://git.guseynov.org/guseynov/nix.git?ref=main";
+  inputs.nixpkgs.follows = "nix/nixpkgs";
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nix,
+      nixpkgs,
+    }:
     let
       lib = nixpkgs.lib;
       systems = [
@@ -15,6 +20,22 @@
       ];
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
+      auditHook = pkgs: nix.lib.tmpdirAuditCorrection { inherit pkgs; };
+      tmpdirAuditPolicy = nix.lib.tmpdirAuditPolicy;
+      mkAuditedDerivation =
+        pkgs: attrs:
+        let
+          recipe = attrs // {
+            nativeBuildInputs = (attrs.nativeBuildInputs or [ ]) ++ [ (auditHook pkgs) ];
+          };
+          before = pkgs.stdenv.mkDerivation recipe;
+          after = pkgs.stdenv.mkDerivation (recipe // tmpdirAuditPolicy);
+          otherRecipe = drv: builtins.removeAttrs drv.drvAttrs (builtins.attrNames tmpdirAuditPolicy);
+        in
+        assert lib.assertMsg (builtins.toJSON (otherRecipe before) == builtins.toJSON (otherRecipe after))
+          "tmpdirAuditPolicy must preserve outputs, toolchains, dependencies and every other recipe attribute";
+        after;
+
       # Workspace members of the tree at `root`, as pnpm-workspace.yaml declares
       # them: the listed globs that hold a package.json, minus the explicit exclusion.
       workspaceDirsOf =
@@ -24,7 +45,9 @@
             parent:
             lib.optionals (builtins.pathExists (root + "/${parent}")) (
               lib.filter (dir: builtins.pathExists (root + "/${parent}/${dir}/package.json")) (
-                lib.attrNames (lib.filterAttrs (_: type: type == "directory") (builtins.readDir (root + "/${parent}")))
+                lib.attrNames (
+                  lib.filterAttrs (_: type: type == "directory") (builtins.readDir (root + "/${parent}"))
+                )
               )
             );
           globbedDirs = lib.concatMap (parent: map (dir: "${parent}/${dir}") (subdirs parent)) [
@@ -43,22 +66,31 @@
       workspaceDirs = workspaceDirsOf ./.;
 
       manifestOf = dir: builtins.fromJSON (builtins.readFile (self + "/${dir}/package.json"));
-      packageByName = lib.listToAttrs (map (dir: lib.nameValuePair (manifestOf dir).name { inherit dir; }) workspaceDirs);
+      packageByName = lib.listToAttrs (
+        map (dir: lib.nameValuePair (manifestOf dir).name { inherit dir; }) workspaceDirs
+      );
 
       # Workspace packages a package imports, directly or through another one.
       workspaceDependencies =
         dir:
         let
           manifest = manifestOf dir;
-          declared = (manifest.dependencies or { }) // (manifest.devDependencies or { }) // (manifest.optionalDependencies or { });
+          declared =
+            (manifest.dependencies or { })
+            // (manifest.devDependencies or { })
+            // (manifest.optionalDependencies or { });
         in
-        lib.attrNames (lib.filterAttrs (name: spec: lib.hasPrefix "workspace:" spec && packageByName ? ${name}) declared);
+        lib.attrNames (
+          lib.filterAttrs (name: spec: lib.hasPrefix "workspace:" spec && packageByName ? ${name}) declared
+        );
       closureDirs =
         dir:
-        map (item: item.key) (lib.genericClosure {
-          startSet = [ { key = dir; } ];
-          operator = item: map (name: { key = packageByName.${name}.dir; }) (workspaceDependencies item.key);
-        });
+        map (item: item.key) (
+          lib.genericClosure {
+            startSet = [ { key = dir; } ];
+            operator = item: map (name: { key = packageByName.${name}.dir; }) (workspaceDependencies item.key);
+          }
+        );
 
       # Everything pnpm needs to lay out node_modules and nothing else, so a source
       # change that touches no manifest, patch, lockfile or pnpmfile keeps the
@@ -97,17 +129,16 @@
       # a change anywhere else leaves its inputs, and so its result, untouched.
       # The root tsconfig lists every package as a project reference, so each package's
       # tsconfig.json is an input to every check that reads it.
-      rootFiles =
-        [
-          ./.npmrc
-          ./package.json
-          ./pnpm-workspace.yaml
-          ./tsconfig.base.json
-          ./tsconfig.json
-        ]
-        ++ map (dir: ./. + "/${dir}/tsconfig.json") (
-          lib.filter (dir: builtins.pathExists (./. + "/${dir}/tsconfig.json")) workspaceDirs
-        );
+      rootFiles = [
+        ./.npmrc
+        ./package.json
+        ./pnpm-workspace.yaml
+        ./tsconfig.base.json
+        ./tsconfig.json
+      ]
+      ++ map (dir: ./. + "/${dir}/tsconfig.json") (
+        lib.filter (dir: builtins.pathExists (./. + "/${dir}/tsconfig.json")) workspaceDirs
+      );
       # Sources a package reads outside its workspace dependencies, found from the
       # code: relative imports across package directories and the repository files
       # its tests and runtime read. Listing exactly these, and no more, is what keeps
@@ -212,18 +243,17 @@
       # Packages that read other packages' sources need those packages' dependencies
       # to resolve too, so they get every workspace package's tree.
       installedDirs = dir: if extraSources dir == [ ] then closureDirs dir else workspaceDirs;
-      linkNodeModules =
-        nodeModules: dirs: ''
-          mkdir node_modules
-          for entry in ${nodeModules}/node_modules/* ${nodeModules}/node_modules/.[!.]*; do
-            ln -s "$entry" node_modules/
-          done
-          for workspace in ${lib.concatStringsSep " " dirs}; do
-            if [ -d "$workspace" ] && [ -d ${nodeModules}/$workspace/node_modules ]; then
-              cp -a ${nodeModules}/$workspace/node_modules "$workspace/"
-            fi
-          done
-        '';
+      linkNodeModules = nodeModules: dirs: ''
+        mkdir node_modules
+        for entry in ${nodeModules}/node_modules/* ${nodeModules}/node_modules/.[!.]*; do
+          ln -s "$entry" node_modules/
+        done
+        for workspace in ${lib.concatStringsSep " " dirs}; do
+          if [ -d "$workspace" ] && [ -d ${nodeModules}/$workspace/node_modules ]; then
+            cp -a ${nodeModules}/$workspace/node_modules "$workspace/"
+          fi
+        done
+      '';
 
       # Workspace packages other packages import through built output rather than
       # source. Each is built once, keyed by its own inputs, and the result is copied
@@ -233,26 +263,25 @@
       distDirs = dir: lib.filter (d: d != dir && exportsDist d) (closureDirs dir);
       copyDists =
         pkgs: kind: dir:
-        lib.concatMapStringsSep "\n" (
-          d: "cp -a ${mkDist pkgs d}/dist ${d}/"
-        ) (distDirs dir)
-        + lib.concatMapStringsSep "\n" (
-          d: "\ncp -a ${mkGenerated pkgs d}/generated ${d}/"
-        ) (generatedDirs kind dir);
+        lib.concatMapStringsSep "\n" (d: "cp -a ${mkDist pkgs d}/dist ${d}/") (distDirs dir)
+        + lib.concatMapStringsSep "\n" (d: "\ncp -a ${mkGenerated pkgs d}/generated ${d}/") (
+          generatedDirs kind dir
+        );
 
       # Packages whose exports include generated files (catalog manifests) get them
       # from a derivation of their own, for dependents and for their own tests.
-      exportsGenerated = dir: lib.hasInfix "generated/" (builtins.toJSON ((manifestOf dir).exports or { }));
+      exportsGenerated =
+        dir: lib.hasInfix "generated/" (builtins.toJSON ((manifestOf dir).exports or { }));
       # A package's own tests read its generated files; the derivation that makes
       # them must not depend on itself.
-      generatedDirs = kind: dir: lib.filter (d: exportsGenerated d && (kind == "test" || d != dir)) (closureDirs dir);
+      generatedDirs =
+        kind: dir: lib.filter (d: exportsGenerated d && (kind == "test" || d != dir)) (closureDirs dir);
       mkGenerated =
         pkgs: dir:
         mkCheck pkgs "dist" dir "${pnpmRun "build:manifest"}\nmkdir -p $out\ncp -a generated $out/";
 
       mkDist =
-        pkgs: dir:
-        mkCheck pkgs "dist" dir "${pnpmRun (distScript dir)}\nmkdir -p $out\ncp -a dist $out/";
+        pkgs: dir: mkCheck pkgs "dist" dir "${pnpmRun (distScript dir)}\nmkdir -p $out\ncp -a dist $out/";
 
       # Tests that need Postgres share one cluster per check. Its data directory is
       # built once from the migrations (a derivation keyed only by the database
@@ -270,7 +299,7 @@
 
       mkTestPostgresTemplate =
         pkgs:
-        pkgs.stdenv.mkDerivation {
+        mkAuditedDerivation pkgs {
           name = "test-postgres-template";
           src = checkSource "packages/db";
           nativeBuildInputs = [
@@ -285,7 +314,9 @@
             export HOME="$TMPDIR/home" CI=1
             mkdir -p "$HOME"
             chmod -R u+w .
-            ${linkNodeModules self.packages.${pkgs.stdenv.hostPlatform.system}.nodeModules (installedDirs "packages/db")}
+            ${linkNodeModules self.packages.${pkgs.stdenv.hostPlatform.system}.nodeModules (
+              installedDirs "packages/db"
+            )}
             ${copyDists pkgs "dist" "packages/db"}
             PORT=$(${freePort})
             initdb -D "$TMPDIR/pgdata" -U paperclip --auth=trust -E UTF8 --locale=C --no-sync
@@ -314,11 +345,18 @@
         export PAPERCLIP_TEST_POSTGRES_URL="postgres://paperclip@127.0.0.1:$PGPORT_SHARED/postgres"
       '';
 
-      mkCheck = pkgs: kind: dir: command: mkCheckFrom {
-        inherit pkgs kind dir command;
-        src = checkSource dir;
-        name = "${kind}-${slug dir}";
-      };
+      mkCheck =
+        pkgs: kind: dir: command:
+        mkCheckFrom {
+          inherit
+            pkgs
+            kind
+            dir
+            command
+            ;
+          src = checkSource dir;
+          name = "${kind}-${slug dir}";
+        };
 
       mkCheckFrom =
         {
@@ -332,7 +370,7 @@
         let
           withDatabase = kind == "test" && usesDatabase dir;
         in
-        pkgs.stdenv.mkDerivation {
+        mkAuditedDerivation pkgs {
           inherit name src;
           nativeBuildInputs = [
             pkgs.nodejs_24
@@ -369,21 +407,27 @@
             ${lib.optionalString withDatabase (startSharedPostgres pkgs (mkTestPostgresTemplate pkgs))}
             ROOT="$PWD"
             cd ${dir}
-            ${if withDatabase then ''
-              status=0
-              (
-                ${command}
-              ) || status=$?
-              pg_ctl -D "$TMPDIR/shared-pgdata" -m fast -w stop
-              test "$status" -eq 0
-            '' else command}
+            ${
+              if withDatabase then
+                ''
+                  status=0
+                  (
+                    ${command}
+                  ) || status=$?
+                  pg_ctl -D "$TMPDIR/shared-pgdata" -m fast -w stop
+                  test "$status" -eq 0
+                ''
+              else
+                command
+            }
           '';
           installPhase = if kind == "dist" then "true" else "touch $out";
         };
 
       # The runner's own typecheck also checks its Rust workspace, which nothing here
       # uses; its TypeScript typecheck is the declared script for that half.
-      typecheckScript = dir: if dir == "packages/paperclip-runner" then "typecheck:typescript" else "typecheck";
+      typecheckScript =
+        dir: if dir == "packages/paperclip-runner" then "typecheck:typescript" else "typecheck";
       # The server's script first rebuilds the runner and the plugin SDK build inputs;
       # here those are the cached build outputs copied in, so only its tsc step runs.
       typecheckCommand =
@@ -401,10 +445,12 @@
       fileOf = id: builtins.elemAt importGraph.files id;
       reachableFrom =
         ids:
-        map (item: item.key) (lib.genericClosure {
-          startSet = map (key: { inherit key; }) ids;
-          operator = item: map (key: { inherit key; }) (builtins.elemAt importGraph.edges item.key);
-        });
+        map (item: item.key) (
+          lib.genericClosure {
+            startSet = map (key: { inherit key; }) ids;
+            operator = item: map (key: { inherit key; }) (builtins.elemAt importGraph.edges item.key);
+          }
+        );
       testGraphAlias = {
         ui = {
           "@/" = "ui/src/";
@@ -413,15 +459,22 @@
           "@paperclipai/paperclip-runner" = "packages/paperclip-runner/src/index.ts";
         };
       };
-      testPackages = lib.filter (dir: builtins.pathExists (./. + "/${dir}/vitest.config.ts")) workspaceDirs;
+      testPackages = lib.filter (
+        dir: builtins.pathExists (./. + "/${dir}/vitest.config.ts")
+      ) workspaceDirs;
       mkTestGraph =
         pkgs:
-        pkgs.stdenv.mkDerivation {
+        mkAuditedDerivation pkgs {
           name = "test-graph";
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions (
-              rootFiles ++ [ ./nix/test-graph.mjs ./scripts ] ++ map (d: ./. + "/${d}") workspaceDirs
+              rootFiles
+              ++ [
+                ./nix/test-graph.mjs
+                ./scripts
+              ]
+              ++ map (d: ./. + "/${d}") workspaceDirs
             );
           };
           nativeBuildInputs = [ pkgs.nodejs_24 ];
@@ -430,7 +483,12 @@
             chmod -R u+w .
             ${linkNodeModules self.packages.${pkgs.stdenv.hostPlatform.system}.nodeModules workspaceDirs}
             node nix/test-graph.mjs "$PWD" '${
-              builtins.toJSON (map (dir: { inherit dir; alias = testGraphAlias.${dir} or { }; }) testPackages)
+              builtins.toJSON (
+                map (dir: {
+                  inherit dir;
+                  alias = testGraphAlias.${dir} or { };
+                }) testPackages
+              )
             }' graph.json
           '';
           installPhase = "cp graph.json $out";
@@ -439,11 +497,16 @@
       # The server's suites each start their own database and cannot share a process
       # pool; its own config asks for one worker, which only the root config can set.
       serialWorkers =
-        dir: if dir == "server" then ", maxWorkers: 1, minWorkers: 1" else ", maxWorkers: ${toString otherWorkers}";
+        dir:
+        if dir == "server" then
+          ", maxWorkers: 1, minWorkers: 1"
+        else
+          ", maxWorkers: ${toString otherWorkers}";
       # The gate shares the machine with other checks, and the packages' own limits
       # (15 s for a server test, 5 s elsewhere) assume an idle one; a hung test still fails.
       gateTimeoutMs = 60000;
-      timeoutFlags = dir: " --testTimeout=${toString gateTimeoutMs} --hookTimeout=${toString gateTimeoutMs}";
+      timeoutFlags =
+        dir: " --testTimeout=${toString gateTimeoutMs} --hookTimeout=${toString gateTimeoutMs}";
       # Checks run side by side, so each leaves cores for the others.
       otherWorkers = 2;
 
@@ -451,7 +514,9 @@
       # (the Runner, the MCP servers, the plugin examples) run from their own directory.
       rootVitestProjects = lib.filter (dir: lib.elem dir workspaceDirs) (
         map builtins.head (
-          builtins.filter builtins.isList (builtins.split ''"([A-Za-z0-9_./-]+)"'' (builtins.readFile ./vitest.config.ts))
+          builtins.filter builtins.isList (
+            builtins.split ''"([A-Za-z0-9_./-]+)"'' (builtins.readFile ./vitest.config.ts)
+          )
         )
       );
 
@@ -474,13 +539,19 @@
       droppedTests = {
         "packages/adapters/codex-local/src/server/reachability-matrix.test.ts" = "calls the codex CLI";
         "packages/adapters/hermes/src/server/detect-model.test.ts" = "calls the hermes CLI";
-        "packages/adapters/kimi-local/src/server/execute.test.ts" = "depends on the kimi CLI's capability detection";
-        "packages/paperclip-runner/src/live/runnerd-codex-transport-settlement.test.ts" = "needs the built Rust runner binary";
-        "packages/paperclip-runner/src/live/runnerd-codex-transport.test.ts" = "needs the built Rust runner binary";
-        "packages/paperclip-runner/src/mock-core/local-runner.test.ts" = "needs the built Rust runner binary";
-        "packages/skills-catalog/src/packaged-artifacts.test.ts" = "runs pnpm build, which needs the package registry";
+        "packages/adapters/kimi-local/src/server/execute.test.ts" =
+          "depends on the kimi CLI's capability detection";
+        "packages/paperclip-runner/src/live/runnerd-codex-transport-settlement.test.ts" =
+          "needs the built Rust runner binary";
+        "packages/paperclip-runner/src/live/runnerd-codex-transport.test.ts" =
+          "needs the built Rust runner binary";
+        "packages/paperclip-runner/src/mock-core/local-runner.test.ts" =
+          "needs the built Rust runner binary";
+        "packages/skills-catalog/src/packaged-artifacts.test.ts" =
+          "runs pnpm build, which needs the package registry";
         "cli/src/__tests__/company-import-export-e2e.test.ts" = "starts the built server and waits for it";
-        "server/src/__tests__/production-install.test.ts" = "runs pnpm deploy, which needs the package registry";
+        "server/src/__tests__/production-install.test.ts" =
+          "runs pnpm deploy, which needs the package registry";
         "server/src/services/native-runtime/native-codex-runner.integration.test.ts" = "needs cargo";
       };
 
@@ -506,14 +577,19 @@
       # tests share large modules, uses larger buckets.
       testsPerBucket = dir: if dir == "server" then 20 else 8;
       bucketCount =
-        dir: tests: lib.max 1 (builtins.div (builtins.length tests + testsPerBucket dir - 1) (testsPerBucket dir));
+        dir: tests:
+        lib.max 1 (builtins.div (builtins.length tests + testsPerBucket dir - 1) (testsPerBucket dir));
       bucketOf =
-        count: test: lib.mod (lib.fromHexString (builtins.substring 0 6 (builtins.hashString "sha256" test))) count;
+        count: test:
+        lib.mod (lib.fromHexString (builtins.substring 0 6 (builtins.hashString "sha256" test))) count;
 
       # Tests that start listeners in the machine-wide runtime port range (42000-42999)
       # cannot run beside each other, so each group runs in one check, one file at a time.
       serialGroups = {
         "run-gateway-auth" = [ "server/src/__tests__/tool-gateway.test.ts" ];
+        "local-task-handoff" = [
+          "server/src/__tests__/issue-local-task-review-handoff-routes.test.ts"
+        ];
         "server-ports" = [
           "server/src/__tests__/local-service-supervisor.test.ts"
           "server/src/__tests__/workspace-runtime-exposure-reservation.test.ts"
@@ -525,9 +601,15 @@
       testBucketChecks =
         pkgs: dir:
         let
-          package = importGraph.packages.${dir} or { common = [ ]; tests = [ ]; };
+          package =
+            importGraph.packages.${dir} or {
+              common = [ ];
+              tests = [ ];
+            };
           grouped = lib.concatLists (lib.attrValues serialGroups);
-          runTests = lib.filter (id: !(droppedTests ? ${fileOf id}) && !(lib.elem (fileOf id) grouped)) package.tests;
+          runTests = lib.filter (
+            id: !(droppedTests ? ${fileOf id}) && !(lib.elem (fileOf id) grouped)
+          ) package.tests;
           testPaths = map fileOf runTests;
           count = bucketCount dir testPaths;
           bucketTests = index: lib.filter (id: bucketOf count (fileOf id) == index) runTests;
@@ -553,16 +635,20 @@
           # root config naming only this package's project, files by repository path.
           commandFor =
             ids:
-            if lib.elem dir rootVitestProjects then ''
-              cd "$ROOT"
-              # Some tests ask git about the repository they run in.
-              git init -q
-              cat > vitest.config.ts <<'CONFIG'
-              import { defineConfig } from "vitest/config";
-              export default defineConfig({ test: { projects: [{ extends: "./${dir}/vitest.config.ts", test: { name: "${dir}", root: "./${dir}", testTimeout: ${toString gateTimeoutMs}, hookTimeout: ${toString gateTimeoutMs} } }]${serialWorkers dir} } });
-              CONFIG
-              ${pnpmExec "vitest run${timeoutFlags dir}${caseFilter ids} ${lib.concatMapStringsSep " " fileOf ids}"}
-            '' else
+            if lib.elem dir rootVitestProjects then
+              ''
+                cd "$ROOT"
+                # Some tests ask git about the repository they run in.
+                git init -q
+                cat > vitest.config.ts <<'CONFIG'
+                import { defineConfig } from "vitest/config";
+                export default defineConfig({ test: { projects: [{ extends: "./${dir}/vitest.config.ts", test: { name: "${dir}", root: "./${dir}", testTimeout: ${toString gateTimeoutMs}, hookTimeout: ${toString gateTimeoutMs} } }]${serialWorkers dir} } });
+                CONFIG
+                ${pnpmExec "vitest run${timeoutFlags dir}${caseFilter ids} ${
+                  lib.concatMapStringsSep " " fileOf ids
+                }"}
+              ''
+            else
               pnpmExec "vitest run --maxWorkers=${toString otherWorkers}${timeoutFlags dir}${caseFilter ids} ${
                 lib.concatMapStringsSep " " (id: lib.removePrefix "${dir}/" (fileOf id)) ids
               }";
@@ -647,6 +733,20 @@
           name = "coverage-run-gateway-auth";
           installPhase = ''mkdir -p "$out"; cp -R "$ROOT/coverage/." "$out/"'';
         });
+
+      handoffPrerequisites =
+        pkgs:
+        map (mkDist pkgs) (distDirs "server")
+        ++ map (mkGenerated pkgs) (generatedDirs "test" "server")
+        ++ [
+          (mkTestPostgresTemplate pkgs)
+          (mkTestGraph pkgs)
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-graph-current
+          self.checks.${pkgs.stdenv.hostPlatform.system}.typecheck-paperclipai-server
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-b17
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-b15
+          self.checks.${pkgs.stdenv.hostPlatform.system}.test-paperclipai-server-local-task-handoff
+        ];
     in
     {
       legacyPackages = forAllSystems (pkgs: {
@@ -656,12 +756,30 @@
       checks = forAllSystems (
         pkgs:
         checksFor pkgs
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+          prerequisite-audit = import ./nix/prerequisite-audit.nix {
+            inherit pkgs;
+            prerequisite = mkDist pkgs "packages/plugins/sdk";
+            hook = auditHook pkgs;
+            prerequisites = handoffPrerequisites pkgs;
+          };
+        }
         // {
-          test-graph-current = pkgs.runCommand "test-graph-current" { } ''
-            diff ${mkTestGraph pkgs} ${./nix/test-graph.json} \
-              || { echo "nix/test-graph.json is stale: run nix run .#update-test-graph" >&2; exit 1; }
-            touch $out
-          '';
+          prerequisite-audit-policy = import ./nix/prerequisite-audit-policy.nix {
+            inherit pkgs tmpdirAuditPolicy;
+            prerequisites = handoffPrerequisites pkgs;
+          };
+          test-graph-current = mkAuditedDerivation pkgs {
+            name = "test-graph-current";
+            dontUnpack = true;
+            dontConfigure = true;
+            buildPhase = ''
+              diff ${mkTestGraph pkgs} ${./nix/test-graph.json} \
+                || { echo "nix/test-graph.json is stale: run nix run .#update-test-graph" >&2; exit 1; }
+              touch $out
+            '';
+            installPhase = "true";
+          };
           node-modules-inputs = pkgs.runCommand "node-modules-inputs" { } ''
             test "${lib.boolToString installSelection.sameOnSourceEdit}" = true \
               || { echo "a source-only change altered the install inputs" >&2; exit 1; }
