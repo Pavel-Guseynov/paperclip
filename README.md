@@ -572,12 +572,17 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
 
-The locked fleet Nix input supplies the single Nixpkgs authority. The local-task
-handoff derivation includes its `lib.tmpdirAuditCorrection` setup hook. This
-keeps the native temporary-directory audit enabled, waits for every audit child
-and fails the derivation on a child failure. The hook affects only that selected
-derivation; other dependency recipes remain unchanged. Its failure diagnostics
-and original child output remain in the native Nix build log.
+The locked fleet Nix input supplies the single Nixpkgs authority. One native
+derivation factory adds its producer-owned `lib.tmpdirAuditCorrection` setup
+hook to workspace dist, typecheck and test recipes, the PostgreSQL template,
+the import graph and its comparison check. This keeps the native temporary
+directory audit enabled, waits for every audit child and fails the derivation
+on a child failure. Dependency installation and its fixed-output fetch retain
+their existing recipes. Failure diagnostics and original child output remain
+in the native Nix build log. The Darwin prerequisite-audit check injects the
+producer's unreadable-directory failure into the real plugin SDK dist recipe,
+proves its classifier failure rejects the build with cleanup and child reaping,
+and verifies that each handoff-gate prerequisite consumes the same hook.
 
 ## Roadmap
 
