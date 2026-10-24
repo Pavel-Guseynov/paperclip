@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
+import { Writable } from "node:stream";
 import express from "express";
+import pino from "pino";
 import { and, eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -48,6 +50,7 @@ import {
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { actorMiddleware } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { basePinoOptions, createHttpLogger } from "../middleware/logger.js";
 import { mcpGatewayProtocolRoutes, toolGatewayRoutes } from "../routes/tool-gateway.js";
 import { initializeRunIdentity, reserveSteeredIdentity } from "../services/run-identity.js";
 import { toolAccessService } from "../services/tool-access.js";
@@ -671,6 +674,80 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     await tempDb?.cleanup();
   });
 
+
+  describe.each(["public", "managed"] as const)("unsupported MCP methods on %s endpoint", (endpoint) => {
+    it.each([
+      { method: "ping", id: 0 },
+      { method: "resources/templates/list", id: "templates" },
+      { method: "unsupported", id: null },
+    ])("returns a JSON-RPC method error over HTTP 200 for $method with id $id", async ({ method, id }) => {
+      const fixture = await createRunGatewayProtocolFixture(db, "authenticated");
+      const response = await request(fixture.app)
+        .post(fixture.endpoints[endpoint])
+        .set("authorization", `Bearer ${fixture.token.token}`)
+        .send({ jsonrpc: "2.0", id, method })
+        .expect(200);
+      expect(response.body).toEqual({
+        jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" },
+      });
+    });
+
+    it("accepts an unknown notification without a JSON-RPC response", async () => {
+      const fixture = await createRunGatewayProtocolFixture(db, "authenticated");
+      const response = await request(fixture.app)
+        .post(fixture.endpoints[endpoint])
+        .set("authorization", `Bearer ${fixture.token.token}`)
+        .send({ jsonrpc: "2.0", method: "notifications/unknown" })
+        .expect(202);
+      expect(response.text).toBe("");
+    });
+
+    it.each([true, false])("rejects an invalid bearer before dispatch (notification: %s)", async (notification) => {
+      const fixture = await createRunGatewayProtocolFixture(db, "authenticated");
+      await request(fixture.app)
+        .post(fixture.endpoints[endpoint])
+        .set("authorization", `Bearer ${tamperToken(fixture.token.token)}`)
+        .send({ jsonrpc: "2.0", ...(!notification ? { id: "invalid" } : {}), method: "unsupported" })
+        .expect(401);
+    });
+
+    it("retains HTTP 401 for a missing bearer", async () => {
+      const fixture = await createRunGatewayProtocolFixture(db, "authenticated");
+      await request(fixture.app)
+        .post(fixture.endpoints[endpoint])
+        .send({ jsonrpc: "2.0", id: "missing", method: "ping" })
+        .expect(401);
+    });
+
+    it.each([
+      { method: "resources/templates/list", loggedMethod: "resources/templates/list" },
+      { method: "Bearer diagnostic-method-secret", loggedMethod: "Bearer [REDACTED]" },
+    ])("logs a redacted method without arguments for $method", async ({ method, loggedMethod }) => {
+      const fixture = await createRunGatewayProtocolFixture(db, "authenticated");
+      const chunks: string[] = [];
+      const stream = new Writable({
+        write(chunk, _encoding, callback) {
+          chunks.push(chunk.toString());
+          callback();
+        },
+      });
+      const app = express();
+      app.use(createHttpLogger(pino(basePinoOptions, stream)));
+      app.use(fixture.app);
+      await request(app)
+        .post(fixture.endpoints[endpoint])
+        .set("authorization", `Bearer ${fixture.token.token}`)
+        .send({ jsonrpc: "2.0", id: "logged", method, params: { token: "argument-secret" } });
+      const output = chunks.join("");
+      const record = JSON.parse(output.trim());
+      expect(record.mcpMethod).toBe(loggedMethod);
+      expect(record.res.statusCode).toBe(200);
+      expect(record).not.toHaveProperty("reqBody");
+      expect(output).not.toContain(fixture.token.token);
+      expect(output).not.toContain("argument-secret");
+      expect(output).not.toContain("diagnostic-method-secret");
+    });
+  });
 
   it("exposes a named gateway with scoped bearer-token auth and revocation", async () => {
     const company = await createCompany(db);
