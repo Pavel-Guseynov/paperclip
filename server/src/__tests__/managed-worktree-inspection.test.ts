@@ -18,7 +18,7 @@ async function fixture(longPaths = false, run = exec) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "worktree-inspection-")));
   roots.push(root);
   const repo = path.join(root, "repo");
-  const parent = longPaths ? path.join(root, "a".repeat(200), "b".repeat(200), "c".repeat(200)) : root;
+  const parent = longPaths ? path.join(root, "a".repeat(200), "b".repeat(200), "c".repeat(200), "d".repeat(200)) : root;
   const worktree = path.join(parent, "zz-task");
   await fs.mkdir(parent, { recursive: true });
   await run("git", ["init", repo]);
@@ -106,7 +106,7 @@ describe("managed worktree registration inspection with real Git", () => {
     };
     report("started");
     const { repo, worktree, parent } = await fixture(true, run);
-    for (let index = 0; index < 500; index++) {
+    for (let index = 0; index < 340; index++) {
       await run("git", ["-C", repo, "worktree", "add", "--detach", "--no-checkout", path.join(parent, `listed-${index}`)]);
       completedAdds++;
     }
@@ -115,6 +115,7 @@ describe("managed worktree registration inspection with real Git", () => {
     byteLength = Buffer.byteLength(complete);
     expect(byteLength).toBeGreaterThan(300_000);
     expect(complete).toContain(`worktree ${worktree}\n`);
+    expect(complete.slice(-300_000)).toContain(`worktree ${worktree}\n`);
     nextPhase("inspection");
     const inspection = await inspectManagedGitWorktreeBranch({ repoRoot: repo, worktreePath: worktree, expectedBranchName: "work" });
     exitStatus = inspection.inspectionDiagnostic?.exitCode ?? 0;
