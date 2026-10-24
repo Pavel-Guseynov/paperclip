@@ -641,7 +641,7 @@
                 .map(([, location]) => [location.start.line, location.end.line])
             }
           ]));
-          fs.writeFileSync("coverage/statement-lines.json", JSON.stringify(statements) + "\n");
+          fs.writeFileSync("coverage/statement-lines.json", JSON.stringify(statements, null, 2) + "\n");
           REPORT
         '').overrideAttrs (_: {
           name = "coverage-run-gateway-auth";
