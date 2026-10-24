@@ -447,6 +447,26 @@ bucket checks. See [execution semantics](doc/execution-semantics.md).
 
 ### Managed MCP authentication
 
+Codex CLI runs require native profile-file support (Codex 0.134.0 or later).
+Each run selects a fresh `paperclip-run-<uuid>.config.toml` profile in its
+effective `CODEX_HOME`. The profile contains only that run's managed MCP
+bearers and preserves an explicitly selected operator profile. Base config,
+authentication and session storage retain their existing home. Profiles are
+written with mode 0600, staged individually for remote runs, and removed on
+normal or failed exit. A later run never selects a prior run's profile, including
+after server interruption. Obsolete shared managed MCP blocks are removed
+before profile preparation. Missing or malformed operator profiles and profile
+write failures reject launch. No credential is added to command arguments.
+
+Authentication refusals retain `tokenSubjectType`, `tokenSubjectId`,
+`subjectRunId`, `subjectRunStatus`, `presentingRunId` and
+`presentingRunIdSource` in `named_gateway_auth_failed`. Unknown values are null.
+The presenting run comes from a UUID-validated `X-Paperclip-Run-Id` header;
+`client_header` marks it as client-reported diagnostic evidence, never
+authorization. Codex CLI profiles send this header. Token material and token
+hashes are excluded from these fields. The normal run-finalization revocation
+and active-run checks remain authoritative.
+
 Managed MCP clients send their gateway bearer to
 `POST /api/tool-gateway/gateways/:gatewayId/mcp`. Paperclip validates it against
 that gateway and its current token and run state; it does not grant the bearer
@@ -473,8 +493,9 @@ Paperclip-managed Codex MCP entries set native
 `default_tools_approval_mode = "approve"` so calls reach the gateway under
 noninteractive execution. The gateway applies current tool policies, denies
 unauthorized calls and creates a human approval card when review is required.
-The shared configuration renderer applies this setting for CLI and ACPX runs
-and removes it with the managed block. Unmanaged MCP entries retain their own
+CLI profiles apply this setting. ACP supplies managed servers through its
+native per-session MCP options rather than writing run bearers to shared
+configuration. Unmanaged MCP entries retain their own
 approval settings. See [execution semantics](doc/execution-semantics.md).
 
 ### Remote MCP response size
@@ -581,6 +602,16 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 ### Nix
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
+
+The separately requested `coverage.run-gateway-auth` output measures native
+Vitest V8 statements for heartbeat, gateway, policy and Codex credential source
+files, using the route, policy, execution and profile suites. It preserves
+`coverage-final.json`, `coverage-summary.json` and repository-relative
+`statement-lines.json` (statement totals and uncovered start/end lines) in its output and
+prints a text report in the retained Nix log. A successful measurement does not
+assert 100 percent coverage: uncovered statements must be reviewed against the
+source diff. Test or report generation failure fails the operation. The provider
+is a locked development dependency and adds nothing to the production runtime.
 
 ## Roadmap
 
