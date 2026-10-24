@@ -13254,7 +13254,7 @@ export function issueRoutes(
       });
       if (
         isUnassignedLocalTask &&
-        (localTaskReviewHandoffAttempt || transition.patch.status === "in_review")
+        ((isBlocked && localTaskReviewHandoffAttempt) || transition.patch.status === "in_review")
       ) {
         if (await assertLowTrustControlPlaneDenied(req, res, existing.companyId, existing)) return;
         const project = existing.projectId

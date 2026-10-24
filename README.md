@@ -498,6 +498,8 @@ Low-trust actors, unresolved dependencies, subtree pause holds, active recovery
 actions and execution blockers cannot use this handoff. Invalid authority
 returns HTTP 403; incomplete handoffs and execution holds return HTTP 409.
 Ordinary unassigned blocked-task follow-ups still require an assigned agent.
+Stage-less, human-owned `in_progress` work retains ordinary agent completion
+to `done`; only a transition into review enters the local handoff guard.
 
 The native policy transition assigns the reviewer and preserves the original
 human in `executionState.returnAssignee`. Existing issue-update handling clears

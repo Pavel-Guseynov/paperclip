@@ -83,6 +83,26 @@ describe("human-owned local task review handoff", () => {
     };
   }
 
+  it.each(["lead", "peer"] as const)("allows the %s to complete stage-less human-owned in-progress work", async (actor) => {
+    const f = await seed("in_progress");
+    f.actor.agentId = f[actor].id;
+    const before = await effects(f);
+    expect(before.issue[0].executionPolicy).toBeNull();
+    const response = await request(f.app).patch(`/api/issues/${f.issue.id}`).send({ status: "done" });
+    await Promise.all([...activeWakeupPromises]);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toMatchObject({
+      status: "done", assigneeAgentId: null, assigneeUserId: f.userId,
+    });
+    const after = await effects(f);
+    expect(after.issue[0]).toMatchObject({
+      status: "done", assigneeAgentId: null, assigneeUserId: f.userId,
+    });
+    expect(after.decisions).toEqual(before.decisions);
+    expect(after.comments).toEqual(before.comments);
+    expect(after.wakes).toEqual(before.wakes);
+  });
+
   it.each(["blocked", "in_progress"])("hands %s local work to review with human return ownership and lead attribution", async (status) => {
     const f = await seed(status);
     const before = await effects(f);
