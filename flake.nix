@@ -513,6 +513,7 @@
       # Tests that start listeners in the machine-wide runtime port range (42000-42999)
       # cannot run beside each other, so each group runs in one check, one file at a time.
       serialGroups = {
+        "run-gateway-auth" = [ "server/src/__tests__/tool-gateway.test.ts" ];
         "server-ports" = [
           "server/src/__tests__/local-service-supervisor.test.ts"
           "server/src/__tests__/workspace-runtime-exposure-reservation.test.ts"

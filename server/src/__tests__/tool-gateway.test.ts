@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { execute as executeCodex } from "@paperclipai/adapter-codex-local/server";
+import { revokeHeartbeatRunGatewayTokens } from "../services/heartbeat.js";
 import express from "express";
 import { and, eq } from "drizzle-orm";
 import request from "supertest";
@@ -671,6 +676,71 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     await tempDb?.cleanup();
   });
 
+
+  it("keeps a live Codex run's bearer when an overlapping run sharing its home finishes", async () => {
+    const { company, agent, run, namedGateway, gateway, token, app, endpoints } =
+      await createRunGatewayProtocolFixture(db, "authenticated");
+    const [otherRun] = await db.insert(heartbeatRuns).values({
+      companyId: company.id, agentId: agent.id, invocationSource: "assignment",
+      status: "running", contextSnapshot: run.contextSnapshot,
+    }).returning();
+    const otherToken = await gateway.createNamedGatewayToken({
+      companyId: company.id, gatewayId: namedGateway.id,
+      body: { name: "Overlapping run", subjectType: "heartbeat_run", subjectId: otherRun!.id },
+      actor: { agentId: agent.id },
+    });
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-run-gateway-"));
+    const command = path.join(root, "codex");
+    const home = path.join(root, "home");
+    await fs.mkdir(home);
+    await fs.writeFile(command, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.readFileSync(0, "utf8");
+fs.writeFileSync(process.env.CAPTURE, fs.readFileSync(process.env.CODEX_HOME + "/config.toml"));
+console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_tokens:1}}));
+`, { mode: 0o700 });
+    let release!: () => void;
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    let ready!: () => void;
+    const configured = new Promise<void>((resolve) => { ready = resolve; });
+    const launch = (runId: string, bearer: string, pause: boolean) => executeCodex({
+      runId,
+      agent: { id: agent.id, companyId: company.id, name: agent.name, adapterType: "codex_local", adapterConfig: {} },
+      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+      config: { engine: "cli", command, cwd: root, env: { CODEX_HOME: home, CAPTURE: path.join(root, runId) } },
+      context: {}, authToken: "test-run-auth",
+      runtimeMcp: { getServers: () => [{ name: "fixture", url: `http://localhost${endpoints.managed}`, token: bearer, connectionId: "fixture" }] },
+      onLog: async (_stream, chunk) => {
+        if (pause && chunk.includes("Wrote 1 managed MCP")) { ready(); await resume; }
+      },
+    });
+    const live = launch(run.id, token.token, true);
+    // Surface setup failures immediately instead of leaving the fixture waiting.
+    void live.catch(() => ready());
+    try {
+      await configured;
+      expect((await launch(otherRun!.id, otherToken.token, false)).exitCode).toBe(0);
+      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, otherRun!.id));
+      await revokeHeartbeatRunGatewayTokens({ db, companyId: company.id, runId: otherRun!.id });
+      const ended = await request(app).post(endpoints.managed)
+        .set("authorization", `Bearer ${otherToken.token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "initialize" }).expect(401);
+      expect(ended.body.error.data.reasonCode).toBe("gateway_token_revoked");
+      release();
+      expect((await live).exitCode).toBe(0);
+      const captured = await fs.readFile(path.join(root, run.id), "utf8");
+      const bearer = /Authorization = "Bearer ([^"]+)"/.exec(captured)![1]!;
+      const response = await request(app).post(endpoints.managed)
+        .set("authorization", `Bearer ${bearer}`)
+        .send({ jsonrpc: "2.0", id: 2, method: "initialize" });
+      expect(response.body.error?.data?.reasonCode ?? response.status).toBe(200);
+      expect(bearer === token.token).toBe(true);
+    } finally {
+      release();
+      await live.catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("exposes a named gateway with scoped bearer-token auth and revocation", async () => {
     const company = await createCompany(db);
