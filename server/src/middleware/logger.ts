@@ -1,6 +1,7 @@
 import pino from "pino";
 import type { Logger, LoggerOptions } from "pino";
 import { pinoHttp } from "pino-http";
+import type { Response } from "express";
 import {
   HTTP_LOG_REDACT_PATHS,
   HEADER_REDACTION_MARKER,
@@ -257,12 +258,16 @@ export function createHttpLogger(baseLogger: Logger) {
         : value;
     },
     customProps(req, res) {
+      const props: Record<string, unknown> = {};
+      const method = (res as Response).locals?.mcpMethod;
+      if (typeof method === "string") props.mcpMethod = redactSensitive(method);
       if (res.statusCode >= 400) {
         const ctx = (res as any).__errorContext;
         if (isPrivateWebhook(req)) {
           // Omit, rather than recursively redact, the entire provider payload.
           // This applies equally before/after parsing and with/without context.
           return {
+            ...props,
             reqBody: "[REDACTED]",
             ...(ctx || (res as any).err
               ? { errorContext: { name: "Error" } }
@@ -275,6 +280,7 @@ export function createHttpLogger(baseLogger: Logger) {
             requestClassificationUrl(req),
           );
           return {
+            ...props,
             // Provider SDK and validation errors sometimes echo the supplied
             // credential in their prose. Keep only a non-sensitive type marker
             // for setup routes; the status, route, and redacted body remain.
@@ -285,7 +291,6 @@ export function createHttpLogger(baseLogger: Logger) {
             reqParams: redactSensitive(ctx.reqParams),
           };
         }
-        const props: Record<string, unknown> = {};
         const { body, params } = req as any;
         if (body && typeof body === "object" && Object.keys(body).length > 0) {
           props.reqBody = redactSensitive(body);
@@ -302,7 +307,7 @@ export function createHttpLogger(baseLogger: Logger) {
         }
         return props;
       }
-      return {};
+      return props;
     },
   });
 }
