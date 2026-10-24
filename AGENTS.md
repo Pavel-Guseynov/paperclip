@@ -187,6 +187,12 @@ If anything cannot be run, explicitly report what was not run and why.
 
 The fork's `flake.nix` caches dependencies and test results so a repeated run builds nothing:
 
+- `nix build --no-link .#checks.<system>.test-paperclipai-server-local-task-handoff` proves the human-owned local-task review route and its rejection guards against test-owned PostgreSQL state. Run it when changing local-task review admission; the suite has its own check and is excluded from the general test buckets.
+
+- `nix build --no-link .#checks.<system>.prerequisite-audit` (Darwin) proves the real plugin SDK dist recipe rejects the producer's injected audit-classifier failure and verifies shared-hook consumption across handoff-gate prerequisites. Run it when changing native prerequisite audit wiring.
+
+- `nix build --no-link .#checks.<system>.prerequisite-audit-policy` verifies the producer's policy values on every handoff-gate prerequisite; factory assertions preserve all other recipe attributes, output declarations and dependency identities. Run it when changing native prerequisite policy wiring.
+
 - `nix flake check` runs every typecheck (`typecheck-<package>`) and every test bucket (`test-<package>-b<N>`). A check re-runs only when a file it reads changed.
 - `nix run .#update-test-graph` regenerates `nix/test-graph.json`, the import graph that decides which files each test bucket reads. Run it after changing imports or adding a test; `test-graph-current` fails when it is stale.
 - `nix build --no-link .#checks.aarch64-darwin.test-paperclipai-server-run-gateway-auth` runs the gateway route suite, including overlapping-run Codex credential isolation, terminal-run revocation and refusal-log attribution. It owns that suite once, outside the general server buckets.

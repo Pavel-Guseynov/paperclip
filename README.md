@@ -538,6 +538,32 @@ By default, agents run on scheduled heartbeats and event-based triggers (task as
 
 <br/>
 
+## Local task review handoff
+
+The native `PATCH /api/issues/:id` route accepts a project lead's completion
+handoff of human-owned local work from `blocked` (after blockers resolve) or
+`in_progress` into the configured pending agent review stage. The request uses
+`status: "done"`, a review execution policy and a `## Task Disposition` comment,
+without assignee overrides, `resume` or `reopen`. The issue must have Gitea
+`branch`, `commit` and `pull_request` work products with non-empty external IDs,
+`status: "ready_for_review"` and `reviewState: "needs_board_review"`.
+
+The authenticated agent must lead the issue's same-company, unpaused project.
+Low-trust actors, unresolved dependencies, subtree pause holds, active recovery
+actions and execution blockers cannot use this handoff. Invalid authority
+returns HTTP 403; incomplete handoffs and execution holds return HTTP 409.
+Ordinary unassigned blocked-task follow-ups still require an assigned agent.
+Stage-less, human-owned `in_progress` work retains ordinary agent completion
+to `done`; only a transition into review enters the local handoff guard.
+
+The native policy transition assigns the reviewer and preserves the original
+human in `executionState.returnAssignee`. Existing issue-update handling clears
+blocked bookkeeping, attributes update/comment activity to the lead, and queues
+`execution_review_requested`. Handoff creates no execution decision; the first
+decision remains the reviewer's verdict. The Flake check
+`test-paperclipai-server-local-task-handoff` proves the route against test-owned
+PostgreSQL state, including rejection without issue mutation or reviewer wakeup.
+
 ## Development
 
 Adapters using `@paperclipai/adapter-utils` `runChildProcess` receive a failed
@@ -612,6 +638,23 @@ prints a text report in the retained Nix log. A successful measurement does not
 assert 100 percent coverage: uncovered statements must be reviewed against the
 source diff. Test or report generation failure fails the operation. The provider
 is a locked development dependency and adds nothing to the production runtime.
+
+The locked fleet Nix input supplies the single Nixpkgs authority. One native
+derivation factory applies its producer-owned `lib.tmpdirAuditPolicy`
+unchanged to workspace dist, typecheck and test recipes, the PostgreSQL
+template, the import graph and its comparison check. This skips the selected
+temporary-directory audits through the producer's native attribute; it does
+not repair or diagnose the classifier SIGSEGV. The factory verifies that
+every other recipe attribute, including output declarations, toolchains and
+dependency identities, is unchanged by policy application.
+Dependency installation and its fixed-output fetch retain their existing recipes.
+The prerequisite-audit-policy check verifies every handoff-gate prerequisite
+carries the producer's exact policy values. The factory also retains the
+producer's `lib.tmpdirAuditCorrection` setup hook. The Darwin prerequisite-audit
+check explicitly enables auditing only in its test-owned plugin SDK control,
+injects the producer's unreadable-directory failure, and proves child-status
+propagation, cleanup and reaping. Failure diagnostics and original child
+output remain in the native Nix build log.
 
 ## Roadmap
 

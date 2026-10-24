@@ -12997,6 +12997,16 @@ export function issueRoutes(
         typeof updateFields.status === "string" &&
         updateFields.status !== existing.status &&
         (isBlocked || (isClosed && !isClosedIssueStatus(updateFields.status)));
+      const isUnassignedLocalTask =
+        req.actor.type === "agent" &&
+        existing.assigneeAgentId === null &&
+        (isBlocked || existing.status === "in_progress") &&
+        parseIssueExecutionState(existing.executionState)?.status !== "pending";
+      const localTaskReviewHandoffAttempt =
+        isUnassignedLocalTask &&
+        updateFields.status === "done" &&
+        resumeRequested !== true &&
+        reopenRequested !== true;
       if (
         resumeRequested !== true &&
         req.actor.type === "agent" &&
@@ -13030,6 +13040,9 @@ export function issueRoutes(
             )
           : null;
       if (recoveryRelevantSourceMutationRequested) {
+        if (localTaskReviewHandoffAttempt && activeRecoveryActionBeforeUpdate) {
+          throw conflict("Local task review handoff blocked by active recovery action");
+        }
         await requireRecoveryActionAuthority(
           req,
           existing,
@@ -13052,6 +13065,7 @@ export function issueRoutes(
       if (
         resumeRequested !== true &&
         agentStatusTransitionRequiresResumeAuthority &&
+        !localTaskReviewHandoffAttempt &&
         !(await assertExplicitResumeIntentAllowed(req, res, existing))
       ) {
         return;
@@ -13276,6 +13290,62 @@ export function issueRoutes(
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
       });
+      if (
+        isUnassignedLocalTask &&
+        ((isBlocked && localTaskReviewHandoffAttempt) || transition.patch.status === "in_review")
+      ) {
+        if (await assertLowTrustControlPlaneDenied(req, res, existing.companyId, existing)) return;
+        const project = existing.projectId
+          ? await projectsSvc.getById(existing.projectId)
+          : null;
+        if (
+          !project || project.companyId !== existing.companyId ||
+          project.pausedAt || project.leadAgentId !== actor.agentId
+        ) {
+          throw forbidden("Local task review handoff requires the unpaused project's lead agent");
+        }
+        const nextState = parseIssueExecutionState(transition.patch.executionState);
+        if (
+          updateFields.status !== "done" ||
+          req.body.assigneeAgentId !== undefined || req.body.assigneeUserId !== undefined ||
+          resumeRequested === true || reopenRequested === true ||
+          !existing.assigneeUserId?.trim() ||
+          !/^## Task Disposition(?:[ \t]*:.*)?[ \t]*$/m.test(commentBody ?? "") ||
+          transition.patch.status !== "in_review" || !transition.workflowControlledAssignment ||
+          nextState?.status !== "pending" || nextState.currentStageType !== "review" ||
+          nextState.currentParticipant?.type !== "agent" ||
+          !nextState.currentParticipant.agentId ||
+          nextState.returnAssignee?.type !== "user" ||
+          nextState.returnAssignee.userId !== existing.assigneeUserId ||
+          transition.patch.assigneeAgentId !== nextState.currentParticipant.agentId ||
+          transition.patch.assigneeUserId !== null || transition.decision
+        ) {
+          throw conflict("Local task review handoff requires human ownership and a complete review disposition");
+        }
+        const reviewer = await agentsSvc.getById(nextState.currentParticipant.agentId);
+        if (
+          !reviewer || reviewer.companyId !== existing.companyId ||
+          !["active", "idle", "running"].includes(reviewer.status)
+        ) {
+          throw conflict("Local task review handoff requires an active reviewer agent");
+        }
+        const products = await workProductsSvc.listForIssue(existing.id);
+        if (!["branch", "commit", "pull_request"].every((type) => products.some((product) =>
+          product.type === type && product.provider === "gitea" &&
+          product.status === "ready_for_review" && product.reviewState === "needs_board_review" &&
+          Boolean(product.externalId?.trim()),
+        ))) {
+          throw conflict("Local task review handoff requires ready-for-review Gitea branch, commit and pull_request work products");
+        }
+        const [pauseHold, readiness, executionBlocker] = await Promise.all([
+          treeControlSvc.getActivePauseHoldGate(existing.companyId, existing.id),
+          svc.getDependencyReadiness(existing.id),
+          getExecutionBlocker(db, existing.companyId, existing.id),
+        ]);
+        if (pauseHold || readiness.unresolvedBlockerCount > 0 || executionBlocker || activeRecoveryActionBeforeUpdate) {
+          throw conflict("Local task review handoff blocked by active execution, dependency, recovery or pause hold");
+        }
+      }
       const decisionId = transition.decision ? randomUUID() : null;
       if (decisionId) {
         const nextExecutionState = transition.patch.executionState;
