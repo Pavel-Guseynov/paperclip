@@ -7,12 +7,19 @@
 // `pnpm deploy --prod` then installed the test runner, the Drizzle CLI and the React DOM renderer.
 // Dropping the declaration means it is never resolved. Only optional peers are dropped: a package
 // that needs one of these cannot work without it, and keeps it.
-const OPTIONAL_PEERS_THE_SERVER_DOES_NOT_USE = ["vitest", "drizzle-kit", "react-dom"];
-const PACKAGES_THAT_LIST_THEM = new Set(["better-auth", "@vercel/connect"]);
+const TOOLING_PEERS = ["vitest", "drizzle-kit", "react-dom"];
+const UNUSED_OPTIONAL_PEERS = new Map([
+  ["better-auth", TOOLING_PEERS],
+  ["@vercel/connect", TOOLING_PEERS],
+  // Istanbul supplies this optional terminal-color helper in the workspace.
+  // Debug works without it; it must not bring development tooling into deploys.
+  ["debug", ["supports-color"]],
+]);
 
 function readPackage(pkg) {
-  if (!PACKAGES_THAT_LIST_THEM.has(pkg.name)) return pkg;
-  for (const peer of OPTIONAL_PEERS_THE_SERVER_DOES_NOT_USE) {
+  const peers = UNUSED_OPTIONAL_PEERS.get(pkg.name);
+  if (!peers) return pkg;
+  for (const peer of peers) {
     if (pkg.peerDependenciesMeta?.[peer]?.optional !== true) continue;
     delete pkg.peerDependencies?.[peer];
     delete pkg.peerDependenciesMeta[peer];

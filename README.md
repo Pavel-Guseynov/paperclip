@@ -536,6 +536,15 @@ faults retain connection failure handling. The size error carries bounded
 metadata without the rejected payload; callers should request a smaller
 result. No configuration option raises this bound.
 
+### Gateway write replay
+
+Gateway write replay identity uses the complete canonical arguments, including
+nested values. Different writes remain distinct when their audit display prefixes
+match. Exact duplicates reuse their recorded invocation; an explicit idempotency
+key reused with different arguments returns HTTP 409 `idempotency_key_conflict`
+before provider execution. Audit displays remain bounded and secret-redacted;
+the stored argument identity is a digest. See [connection reviews](doc/connections/TASK-REVIEWS.md).
+
 ## FAQ
 
 **What does a typical setup look like?**
@@ -658,7 +667,11 @@ files, using the route, policy, execution and profile suites. It preserves
 prints a text report in the retained Nix log. A successful measurement does not
 assert 100 percent coverage: uncovered statements must be reviewed against the
 source diff. Test or report generation failure fails the operation. The provider
-is a locked development dependency and adds nothing to the production runtime.
+is a locked development dependency. The native `.pnpmfile.cjs` policy removes debug's unused
+optional `supports-color` peer so Istanbul's development-only color dependency
+cannot be pulled into production through workspace peer resolution. The native
+`pnpm-production-peer-policy` check validates the policy and regenerated lock;
+the packaging production-dependency gate verifies the actual deployment.
 
 The locked fleet Nix input supplies the single Nixpkgs authority. One native
 derivation factory applies its producer-owned `lib.tmpdirAuditPolicy`

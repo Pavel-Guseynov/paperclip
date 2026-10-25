@@ -44,6 +44,14 @@ its existing omitted/`"exact"` mode continues to bind exact argument values.
 
 ## Governed waiting and recovery
 
+Write replay identity binds the complete canonical arguments, including nested
+values, independently of shortened or redacted audit displays. An exact duplicate
+reuses its invocation; a changed value is a distinct write even when the displayed
+prefix matches. Reusing an explicit idempotency key with different arguments
+returns HTTP 409 with code `idempotency_key_conflict` before provider execution.
+The conflict names the invocation and tool without disclosing argument values.
+Stored identity is a digest; audit arguments remain bounded and secret-redacted.
+
 The gateway returns `approval_required` with the linked request/interaction IDs
 and instructions to finish unrelated work, then yield `in_review` without retrying
 or claiming completion. Agent task completion is rejected while a linked action
