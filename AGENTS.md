@@ -185,6 +185,8 @@ If anything cannot be run, explicitly report what was not run and why.
 
 ### Nix flake checks (fork)
 
+- `nix build --no-link .#checks.<system>.pnpm-production-peer-policy` verifies that the native pnpm readPackage policy and lock remove debug's unused optional color peer. Run it after changing pnpm dependency policy or regenerating the lock.
+
 The fork's `flake.nix` caches dependencies and test results so a repeated run builds nothing:
 
 - `nix build --no-link .#checks.<system>.test-paperclipai-server-local-task-handoff` proves the human-owned local-task review route and its rejection guards against test-owned PostgreSQL state. Run it when changing local-task review admission; the suite has its own check and is excluded from the general test buckets.

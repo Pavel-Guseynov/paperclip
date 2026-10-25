@@ -780,6 +780,17 @@
             '';
             installPhase = "true";
           };
+          pnpm-production-peer-policy = pkgs.runCommand "pnpm-production-peer-policy" {
+            nativeBuildInputs = [ pkgs.nodejs_24 pkgs.yq-go ];
+          } ''
+            export PNPMFILE=${./.pnpmfile.cjs}
+            node --test --experimental-test-coverage \
+              --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 \
+              --test-coverage-include='**/*pnpmfile.cjs' ${./nix/pnpm-production-peer-policy.test.cjs}
+            yq --exit-status '.packages."debug@4.4.3".peerDependencies | has("supports-color") | not' ${./pnpm-lock.yaml}
+            yq --exit-status '.snapshots | keys | map(select(test("^debug@.*supports-color"))) | length == 0' ${./pnpm-lock.yaml}
+            touch "$out"
+          '';
           node-modules-inputs = pkgs.runCommand "node-modules-inputs" { } ''
             test "${lib.boolToString installSelection.sameOnSourceEdit}" = true \
               || { echo "a source-only change altered the install inputs" >&2; exit 1; }
