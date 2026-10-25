@@ -405,6 +405,27 @@ This starts the API server at `http://localhost:3100`. An embedded PostgreSQL da
 Source development also builds the native Paperclip Runner when enabled (the self-hosted default). Install a Rust toolchain, set `PAPERCLIP_RUNNER_BINARY` to a compatible prebuilt runner, or set `PAPERCLIP_SKIP_RUNNER_BINARY=1` to skip building the native runner binary (native-runtime providers require the binary at runtime).
 <br/>
 
+### Plugin HTTP access to private hosts
+
+The deployment operator may set `PAPERCLIP_PLUGIN_FETCH_PRIVATE_HOSTS` to a
+comma-separated list of exact lowercase hostnames, for example
+`git.private.test,build.private.test`. Unset or empty means no private-host
+exceptions. Whitespace, empty list entries, wildcards, IP literals (including
+alternative numeric forms), URLs, schemes and ports fail configuration loading.
+Changes take effect on the next server start.
+
+This setting applies only to plugin host `http.fetch`. Listed hosts may reach
+RFC 1918 or IPv6 ULA addresses; loopback, unspecified and link-local addresses
+remain refused. Unlisted hosts retain public-only access. DNS is resolved once,
+the first permitted result is dialed directly, and the original Host header
+and TLS SNI are preserved. Redirects are returned to the caller, never followed.
+If no resolved address is permitted, the existing private/reserved-ranges error
+is returned before any connection. Public/private mixed answers retain the
+existing filtering behavior. The native server test bucket for
+`plugin-fetch-private-hosts.test.ts` proves configuration, exact-host matching,
+pinning, Host and SNI through mocked DNS/dial boundaries and real HTTP/TLS
+servers; `remote-http-rebinding.test.ts` retains its existing assertions.
+
 ### Execution recovery
 
 A continuation cancelled before dispatch while waiting for review has no

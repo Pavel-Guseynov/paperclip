@@ -73,6 +73,7 @@ import type { IncomingMessage, RequestOptions as HttpRequestOptions } from "node
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { normalizeIpAddress } from "./remote-http-endpoint-guard.js";
 import { logger } from "../middleware/logger.js";
 import { getTelemetryClient } from "../telemetry.js";
 import { accessService } from "./access.js";
@@ -100,34 +101,34 @@ const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
 const TELEMETRY_EVENT_NAME_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
 
 /**
- * Check if an IP address is in a private/reserved range (RFC 1918, loopback,
- * link-local, etc.) that plugins should never be able to reach.
+ * Refuse reserved addresses, permitting RFC 1918 and ULA addresses only when
+ * the operator has allowed the exact hostname.
  *
  * Handles IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1) which Node's
  * dns.lookup may return depending on OS configuration.
  */
-function isPrivateIP(ip: string): boolean {
+function isPrivateIP(address: string, allowPrivate: boolean): boolean {
+  const normalized = normalizeIpAddress(address);
+  const ip = isIP(normalized) === 6
+    ? new URL(`http://[${normalized}]`).hostname.slice(1, -1)
+    : normalized;
   const lower = ip.toLowerCase();
 
-  // Unwrap IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) and re-check as IPv4
-  const v4MappedMatch = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (v4MappedMatch && v4MappedMatch[1]) return isPrivateIP(v4MappedMatch[1]);
-
   // IPv4 patterns
-  if (ip.startsWith("10.")) return true;
+  if (ip.startsWith("10.")) return !allowPrivate;
   if (ip.startsWith("172.")) {
     const second = parseInt(ip.split(".")[1]!, 10);
-    if (second >= 16 && second <= 31) return true;
+    if (second >= 16 && second <= 31) return !allowPrivate;
   }
-  if (ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("192.168.")) return !allowPrivate;
   if (ip.startsWith("127.")) return true;                   // loopback
   if (ip.startsWith("169.254.")) return true;               // link-local
   if (ip === "0.0.0.0") return true;
 
   // IPv6 patterns
   if (lower === "::1") return true;                          // loopback
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA
-  if (lower.startsWith("fe80")) return true;                 // link-local
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return !allowPrivate; // ULA
+  if (/^fe[89ab]/.test(lower)) return true;                   // link-local fe80::/10
   if (lower === "::") return true;
 
   return false;
@@ -140,8 +141,8 @@ function isPrivateIP(ip: string): boolean {
  * 1. Parse and validate the URL syntax
  * 2. Enforce protocol whitelist (http/https only)
  * 3. Resolve the hostname to IP(s) via DNS
- * 4. Validate that ALL resolved IPs are non-private
- * 5. Pin the first safe IP into the URL so fetch() does not re-resolve DNS
+ * 4. Filter reserved IPs, allowing private IPs only for operator-listed hosts
+ * 5. Pin the first safe IP into the request so it does not re-resolve DNS
  *
  * This prevents DNS rebinding attacks where an attacker controls DNS to
  * resolve to a safe IP during validation, then to a private IP when fetch() runs.
@@ -157,7 +158,10 @@ interface ValidatedFetchTarget {
   useTls: boolean;
 }
 
-async function validateAndResolveFetchUrl(urlString: string): Promise<ValidatedFetchTarget> {
+async function validateAndResolveFetchUrl(
+  urlString: string,
+  privateHosts: readonly string[],
+): Promise<ValidatedFetchTarget> {
   let parsed: URL;
   try {
     parsed = new URL(urlString);
@@ -176,6 +180,7 @@ async function validateAndResolveFetchUrl(urlString: string): Promise<ValidatedF
   // between DNS resolution here and the second resolution fetch() would do.
   const originalHostname = parsed.hostname.replace(/^\[|\]$/g, ""); // strip IPv6 brackets
   const hostHeader = parsed.host; // includes port if non-default
+  const allowPrivate = privateHosts.includes(originalHostname);
 
   // Race the DNS lookup against a timeout to prevent indefinite hangs
   // when DNS is misconfigured or unresponsive.
@@ -193,10 +198,9 @@ async function validateAndResolveFetchUrl(urlString: string): Promise<ValidatedF
       throw new Error(`DNS resolution returned no results for ${originalHostname}`);
     }
 
-    // Filter to only non-private IPs instead of rejecting the entire request
-    // when some IPs are private. This handles multi-homed hosts that resolve
-    // to both private and public addresses.
-    const safeResults = results.filter((entry) => !isPrivateIP(entry.address));
+    // Retain multi-homed address filtering. Loopback and link-local addresses
+    // remain forbidden even for an operator-listed private host.
+    const safeResults = results.filter((entry) => !isPrivateIP(entry.address, allowPrivate));
     if (safeResults.length === 0) {
       throw new Error(
         `All resolved IPs for ${originalHostname} are in private/reserved ranges`,
@@ -703,6 +707,7 @@ export function buildHostServices(
     pluginWorkerManager?: PluginWorkerManager;
     manifest?: import("@paperclipai/shared").PaperclipPluginManifestV1;
     heartbeatRuntimeEnv?: Record<string, string | undefined>;
+    pluginFetchPrivateHosts?: readonly string[];
   } = {},
 ): HostServices & { dispose(): void } {
   const registry = pluginRegistryService(db);
@@ -1579,9 +1584,9 @@ export function buildHostServices(
 
     http: {
       async fetch(params) {
-        // SSRF protection: validate protocol whitelist + block private IPs.
+        // SSRF protection: validate protocol and the operator's private hosts.
         // Resolve once, then connect directly to that IP to prevent DNS rebinding.
-        const target = await validateAndResolveFetchUrl(params.url);
+        const target = await validateAndResolveFetchUrl(params.url, options.pluginFetchPrivateHosts ?? []);
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), PLUGIN_FETCH_TIMEOUT_MS);
