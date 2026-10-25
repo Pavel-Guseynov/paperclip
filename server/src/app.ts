@@ -474,6 +474,7 @@ export async function createApp(
     deploymentMode: DeploymentMode;
     deploymentExposure: DeploymentExposure;
     allowedHostnames: string[];
+    pluginFetchPrivateHosts?: readonly string[];
     bindHost: string;
     authPublicBaseUrl?: string;
     chatWebhookPublicBaseUrl?: string;
@@ -910,6 +911,7 @@ export async function createApp(
           {
             pluginWorkerManager: workerManager,
             manifest,
+            pluginFetchPrivateHosts: opts.pluginFetchPrivateHosts,
           },
         );
         hostServicesDisposers.set(pluginId, () => services.dispose());

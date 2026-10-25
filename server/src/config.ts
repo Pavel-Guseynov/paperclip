@@ -3,6 +3,7 @@ import { parseChatWebhookPublicBaseUrl } from "./chat-webhook-public-url.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { isIP } from "node:net";
 import { config as loadDotenv } from "dotenv";
 import { resolvePaperclipEnvPath } from "./paths.js";
 import { maybeRepairLegacyWorktreeConfigAndEnvFiles } from "./worktree-config.js";
@@ -63,6 +64,7 @@ export interface Config {
   host: string;
   port: number;
   allowedHostnames: string[];
+  pluginFetchPrivateHosts: string[];
   authBaseUrlMode: AuthBaseUrlMode;
   authPublicBaseUrl: string | undefined;
   chatWebhookPublicBaseUrl: string | undefined;
@@ -117,6 +119,20 @@ function detectTailnetBindHost(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function parsePluginFetchPrivateHosts(value: string | undefined): string[] {
+  if (value === undefined || value === "") return [];
+  const hosts = value.split(",");
+  for (const host of hosts) {
+    if (host.length > 253
+      || !host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+      || !URL.canParse(`http://${host}`)
+      || isIP(new URL(`http://${host}`).hostname) !== 0) {
+      throw new Error("PAPERCLIP_PLUGIN_FETCH_PRIVATE_HOSTS must contain comma-separated exact lowercase hostnames");
+    }
+  }
+  return hosts;
 }
 
 export function loadConfig(): Config {
@@ -323,6 +339,7 @@ export function loadConfig(): Config {
     host: resolvedBind.host,
     port: Number(process.env.PORT) || fileConfig?.server.port || 3100,
     allowedHostnames,
+    pluginFetchPrivateHosts: parsePluginFetchPrivateHosts(process.env.PAPERCLIP_PLUGIN_FETCH_PRIVATE_HOSTS),
     authBaseUrlMode,
     authPublicBaseUrl,
     chatWebhookPublicBaseUrl: parseChatWebhookPublicBaseUrl(
