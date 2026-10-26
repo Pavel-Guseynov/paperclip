@@ -9,6 +9,24 @@ import {
 } from "../services/mcp-http.js";
 
 describe("bounded MCP responses", () => {
+  it("retains consumed SSE progress when a partial event fails and releases the reader", async () => {
+    const partial = 'data: {"jsonrpc":"2.0","method":"notifications/progress"}\n\ndata: {"jsonrpc":';
+    const failure = new Error("peer reset");
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (reads++ === 0) controller.enqueue(new TextEncoder().encode(partial));
+        else controller.error(failure);
+      },
+    }, { highWaterMark: 0 });
+    let progress: unknown;
+    await expect(readMcpHttpResponse(new Response(body, { headers: { "content-type": "text/event-stream" } }), "request", {
+      onProgress: (value) => { progress = value; },
+    })).rejects.toBe(failure);
+    expect(progress).toEqual({ bytesReceived: Buffer.byteLength(partial), chunksReceived: 1, eventsReceived: 1, matchedResponse: false, ended: false });
+    expect(body.locked).toBe(false);
+  });
+
   for (const contentType of ["application/json", "text/event-stream"]) {
     it(`rejects declared ${contentType} overflow before consuming the body`, async () => {
       let reads = 0;

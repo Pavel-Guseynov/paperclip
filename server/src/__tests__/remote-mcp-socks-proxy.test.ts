@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createNetServer, connect as netConnect, type AddressInfo, type Server as NetServer, type Socket } from "node:net";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
   companies,
@@ -126,7 +127,7 @@ type McpTestServer = {
   close: () => Promise<void>;
 };
 
-function createMcpTestServer(): Promise<McpTestServer> {
+function createMcpTestServer(onToolCall?: (payload: Record<string, unknown>, response: ServerResponse) => void): Promise<McpTestServer> {
   return new Promise((resolve, reject) => {
     const requests: McpTestServer["requests"] = [];
     const server = createServer(async (req, res) => {
@@ -163,6 +164,10 @@ function createMcpTestServer(): Promise<McpTestServer> {
           return;
         }
         if (payload.method === "tools/call") {
+          if (onToolCall) {
+            onToolCall(payload, res);
+            return;
+          }
           const params = payload.params as Record<string, unknown> | undefined;
           const args = params?.arguments as Record<string, unknown> | undefined;
           res.writeHead(200, { "content-type": "application/json" });
@@ -218,13 +223,22 @@ describeEmbeddedPostgres("Change 25: Remote MCP SOCKS5 proxy", () => {
     await proxy?.close?.();
   });
 
-  it("proxied connection routes catalog refresh and tools/call through SOCKS5 proxy with target hostname", async () => {
-    mcpServer = await createMcpTestServer();
+  for (const outcome of ["success after twelve seconds", "deadline", "peer reset"] as const) {
+  it(`proxied SSE tools/call records ${outcome} with the target hostname`, async () => {
+    let streamResponse!: ServerResponse;
+    let streamRequestId: unknown;
+    const responseReady = Promise.withResolvers<void>();
+    mcpServer = await createMcpTestServer((payload, response) => {
+      streamResponse = response;
+      streamRequestId = payload.id;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progress":1}}\n\n');
+    });
     proxy = await createSocks5TestProxy({ "mcp.remote.test": mcpServer.port });
 
     const [company] = await db
       .insert(companies)
-      .values({ name: "ProxyCo", issuePrefix: "PRX" })
+      .values({ name: "ProxyCo", issuePrefix: `PX${randomUUID().slice(0, 6).toUpperCase()}` })
       .returning();
     const [agent] = await db
       .insert(agents)
@@ -301,6 +315,14 @@ describeEmbeddedPostgres("Change 25: Remote MCP SOCKS5 proxy", () => {
     const initialProxyConnCount = proxy.connections.length;
     const gateway = createToolGatewayService(db, {
       toolActionSigningSecret: testToolActionSigningSecret,
+      remoteHttpRequest: async (url, init) => {
+        const response = await guardedRemoteHttpFetch(url, init, {
+          error: (message, code) => Object.assign(new Error(message), { code }),
+          proxy: `socks5h://127.0.0.1:${proxy.port}`,
+        });
+        responseReady.resolve();
+        return response;
+      },
     });
     const session = await gateway.createSession({
       companyId: company.id,
@@ -311,19 +333,49 @@ describeEmbeddedPostgres("Change 25: Remote MCP SOCKS5 proxy", () => {
     const echoTool = tools.find((t) => t.upstreamToolName === "echo_tool");
     expect(echoTool).toBeDefined();
 
-    const result = (await gateway.executeTool({
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const call = gateway.executeTool({
       sessionToken: session.token,
       tool: echoTool!.name,
       parameters: { text: "hello" },
-    })) as Record<string, any>;
-
-    expect(result.status).toBe("completed");
-    expect(JSON.stringify(result)).toContain("proxied:hello");
+    }).then((result) => ({ result, error: null }), (error: unknown) => ({ result: null, error }));
+    try {
+      await responseReady.promise;
+      if (outcome === "peer reset") streamResponse.destroy();
+      else await vi.advanceTimersByTimeAsync(outcome === "deadline" ? 30_000 : 12_000);
+      if (outcome === "success after twelve seconds") {
+        streamResponse.write(`data: ${JSON.stringify({ jsonrpc: "2.0", id: streamRequestId, result: { content: [{ type: "text", text: "proxied:hello" }] } })}\n\n`);
+      }
+      const { result, error } = await call;
+      const [observedConnection] = await db.select().from(toolConnections).where(eq(toolConnections.id, connection.id));
+      if (outcome === "success after twelve seconds") {
+        expect(error).toBeNull();
+        expect(result?.status).toBe("completed");
+        expect(JSON.stringify(result)).toContain("proxied:hello");
+        expect(observedConnection.healthStatus).toBe("ok");
+      } else {
+        expect(error).toMatchObject({
+          status: outcome === "deadline" ? 504 : 502,
+          reasonCode: outcome === "deadline" ? "tool_timeout" : "mcp_remote_fetch_failed",
+          details: { execution: {
+            failureKind: outcome === "deadline" ? "invocation_timeout" : "transport_failure",
+            error: { message: "aborted", code: "ECONNRESET" },
+            response: { httpStatus: 200, contentType: "text/event-stream" },
+          } },
+        });
+        expect(observedConnection.healthStatus).toBe(outcome === "deadline" ? "degraded" : "error");
+      }
+    } finally {
+      vi.useRealTimers();
+      streamResponse.end();
+      await call;
+    }
     expect(proxy.connections.length).toBeGreaterThan(initialProxyConnCount);
     const lastConn = proxy.connections[proxy.connections.length - 1];
     expect(lastConn.atyp).toBe(0x03);
     expect(lastConn.targetHost).toBe("mcp.remote.test");
   });
+  }
 
   it("connection without a proxy uses pinned transport unchanged", async () => {
     mcpServer = await createMcpTestServer();

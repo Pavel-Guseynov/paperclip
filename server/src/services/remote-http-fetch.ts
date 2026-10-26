@@ -34,7 +34,7 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
  * that own a longer budget — `tools/call`, which an operator can raise to 60 s —
  * pass `responseTimeoutMs` so this default never truncates it.
  */
-const DEFAULT_RESPONSE_TIMEOUT_MS = 30_000;
+export const DEFAULT_REMOTE_HTTP_RESPONSE_TIMEOUT_MS = 30_000;
 const DNS_RESOLUTION_ERROR_CODES = new Set(["ENODATA", "ENOTFOUND", "EAI_AGAIN"]);
 
 /** How a verified socket is opened. Overridable so tests can simulate a rebind. */
@@ -174,7 +174,7 @@ async function proxiedRequest(
       socket,
       init,
       signal,
-      responseTimeoutMs: options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
+      responseTimeoutMs: options.responseTimeoutMs ?? DEFAULT_REMOTE_HTTP_RESPONSE_TIMEOUT_MS,
       error: options.error,
     });
   } catch (error) {
@@ -512,7 +512,7 @@ async function pinnedRequest(
       socket,
       init,
       signal,
-      responseTimeoutMs: options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
+      responseTimeoutMs: options.responseTimeoutMs ?? DEFAULT_REMOTE_HTTP_RESPONSE_TIMEOUT_MS,
       error: options.error,
     });
   } catch (error) {
