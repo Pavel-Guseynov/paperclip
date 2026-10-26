@@ -5,6 +5,7 @@ import { captureRunIdentity } from "./run-identity.js";
 import { resolveManagedGitHubIdentitySelection } from "./git-credentials.js";
 import { extractRemoteMcpPending } from "./remote-mcp-pending.js";
 import { logger } from "../middleware/logger.js";
+import { redactSensitiveText } from "../redaction.js";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
@@ -101,6 +102,7 @@ import {
   discardResponse,
   readMcpHttpResponse,
   McpHttpResponseError,
+  type McpHttpResponseProgress,
   mcpHttpRequestHeaders,
   parseMcpHttpResponseBody,
 } from "./mcp-http.js";
@@ -112,6 +114,7 @@ import {
 import { parseRemoteHttpEndpoint } from "./remote-http-endpoint-guard.js";
 import {
   guardedRemoteHttpFetch,
+  DEFAULT_REMOTE_HTTP_RESPONSE_TIMEOUT_MS,
   type GuardedRemoteHttpFetchOptions,
 } from "./remote-http-fetch.js";
 import {
@@ -412,7 +415,33 @@ type RemoteHttpExecutionAudit = {
     upstreamRequestId: string | null;
   };
   failureKind?: "invocation_timeout" | "transport_failure" | "protocol_failure";
+  error?: RemoteHttpErrorEvidence;
+  deadline?: { timeoutMs: number; aborted: boolean };
+  stream?: McpHttpResponseProgress;
 };
+
+type RemoteHttpErrorEvidence = {
+  name: string | null;
+  message: string;
+  code: string | null;
+  stack: string | null;
+  cause: RemoteHttpErrorEvidence | null;
+};
+
+// Project only diagnostic fields; never persist request objects or arbitrary
+// provider properties. Error.cause is normally non-enumerable.
+function remoteHttpErrorEvidence(error: unknown, seen = new Set<unknown>()): RemoteHttpErrorEvidence {
+  if (seen.has(error)) return { name: null, message: "[Circular cause]", code: null, stack: null, cause: null };
+  const record = asRecord(error);
+  seen.add(error);
+  return {
+    name: typeof record?.name === "string" ? redactSensitiveText(record.name) : null,
+    message: redactSensitiveText(typeof record?.message === "string" ? record.message : String(error)),
+    code: typeof record?.code === "string" ? redactSensitiveText(record.code) : null,
+    stack: typeof record?.stack === "string" ? redactSensitiveText(record.stack) : null,
+    cause: record?.cause == null ? null : remoteHttpErrorEvidence(record.cause, seen),
+  };
+}
 
 type LocalStdioRuntimeTemplate = {
   templateId: string;
@@ -6272,6 +6301,7 @@ export function createToolGatewayService(
       session,
       tool,
     );
+    if (useDefaultTimeout) ms = DEFAULT_REMOTE_HTTP_RESPONSE_TIMEOUT_MS;
     if (useDefaultTimeout && isRailwayConnection(connection) && entry.toolName === `${RAILWAY_TOOL_PREFIX}run-command`) {
       ms = railwayCommandBudgetMs(parameters);
     }
@@ -6513,6 +6543,7 @@ export function createToolGatewayService(
       const body = response.ok
         ? JSON.stringify(await readMcpHttpResponse(response, requestId, {
             maxBytes: MAX_REMOTE_MCP_RESPONSE_BYTES,
+            onProgress: (progress) => { execution.stream = progress; },
             onRequest: async (message) => {
               const pending = extractRemoteMcpPending(message);
               if (pending) {
@@ -6674,6 +6705,22 @@ export function createToolGatewayService(
       );
       return { result, headerSummary, execution };
     } catch (error) {
+      execution.error = remoteHttpErrorEvidence(error);
+      execution.deadline = { timeoutMs: ms, aborted: controller.signal.aborted };
+      // node:http reports an aborted response body as Error/ECONNRESET, even
+      // when our deadline caused it. The owning signal is the timeout authority.
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+        execution.failureKind = "invocation_timeout";
+        await markRemoteConnectionHealth(
+          connection,
+          "degraded",
+          "Remote MCP tool call timed out; transport remains viable.",
+          { observedAt: invocationStartedAt },
+        );
+        throw new ToolGatewayHttpError(504, "Remote MCP tool call timed out", "tool_timeout", {
+          connectionId: connection.id, catalogEntryId: entry.id, execution, failureKind: "invocation_timeout",
+        });
+      }
       if (error instanceof McpHttpResponseError) {
         execution.failureKind = "protocol_failure";
         if (execution.response && error.responseBytes != null) execution.response.bodySizeBytes = error.responseBytes;
@@ -6714,26 +6761,6 @@ export function createToolGatewayService(
             ...error.details,
             execution: currentExecution,
             ...(failureKind ? { failureKind } : {}),
-          },
-        );
-      }
-      if (error instanceof Error && error.name === "AbortError") {
-        execution.failureKind = "invocation_timeout";
-        await markRemoteConnectionHealth(
-          connection,
-          "degraded",
-          "Remote MCP tool call timed out; transport remains viable.",
-          { observedAt: invocationStartedAt },
-        );
-        throw new ToolGatewayHttpError(
-          504,
-          "Remote MCP tool call timed out",
-          "tool_timeout",
-          {
-            connectionId: connection.id,
-            catalogEntryId: entry.id,
-            execution,
-            failureKind: "invocation_timeout",
           },
         );
       }
