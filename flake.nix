@@ -701,6 +701,8 @@
                 include: [
                   "server/src/services/heartbeat.ts",
                   "server/src/services/tool-gateway.ts",
+                  "server/src/services/mcp-http.ts",
+                  "server/src/services/remote-http-fetch.ts",
                   "server/src/services/tool-access-policy.ts",
                   "packages/adapters/codex-local/src/server/execute.ts",
                   "packages/adapters/codex-local/src/server/codex-home.ts",
@@ -713,7 +715,7 @@
             }
           });
           CONFIG
-          ${pnpmExec "vitest run --coverage --reporter=verbose --testTimeout=60000 --hookTimeout=60000 server/src/__tests__/tool-gateway.test.ts server/src/__tests__/tool-access-policy-service.test.ts server/src/__tests__/codex-local-execute.test.ts packages/adapters/codex-local/src/server/codex-home.test.ts packages/adapters/codex-local/src/server/execute.remote.test.ts packages/adapters/codex-local/src/server/acp.test.ts packages/adapters/codex-local/src/server/codex-args.test.ts"}
+          ${pnpmExec "vitest run --coverage --reporter=verbose --testTimeout=60000 --hookTimeout=60000 server/src/__tests__/tool-gateway.test.ts server/src/__tests__/mcp-http.test.ts server/src/__tests__/remote-mcp-socks-proxy.test.ts server/src/__tests__/remote-http-rebinding.test.ts server/src/__tests__/tool-access-policy-service.test.ts server/src/__tests__/codex-local-execute.test.ts packages/adapters/codex-local/src/server/codex-home.test.ts packages/adapters/codex-local/src/server/execute.remote.test.ts packages/adapters/codex-local/src/server/acp.test.ts packages/adapters/codex-local/src/server/codex-args.test.ts"}
           node --input-type=module <<'REPORT'
           import fs from "node:fs";
           import path from "node:path";

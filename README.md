@@ -519,6 +519,33 @@ native per-session MCP options rather than writing run bearers to shared
 configuration. Unmanaged MCP entries retain their own
 approval settings. See [execution semantics](doc/execution-semantics.md).
 
+### Remote MCP tool-call deadlines and evidence
+
+Remote MCP tools use the transport's 30-second response budget by default,
+including HTTP 200 `text/event-stream` responses over direct and `socks5h`
+connections. An explicit tool timeout remains clamped to 1-60,000 ms;
+approved actions retain their 60-second budget and Railway commands retain
+their existing command budget. Built-in, plugin and local stdio defaults
+remain 10 seconds. The call deadline includes session initialization and
+body consumption. SSE completes on the matching JSON-RPC result or error ID,
+without waiting for the server to close the stream.
+
+A deadline-triggered response reset is HTTP 504 `tool_timeout`, with
+`invocation_timeout` and degraded connection health. A peer reset before the
+deadline remains a transport failure and marks connection health error.
+`toolCallEvents.metadata.execution` and the corresponding activity audit
+retain HTTP status, content type, upstream request ID, the deadline and its
+abort state, and the error's name, message, code, stack and recursive cause.
+Error text uses the existing credential redactor; arbitrary request/provider
+properties and response payloads are excluded. Cyclic causes have an explicit
+marker. `execution.stream` reports received bytes/chunks, parsed SSE data
+events, whether the requested response matched and whether EOF was observed.
+Partial progress survives read errors; it does not imply a complete response.
+These records share the existing invocation/run correlation and retention
+and retrieval surfaces. No live Sentry payload is needed for verification:
+the gateway, MCP HTTP and SOCKS suites exercise controlled streams and a real
+test-owned proxy with virtual deadline advancement.
+
 ### Remote MCP response size
 
 The gateway accepts at most 1,000,000 bytes in an individual remote MCP tool
@@ -660,8 +687,10 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
 
 The separately requested `coverage.run-gateway-auth` output measures native
-Vitest V8 statements for heartbeat, gateway, policy and Codex credential source
-files, using the route, policy, execution and profile suites. It preserves
+Vitest V8 statements for heartbeat, gateway, remote HTTP transport, policy and
+Codex credential source files, using the route, HTTP/SSE, SOCKS proxy, pinned
+transport/rebinding, policy,
+execution and profile suites. It preserves
 `coverage-final.json`, `coverage-summary.json` and repository-relative
 `statement-lines.json` (statement totals and uncovered start/end lines) in its output and
 prints a text report in the retained Nix log. A successful measurement does not
