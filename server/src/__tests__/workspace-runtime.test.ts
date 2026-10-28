@@ -429,6 +429,7 @@ function createWorkspaceOperationRecorderDouble() {
         result: { status: "running" },
       };
       operations.push(operation);
+      const operationId = `op-${operations.length}`;
       const report = (outcome: string) => process.stderr.write(`${JSON.stringify({
         jsonrpc: "2.0", method: "test.phase", params: { outcome, ...operation },
       })}\n`);
@@ -443,7 +444,7 @@ function createWorkspaceOperationRecorderDouble() {
       report("completed");
       const result = operation.result;
       return {
-        id: `op-${operations.length}`,
+        id: operationId,
         companyId: "company-1",
         executionWorkspaceId,
         heartbeatRunId: "run-1",
@@ -454,7 +455,7 @@ function createWorkspaceOperationRecorderDouble() {
         status: (result.status ?? "succeeded") as WorkspaceOperation["status"],
         exitCode: result.exitCode ?? null,
         logStore: "local_file",
-        logRef: `op-${operations.length}.ndjson`,
+        logRef: `${operationId}.ndjson`,
         logBytes: 0,
         logSha256: null,
         logCompressed: false,
