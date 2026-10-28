@@ -42,6 +42,7 @@ import { instanceSettingsService } from "../services/instance-settings.ts";
 import { issueRoutes } from "../routes/issues.js";
 import { errorHandler } from "../middleware/index.js";
 import { activeWakeupPromises } from "../services/heartbeat-wake-lifecycle.js";
+import { buildIssueBlockersResolvedWakeStateKey } from "../services/issue-dependency-wakeups.js";
 import {
   clampIssueListLimit,
   deriveIssueCommentRunLogAttribution,
@@ -586,13 +587,14 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
   });
 
   it.each([
-    { action: "Restore registry access", checkout: true, notified: true, expectedWakes: 0 },
-    { action: "Rotate the rejected registry credential", checkout: true, notified: true, expectedWakes: 1 },
-    { action: "Restore registry access", checkout: false, notified: true, expectedWakes: 0 },
-    { action: "Rotate the rejected registry credential", checkout: false, notified: true, expectedWakes: 1 },
-    { action: "Restore registry access", checkout: true, notified: false, expectedWakes: 1 },
-    { action: "Restore registry access", checkout: false, notified: false, expectedWakes: 1 },
-  ])("emits $expectedWakes owner wakes for $action (checkout=$checkout, notified=$notified)", async ({ action, checkout, notified, expectedWakes }) => {
+    { action: "Restore registry access", checkout: true, notified: true, resolvedBlocker: false, expectedWakes: 0 },
+    { action: "Rotate the rejected registry credential", checkout: true, notified: true, resolvedBlocker: false, expectedWakes: 1 },
+    { action: "Restore registry access", checkout: false, notified: true, resolvedBlocker: false, expectedWakes: 0 },
+    { action: "Rotate the rejected registry credential", checkout: false, notified: true, resolvedBlocker: false, expectedWakes: 1 },
+    { action: "Restore registry access", checkout: true, notified: false, resolvedBlocker: false, expectedWakes: 1 },
+    { action: "Restore registry access", checkout: false, notified: false, resolvedBlocker: false, expectedWakes: 1 },
+    { action: "Restore registry access", checkout: true, notified: true, resolvedBlocker: true, expectedWakes: 0 },
+  ])("emits $expectedWakes owner wakes for $action (checkout=$checkout, notified=$notified, resolvedBlocker=$resolvedBlocker)", async ({ action, checkout, notified, resolvedBlocker, expectedWakes }) => {
     const companyId = await seedAssignableAgentCompany();
     const agentId = randomUUID();
     await db.insert(agents).values({
@@ -611,6 +613,18 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
       unblockDescriptor: { owner: { agentId }, action: "Restore registry access" },
       blockedTransitionAt: transitionAt, blockedOwnerNotifiedAt: notified ? notifiedAt : null,
     }).returning();
+    if (resolvedBlocker) {
+      const [blocker] = await db.insert(issues).values({ companyId, title: "Registry restored", status: "done" }).returning();
+      await db.insert(issueRelations).values({ companyId, issueId: blocker!.id, relatedIssueId: issue!.id, type: "blocks" });
+      await db.insert(agentWakeupRequests).values({
+        companyId, agentId, source: "automation", triggerDetail: "system", reason: "issue_blockers_resolved",
+        status: "completed", requestedAt: notifiedAt, finishedAt: notifiedAt,
+        idempotencyKey: buildIssueBlockersResolvedWakeStateKey({
+          dependentIssueId: issue!.id, blockerIssueIds: [blocker!.id], blockedTransitionAt: transitionAt,
+        }),
+      });
+    }
+    const priorWakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId));
     if (checkout) await svc.checkout(issue!.id, agentId, ["blocked"], null);
     const app = express();
     app.use(express.json());
@@ -629,7 +643,8 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     expect(repeated.status, JSON.stringify(repeated.body)).toBe(200);
     await Promise.all([...activeWakeupPromises]);
     const [updated] = await db.select().from(issues).where(eq(issues.id, issue!.id));
-    const queued = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId));
+    const allWakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, companyId));
+    const queued = allWakes.filter(wake => !priorWakes.some(prior => prior.id === wake.id));
     expect(queued).toHaveLength(expectedWakes);
     if (action === "Restore registry access") expect(updated!.blockedTransitionAt).toEqual(transitionAt);
     if (expectedWakes === 0) {
