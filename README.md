@@ -595,6 +595,33 @@ By default, agents run on scheduled heartbeats and event-based triggers (task as
 
 <br/>
 
+## Blocked owner notifications
+
+Checking out a blocked issue preserves its current unblock notification episode.
+Re-blocking with the same self-owned `unblockDescriptor` preserves
+`blockedTransitionAt` and `blockedOwnerNotifiedAt`, so it queues no new owner
+wake. Descriptor equality compares the owner and action independently of JSON
+key order. A changed descriptor starts a new episode and notifies its agent
+owner once, including when the issue remains blocked. Explicitly leaving
+blocked through an issue update clears the episode. Resolved dependencies and
+new comments keep their existing wake paths. Agent-authored descriptors still
+require the agent to name itself as owner.
+
+The issue service compares and persists the episode under its existing row
+lock. Native post-commit delivery records a notification receipt only after
+delivery succeeds. A later blocked update can retry an undelivered episode.
+No schema, migration or configuration change is required. The real PostgreSQL
+checkout/re-block regression runs through the declared server test buckets in
+[AGENTS.md](AGENTS.md).
+
+The separate `coverage.unblock-notifications` operation runs the real
+HTTP/PostgreSQL issue-service regressions and the existing owner/dependency
+suites. It uses the same native V8 report path as gateway coverage and retains
+Istanbul JSON, a summary and uncovered statement ranges for issue updates,
+routes, owner notification and dependency wakeups. Review those ranges against
+the production diff; this operation does not assert whole-file 100 percent
+coverage. It adds no required merge status or runtime setting.
+
 ## Local task review handoff
 
 The native `PATCH /api/issues/:id` route accepts a project lead's completion
