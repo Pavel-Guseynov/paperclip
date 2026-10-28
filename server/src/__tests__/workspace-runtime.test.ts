@@ -850,6 +850,16 @@ describeEmbeddedPostgres("repository-scoped task worktree preparation", () => {
     expect(await readGit(repoRoot, ["config", "--get", `branch.${branch}.merge`])).toBe("refs/heads/master");
   }
 
+  function persistedWorkspace(workspace: RealizedExecutionWorkspace) {
+    return {
+      mode: "isolated_workspace", strategyType: "git_worktree",
+      cwd: workspace.cwd, providerRef: workspace.worktreePath,
+      projectId: workspace.projectId, projectWorkspaceId: workspace.workspaceId,
+      repoUrl: workspace.repoUrl, baseRef: workspace.repoRef, branchName: workspace.branchName,
+      metadata: { ...RUNTIME_OWNED_GIT_BRANCH_METADATA, baseRefSha: workspace.baseRefSha },
+    };
+  }
+
   afterEach(async () => {
     await db.delete(workspaceOperations);
     await db.delete(companies);
@@ -911,6 +921,48 @@ describeEmbeddedPostgres("repository-scoped task worktree preparation", () => {
     expect(reused.created).toBe(false);
     expect(reused.branchCreatedByRuntime).toBe(ownership);
     await expectUpstream(repoRoot, branch);
+  });
+
+  it("recreates a missing runtime-owned branch with upstream when Git implicit tracking is disabled", async () => {
+    const { repoRoot } = await fixture();
+    const input = request(repoRoot, "GUS-1321");
+    const recorder = await operationRecorder();
+    const workspace = await realizeExecutionWorkspace({ ...input, recorder });
+    const snapshot = persistedWorkspace(workspace);
+    await runGit(repoRoot, ["worktree", "remove", workspace.cwd]);
+    await runGit(repoRoot, ["branch", "-D", workspace.branchName!]);
+    await runGit(repoRoot, ["config", "branch.autoSetupMerge", "false"]);
+
+    const restored = await ensurePersistedExecutionWorkspaceAvailable({
+      base: input.base, issue: input.issue, agent: input.agent, workspace: snapshot, recorder,
+    });
+
+    expect(restored).toMatchObject({ cwd: workspace.cwd, created: true, branchCreatedByRuntime: true });
+    expect(await readGit(workspace.cwd, ["rev-parse", "HEAD"])).toBe(workspace.baseRefSha);
+    await expectUpstream(repoRoot, workspace.branchName!);
+    const operations = await db.select().from(workspaceOperations);
+    expect(operations.some(operation => operation.status === "failed" && operation.command?.includes("worktree add"))).toBe(true);
+    expect(operations.some(operation => operation.status === "succeeded" && operation.command?.includes("--set-upstream-to="))).toBe(true);
+  });
+
+  it("preserves a persisted task branch and reports an unavailable remote base without inventing upstream tracking", async () => {
+    const { repoRoot } = await fixture();
+    const input = request(repoRoot, "GUS-1321");
+    const workspace = await realizeExecutionWorkspace(input);
+    await runGit(repoRoot, ["config", "--remove-section", `branch.${workspace.branchName}`]);
+    const tip = await readGit(workspace.cwd, ["rev-parse", "HEAD"]);
+
+    const restored = await ensurePersistedExecutionWorkspaceAvailable({
+      base: input.base, issue: input.issue, agent: input.agent,
+      workspace: { ...persistedWorkspace(workspace), baseRef: "origin/missing" },
+      recorder: await operationRecorder(),
+    });
+
+    expect(restored).toMatchObject({ cwd: workspace.cwd, created: false, branchCreatedByRuntime: true });
+    expect(restored?.warnings.join("\n")).toContain("Could not refresh base ref origin/missing");
+    expect(await readGit(workspace.cwd, ["rev-parse", "HEAD"])).toBe(tip);
+    await expect(readGit(repoRoot, ["config", "--get", `branch.${workspace.branchName}.remote`])).rejects.toThrow();
+    await expect(readGit(repoRoot, ["config", "--get", `branch.${workspace.branchName}.merge`])).rejects.toThrow();
   });
 
   it("rolls back a new branch and worktree on a real upstream config failure and releases the repository for retry", async () => {
