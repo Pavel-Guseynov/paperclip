@@ -36,6 +36,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { instanceSettingsService } from "../services/instance-settings.ts";
+import { deliverAgentUnblockNotification } from "../services/routable-blocked.js";
 import {
   clampIssueListLimit,
   deriveIssueCommentRunLogAttribution,
@@ -576,6 +577,47 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
       .where(eq(issues.id, issue.id))
       .then((rows) => rows[0] ?? null);
     expect(persisted?.assigneeAgentId).toBe(activeAgentId);
+  });
+
+  it.each([
+    { action: "Restore registry access", expectedWakes: 0 },
+    { action: "Rotate the rejected registry credential", expectedWakes: 1 },
+  ])("queues $expectedWakes owner wakes after checkout and re-block with $action", async ({ action, expectedWakes }) => {
+    const companyId = await seedAssignableAgentCompany();
+    const agentId = randomUUID();
+    await db.insert(agents).values(agentRow(companyId, { id: agentId, name: "BlockedCoder" }));
+    const transitionAt = new Date("2026-10-27T12:00:00.000Z");
+    const notifiedAt = new Date("2026-10-27T12:00:01.000Z");
+    const [issue] = await db.insert(issues).values({
+      companyId, title: "Wait for registry access", status: "blocked", assigneeAgentId: agentId,
+      unblockDescriptor: { owner: { agentId }, action: "Restore registry access" },
+      blockedTransitionAt: transitionAt, blockedOwnerNotifiedAt: notifiedAt,
+    }).returning();
+    await svc.checkout(issue!.id, agentId, ["blocked"], null);
+    const updated = await svc.update(issue!.id, {
+      status: "blocked", unblockDescriptor: { action, owner: { agentId } }, actorAgentId: agentId,
+    });
+    expect(updated).not.toBeNull();
+    const queued: unknown[] = [];
+    const deliver = () => deliverAgentUnblockNotification({
+      issue: updated!,
+      wakeup: async (ownerId, options) => { queued.push({ ownerId, ...options }); },
+      markNotified: async (at) => {
+        await db.update(issues).set({ blockedOwnerNotifiedAt: at }).where(eq(issues.id, issue!.id));
+        updated!.blockedOwnerNotifiedAt = at;
+      },
+    });
+    await deliver();
+    await deliver();
+    expect(queued).toHaveLength(expectedWakes);
+    if (expectedWakes === 0) {
+      expect(updated).toMatchObject({ blockedTransitionAt: transitionAt, blockedOwnerNotifiedAt: notifiedAt });
+    } else {
+      expect(queued[0]).toMatchObject({
+        ownerId: agentId, reason: "issue_unblock_requested", payload: { issueId: issue!.id, action },
+      });
+      expect(updated!.blockedTransitionAt).not.toEqual(transitionAt);
+    }
   });
 
   it("rejects checkout by a terminated agent before assigning the issue", async () => {
