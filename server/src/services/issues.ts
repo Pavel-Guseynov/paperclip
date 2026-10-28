@@ -5,6 +5,7 @@ import { executionProjectionsForRuns } from "./execution-projection.js";
 import type { ExecutionProjection } from "@paperclipai/shared";
 import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   and,
   asc,
@@ -10621,18 +10622,6 @@ export function issueService(db: Db) {
         ...issueData,
         updatedAt: new Date(),
       };
-      if (existing.status !== "blocked" && issueData.status === "blocked") {
-        patch.blockedTransitionAt = patch.updatedAt;
-        patch.blockedOwnerNotifiedAt = null;
-      } else if (
-        existing.status === "blocked" &&
-        issueData.status &&
-        issueData.status !== "blocked"
-      ) {
-        patch.unblockDescriptor = null;
-        patch.blockedTransitionAt = null;
-        patch.blockedOwnerNotifiedAt = null;
-      }
       if (issueData.requestDepth !== undefined) {
         patch.requestDepth = clampIssueRequestDepth(issueData.requestDepth);
       }
@@ -10825,6 +10814,25 @@ export function issueService(db: Db) {
           .for("update")
           .then((rows: Array<typeof issues.$inferSelect>) => rows[0] ?? null);
         if (!receiptExisting) return null;
+        const nextDescriptor = issueData.unblockDescriptor === undefined
+          ? receiptExisting.unblockDescriptor
+          : issueData.unblockDescriptor;
+        const descriptorChanged = !isDeepStrictEqual(receiptExisting.unblockDescriptor, nextDescriptor);
+        const resumesSelfOwnedBlock = receiptExisting.blockedTransitionAt &&
+          nextDescriptor && nextDescriptor.owner !== "board" &&
+          "agentId" in nextDescriptor.owner &&
+          nextDescriptor.owner.agentId === receiptExisting.assigneeAgentId &&
+          (issueData.assigneeAgentId === undefined || issueData.assigneeAgentId === receiptExisting.assigneeAgentId) &&
+          !descriptorChanged;
+        if ((issueData.status ?? receiptExisting.status) === "blocked" &&
+            ((receiptExisting.status !== "blocked" && !resumesSelfOwnedBlock) || descriptorChanged)) {
+          patch.blockedTransitionAt = patch.updatedAt;
+          patch.blockedOwnerNotifiedAt = null;
+        } else if (receiptExisting.status === "blocked" && issueData.status && issueData.status !== "blocked") {
+          patch.unblockDescriptor = null;
+          patch.blockedTransitionAt = null;
+          patch.blockedOwnerNotifiedAt = null;
+        }
         if (actorAgentId && patch.status === "done") {
           const [review] = await tx.select({ id: toolActionRequests.id }).from(toolActionRequests).where(and(eq(toolActionRequests.companyId, existing.companyId), eq(toolActionRequests.issueId, id), inArray(toolActionRequests.status, ["pending", "approved", "executing"]))).limit(1);
           if (review) throw conflict("This task is waiting for a connection review. Finish unrelated work, then yield in_review without retrying the governed call.", { code: "tool_review_pending", actionRequestId: review.id });
