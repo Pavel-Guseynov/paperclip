@@ -72,7 +72,7 @@ import {
 } from "@paperclipai/shared";
 import { resolvePaperclipConfigPath } from "../paths.ts";
 import type { WorkspaceOperation } from "@paperclipai/shared";
-import type { WorkspaceOperationRecorder } from "../services/workspace-operations.ts";
+import { workspaceOperationService, type WorkspaceOperationRecorder } from "../services/workspace-operations.ts";
 import { deriveWorktreeInstanceId } from "../services/workspace-instance-cleanup.ts";
 import {
   getEmbeddedPostgresTestSupport,
@@ -786,6 +786,223 @@ describe("ensureServerWorkspaceLinksCurrent", () => {
     await ensureServerWorkspaceLinksCurrent(path.join(repoRoot, "server"));
     expect(await fs.realpath(path.join(serverNodeModulesScopeDir, "db"))).toBe(await fs.realpath(stalePackageDir));
   });
+});
+
+
+describeEmbeddedPostgres("repository-scoped task worktree preparation", () => {
+  const roots: string[] = [];
+  let db!: ReturnType<typeof createDb>;
+  let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+
+  beforeAll(async () => {
+    tempDb = await startEmbeddedPostgresTestDatabase("paperclip-worktree-transactions-");
+    db = createDb(tempDb.connectionString);
+  });
+
+  afterAll(async () => { await tempDb?.cleanup(); });
+
+  async function operationRecorder() {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId, name: "Worktree transaction test",
+      issuePrefix: `WT${companyId.slice(0, 6).toUpperCase()}`,
+    });
+    return workspaceOperationService(db).createRecorder({ companyId });
+  }
+
+  async function fixture() {
+    const repo = await createClonedRepoWithRemote();
+    roots.push(repo.sourceRepo, path.dirname(repo.remotePath), path.dirname(repo.repoRoot));
+    return repo;
+  }
+
+  function request(repoRoot: string, identifier: string) {
+    return {
+      base: {
+        baseCwd: repoRoot, source: "project_primary", projectId: "project-1",
+        workspaceId: "workspace-1", repoUrl: null, repoRef: "origin/master",
+      },
+      config: { workspaceStrategy: {
+        type: "git_worktree", baseRef: "origin/master",
+        branchTemplate: "tasks/{{issue.identifier}}-{{slug}}",
+      } },
+      issue: { id: identifier, identifier, title: "Concurrent preparation" },
+      agent: { id: "agent-1", name: "Coder", companyId: "company-1" },
+    } satisfies Parameters<typeof realizeExecutionWorkspace>[0];
+  }
+
+  async function expectUpstream(repoRoot: string, branch: string) {
+    expect(await readGit(repoRoot, ["config", "--get", `branch.${branch}.remote`])).toBe("origin");
+    expect(await readGit(repoRoot, ["config", "--get", `branch.${branch}.merge`])).toBe("refs/heads/master");
+  }
+
+  afterEach(async () => {
+    await db.delete(workspaceOperations);
+    await db.delete(companies);
+    await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true })));
+  });
+
+  it("concurrent task starts both produce tracked runtime-owned worktrees without overlapping repository mutations", async () => {
+    const { repoRoot } = await fixture();
+    const alias = path.join(path.dirname(repoRoot), "repository-alias");
+    await fs.symlink(repoRoot, alias, "dir");
+    const recorder = await operationRecorder();
+    let active = 0;
+    let maximum = 0;
+    const observed: WorkspaceOperationRecorder = {
+      ...recorder,
+      recordOperation: async operation => {
+        active += 1;
+        maximum = Math.max(maximum, active);
+        try { return await recorder.recordOperation(operation); }
+        finally { active -= 1; }
+      },
+    };
+
+    const starts = [
+      realizeExecutionWorkspace({ ...request(repoRoot, "GUS-1321"), recorder: observed }),
+      realizeExecutionWorkspace({ ...request(alias, "GUS-1322"), recorder: observed }),
+    ];
+    const workspaces = await Promise.all(starts).finally(() => Promise.allSettled(starts));
+
+    expect(maximum).toBe(1);
+    expect(workspaces[0].cwd).not.toBe(workspaces[1].cwd);
+    for (const workspace of workspaces) {
+      expect(workspace.created).toBe(true);
+      expect(workspace.branchCreatedByRuntime).toBe(true);
+      expect(await readGit(workspace.cwd, ["branch", "--show-current"])).toBe(workspace.branchName);
+      await expectUpstream(repoRoot, workspace.branchName!);
+    }
+  });
+
+  it.each([
+    [false, "none"], [true, "none"], [false, "remote"], [true, "merge"],
+  ] as const)("restores missing upstream for an interrupted task branch while preserving recorded ownership %s with %s config", async (ownership, existingKey) => {
+    const { repoRoot } = await fixture();
+    const input = request(repoRoot, "GUS-1321");
+    const branch = "tasks/GUS-1321-concurrent-preparation";
+    await runGit(repoRoot, ["branch", "--no-track", branch, "origin/master"]);
+    if (existingKey === "remote") await runGit(repoRoot, ["config", `branch.${branch}.remote`, "origin"]);
+    if (existingKey === "merge") await runGit(repoRoot, ["config", `branch.${branch}.merge`, "refs/heads/master"]);
+
+    const workspace = await realizeExecutionWorkspace({
+      ...input, recordedBranchOwnership: { branchName: branch, createdByRuntime: ownership },
+    });
+
+    expect(workspace.branchCreatedByRuntime).toBe(ownership);
+    await expectUpstream(repoRoot, branch);
+    const reused = await realizeExecutionWorkspace({
+      ...input, recordedBranchOwnership: { branchName: branch, createdByRuntime: ownership },
+    });
+    expect(reused.created).toBe(false);
+    expect(reused.branchCreatedByRuntime).toBe(ownership);
+    await expectUpstream(repoRoot, branch);
+  });
+
+  it("rolls back a new branch and worktree on a real upstream config failure and releases the repository for retry", async () => {
+    const { repoRoot } = await fixture();
+    const input = request(repoRoot, "GUS-1321");
+    const branch = "tasks/GUS-1321-concurrent-preparation";
+    const configLock = path.join(repoRoot, ".git", "config.lock");
+    const recorder = await operationRecorder();
+    let injected = false;
+    const failing: WorkspaceOperationRecorder = {
+      ...recorder,
+      recordOperation: async operation => {
+        if (injected || !operation.command?.includes("--set-upstream-to=")) {
+          return recorder.recordOperation(operation);
+        }
+        injected = true;
+        await fs.writeFile(configLock, "test-owned config lock\n", { flag: "wx" });
+        try { return await recorder.recordOperation(operation); }
+        finally { await fs.rm(configLock); }
+      },
+    };
+
+    await expect(realizeExecutionWorkspace({ ...input, recorder: failing })).rejects.toThrow(/config.*lock|could not lock config/);
+    const operations = await db.select().from(workspaceOperations);
+    expect(operations.some(op => op.status === "failed" && op.stderrExcerpt?.includes("config"))).toBe(true);
+    expect(await readGit(repoRoot, ["branch", "--list", branch])).toBe("");
+    expect(existsSync(path.join(repoRoot, ".paperclip", "worktrees", branch))).toBe(false);
+    await expect(readGit(repoRoot, ["config", "--get", `branch.${branch}.remote`])).rejects.toThrow();
+
+    const retried = await realizeExecutionWorkspace({ ...input, recorder: failing });
+    expect(retried.branchCreatedByRuntime).toBe(true);
+    await expectUpstream(repoRoot, branch);
+  });
+
+  it("retains the original config failure and rollback refusal when a new worktree is externally locked", async () => {
+    const { repoRoot } = await fixture();
+    const input = request(repoRoot, "GUS-1321");
+    const branch = "tasks/GUS-1321-concurrent-preparation";
+    const worktree = path.join(repoRoot, ".paperclip", "worktrees", branch);
+    const configLock = path.join(repoRoot, ".git", "config.lock");
+    const recorder = await operationRecorder();
+    const failing: WorkspaceOperationRecorder = {
+      ...recorder,
+      recordOperation: async operation => {
+        if (!operation.command?.includes("--set-upstream-to=")) return recorder.recordOperation(operation);
+        await runGit(repoRoot, ["worktree", "lock", "--reason", "test-owned external lock", worktree]);
+        await fs.writeFile(configLock, "test-owned config lock\n", { flag: "wx" });
+        try { return await recorder.recordOperation(operation); }
+        finally { await fs.rm(configLock); }
+      },
+    };
+
+    const error = await realizeExecutionWorkspace({ ...input, recorder: failing }).catch(error => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors).toHaveLength(2);
+    expect(error.errors[0].message).toMatch(/config/);
+    expect(error.errors[1].message).toMatch(/locked/);
+    await runGit(repoRoot, ["worktree", "unlock", worktree]);
+    await runGit(repoRoot, ["worktree", "remove", "--force", worktree]);
+    await runGit(repoRoot, ["branch", "-D", branch]);
+  });
+
+  it("preserves a complete existing upstream and the existing branch tip", async () => {
+    const { repoRoot } = await fixture();
+    const input = request(repoRoot, "GUS-1321");
+    const branch = "tasks/GUS-1321-concurrent-preparation";
+    await runGit(repoRoot, ["branch", "--no-track", branch, "origin/master"]);
+    await runGit(repoRoot, ["config", `branch.${branch}.remote`, "."]);
+    await runGit(repoRoot, ["config", `branch.${branch}.merge`, "refs/heads/master"]);
+    const tip = await readGit(repoRoot, ["rev-parse", branch]);
+
+    const result = await realizeExecutionWorkspace(input);
+
+    expect(result.branchCreatedByRuntime).toBe(false);
+    expect(await readGit(repoRoot, ["config", "--get", `branch.${branch}.remote`])).toBe(".");
+    expect(await readGit(repoRoot, ["rev-parse", branch])).toBe(tip);
+  });
+
+  it("allows another repository to prepare while the first repository's operation is pending", async () => {
+    const first = await fixture();
+    const second = await fixture();
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const recorder = await operationRecorder();
+    const held: WorkspaceOperationRecorder = {
+      ...recorder,
+      recordOperation: async operation => {
+        enter();
+        await released;
+        return recorder.recordOperation(operation);
+      },
+    };
+
+    const pending = realizeExecutionWorkspace({ ...request(first.repoRoot, "GUS-1321"), recorder: held });
+    await entered;
+    try {
+      const other = await realizeExecutionWorkspace(request(second.repoRoot, "GUS-1322"));
+      await expectUpstream(second.repoRoot, other.branchName!);
+    } finally {
+      release();
+      await pending;
+    }
+  });
+
 });
 
 describe("realizeExecutionWorkspace", () => {
