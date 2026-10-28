@@ -683,7 +683,14 @@
             ++ lib.optionals hasTests (testBucketChecks pkgs dir)
           ) workspaceDirs
         );
-      gatewayCoverage = pkgs:
+      nativeCoverage =
+        pkgs:
+        {
+          name,
+          projects,
+          includes,
+          tests,
+        }:
         (mkCheck pkgs "test" "server" ''
           cd "$ROOT"
           git init -q
@@ -691,31 +698,28 @@
           import { defineConfig } from "vitest/config";
           export default defineConfig({
             test: {
-              projects: [
-                { extends: "./server/vitest.config.ts", test: { name: "server", root: "./server" } },
-                { extends: "./packages/adapters/codex-local/vitest.config.ts", test: { name: "codex-local", root: "./packages/adapters/codex-local" } }
-              ],
+              projects: ${
+                builtins.toJSON (
+                  map (dir: {
+                    extends = "./${dir}/vitest.config.ts";
+                    test = {
+                      name = baseNameOf dir;
+                      root = "./${dir}";
+                    };
+                  }) projects
+                )
+              },
               maxWorkers: 1, minWorkers: 1,
               coverage: {
                 provider: "v8",
-                include: [
-                  "server/src/services/heartbeat.ts",
-                  "server/src/services/tool-gateway.ts",
-                  "server/src/services/mcp-http.ts",
-                  "server/src/services/remote-http-fetch.ts",
-                  "server/src/services/tool-access-policy.ts",
-                  "packages/adapters/codex-local/src/server/execute.ts",
-                  "packages/adapters/codex-local/src/server/codex-home.ts",
-                  "packages/adapters/codex-local/src/server/codex-args.ts",
-                  "packages/adapters/codex-local/src/server/acp.ts"
-                ],
+                include: ${builtins.toJSON includes},
                 reporter: ["text", "json", "json-summary"],
                 reportsDirectory: "coverage"
               }
             }
           });
           CONFIG
-          ${pnpmExec "vitest run --coverage --reporter=verbose --testTimeout=60000 --hookTimeout=60000 server/src/__tests__/tool-gateway.test.ts server/src/__tests__/mcp-http.test.ts server/src/__tests__/remote-mcp-socks-proxy.test.ts server/src/__tests__/remote-http-rebinding.test.ts server/src/__tests__/tool-access-policy-service.test.ts server/src/__tests__/codex-local-execute.test.ts packages/adapters/codex-local/src/server/codex-home.test.ts packages/adapters/codex-local/src/server/execute.remote.test.ts packages/adapters/codex-local/src/server/acp.test.ts packages/adapters/codex-local/src/server/codex-args.test.ts"}
+          ${pnpmExec "vitest run --coverage --reporter=verbose --testTimeout=60000 --hookTimeout=60000 ${lib.concatStringsSep " " tests}"}
           node --input-type=module <<'REPORT'
           import fs from "node:fs";
           import path from "node:path";
@@ -731,10 +735,63 @@
           ]));
           fs.writeFileSync("coverage/statement-lines.json", JSON.stringify(statements, null, 2) + "\n");
           REPORT
-        '').overrideAttrs (_: {
-          name = "coverage-run-gateway-auth";
-          installPhase = ''mkdir -p "$out"; cp -R "$ROOT/coverage/." "$out/"'';
-        });
+        '').overrideAttrs
+          (_: {
+            name = "coverage-${name}";
+            installPhase = ''mkdir -p "$out"; cp -R "$ROOT/coverage/." "$out/"'';
+          });
+
+      gatewayCoverage =
+        pkgs:
+        nativeCoverage pkgs {
+          name = "run-gateway-auth";
+          projects = [
+            "server"
+            "packages/adapters/codex-local"
+          ];
+          includes = [
+            "server/src/services/heartbeat.ts"
+            "server/src/services/tool-gateway.ts"
+            "server/src/services/mcp-http.ts"
+            "server/src/services/remote-http-fetch.ts"
+            "server/src/services/tool-access-policy.ts"
+            "packages/adapters/codex-local/src/server/execute.ts"
+            "packages/adapters/codex-local/src/server/codex-home.ts"
+            "packages/adapters/codex-local/src/server/codex-args.ts"
+            "packages/adapters/codex-local/src/server/acp.ts"
+          ];
+          tests = [
+            "server/src/__tests__/tool-gateway.test.ts"
+            "server/src/__tests__/mcp-http.test.ts"
+            "server/src/__tests__/remote-mcp-socks-proxy.test.ts"
+            "server/src/__tests__/remote-http-rebinding.test.ts"
+            "server/src/__tests__/tool-access-policy-service.test.ts"
+            "server/src/__tests__/codex-local-execute.test.ts"
+            "packages/adapters/codex-local/src/server/codex-home.test.ts"
+            "packages/adapters/codex-local/src/server/execute.remote.test.ts"
+            "packages/adapters/codex-local/src/server/acp.test.ts"
+            "packages/adapters/codex-local/src/server/codex-args.test.ts"
+          ];
+        };
+
+      unblockCoverage =
+        pkgs:
+        nativeCoverage pkgs {
+          name = "unblock-notifications";
+          projects = [ "server" ];
+          includes = [
+            "server/src/services/issues.ts"
+            "server/src/routes/issues.ts"
+            "server/src/services/routable-blocked.ts"
+            "server/src/services/issue-dependency-wakeups.ts"
+          ];
+          tests = [
+            "server/src/__tests__/issues-service.test.ts"
+            "server/src/__tests__/routable-blocked.test.ts"
+            "server/src/__tests__/issue-dependency-wakeups-routes.test.ts"
+            "server/src/services/issue-dependency-wakeups.test.ts"
+          ];
+        };
 
       handoffPrerequisites =
         pkgs:
@@ -753,7 +810,10 @@
     {
       legacyPackages = forAllSystems (pkgs: {
         coverage.run-gateway-auth = gatewayCoverage pkgs;
+        coverage.unblock-notifications = unblockCoverage pkgs;
       });
+
+      formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
 
       checks = forAllSystems (
         pkgs:
@@ -782,17 +842,23 @@
             '';
             installPhase = "true";
           };
-          pnpm-production-peer-policy = pkgs.runCommand "pnpm-production-peer-policy" {
-            nativeBuildInputs = [ pkgs.nodejs_24 pkgs.yq-go ];
-          } ''
-            export PNPMFILE=${./.pnpmfile.cjs}
-            node --test --experimental-test-coverage \
-              --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 \
-              --test-coverage-include='**/*pnpmfile.cjs' ${./nix/pnpm-production-peer-policy.test.cjs}
-            yq --exit-status '.packages."debug@4.4.3".peerDependencies | has("supports-color") | not' ${./pnpm-lock.yaml}
-            yq --exit-status '.snapshots | keys | map(select(test("^debug@.*supports-color"))) | length == 0' ${./pnpm-lock.yaml}
-            touch "$out"
-          '';
+          pnpm-production-peer-policy =
+            pkgs.runCommand "pnpm-production-peer-policy"
+              {
+                nativeBuildInputs = [
+                  pkgs.nodejs_24
+                  pkgs.yq-go
+                ];
+              }
+              ''
+                export PNPMFILE=${./.pnpmfile.cjs}
+                node --test --experimental-test-coverage \
+                  --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 \
+                  --test-coverage-include='**/*pnpmfile.cjs' ${./nix/pnpm-production-peer-policy.test.cjs}
+                yq --exit-status '.packages."debug@4.4.3".peerDependencies | has("supports-color") | not' ${./pnpm-lock.yaml}
+                yq --exit-status '.snapshots | keys | map(select(test("^debug@.*supports-color"))) | length == 0' ${./pnpm-lock.yaml}
+                touch "$out"
+              '';
           node-modules-inputs = pkgs.runCommand "node-modules-inputs" { } ''
             test "${lib.boolToString installSelection.sameOnSourceEdit}" = true \
               || { echo "a source-only change altered the install inputs" >&2; exit 1; }
