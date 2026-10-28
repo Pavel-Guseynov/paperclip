@@ -793,26 +793,28 @@
           ];
         };
 
+      serverPortsCoverage =
+        pkgs:
+        nativeCoverage pkgs {
+          name = "server-ports";
+          projects = [ "server" ];
+          includes = [ "server/src/services/workspace-runtime.ts" ];
+          tests = serialGroups.server-ports;
+        };
 
-      serverPortsCoverage = pkgs: nativeCoverage pkgs {
-        name = "server-ports";
-        projects = [ "server" ];
-        includes = [ "server/src/services/workspace-runtime.ts" ];
-        tests = serialGroups.server-ports;
-      };
-
-
-      worktreeRegressionTest = pkgs: mkCheck pkgs "test" "server" ''
-        cd "$ROOT"
-        git init -q
-        cat > vitest.config.ts <<'CONFIG'
-        import { defineConfig } from "vitest/config";
-        export default defineConfig({ test: { projects: [
-          { extends: "./server/vitest.config.ts", test: { name: "server", root: "./server" } }
-        ], maxWorkers: 1, minWorkers: 1 } });
-        CONFIG
-        ${pnpmExec "vitest run --reporter=verbose --testTimeout=60000 --hookTimeout=60000 -t 'repository-scoped task worktree preparation' server/src/__tests__/workspace-runtime.test.ts"}
-      '';
+      worktreeRegressionTest =
+        pkgs:
+        mkCheck pkgs "test" "server" ''
+          cd "$ROOT"
+          git init -q
+          cat > vitest.config.ts <<'CONFIG'
+          import { defineConfig } from "vitest/config";
+          export default defineConfig({ test: { projects: [
+            { extends: "./server/vitest.config.ts", test: { name: "server", root: "./server" } }
+          ], maxWorkers: 1, minWorkers: 1 } });
+          CONFIG
+          ${pnpmExec "vitest run --reporter=verbose --testTimeout=60000 --hookTimeout=60000 -t 'repository-scoped task worktree preparation' server/src/__tests__/workspace-runtime.test.ts"}
+        '';
 
       handoffPrerequisites =
         pkgs:
