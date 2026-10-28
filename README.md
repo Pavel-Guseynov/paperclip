@@ -688,6 +688,13 @@ before the Vitest gate are outside this capture. Each channel preserves its
 line order; the shared sequence orders complete-line delivery, rather than
 reconstructing cross-channel byte interleaving.
 
+The worktree-local dependency fixture emits JSON-RPC 2.0 `test.phase`
+notifications to stderr for setup, install, commit, realization and assertions.
+Its failure hook includes the active phase, child command, cwd, completion code
+and captured stdout/stderr, plus workspace operations recorded before each child
+starts and updated on completion. The gate retains these records with its
+original output; an unfinished child has an explicit running status.
+
 The gate sets `PAPERCLIP_TEST_EVIDENCE_DIR` and its source-identity metadata for
 fixtures. The issue-reconciliation fixture saves a repeatable-read lifecycle
 snapshot before cleanup: test, issue, comment, wake, run, decision and recovery
@@ -709,9 +716,27 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 <br/>
 
+Concurrent worktree preparation, persisted-worktree restoration and terminal Git
+cleanup share a queue per canonical owner repository within one server process.
+Different repositories prepare independently. New branches are created without
+implicit tracking, then receive their remote upstream before preparation returns.
+If that setup fails, preparation removes its new worktree and branch; a refused
+rollback surfaces both failures and requires explicit repair. Missing upstream
+configuration on a task branch is restored from its remote-tracking base.
+Complete upstream configuration and recorded branch ownership are preserved;
+historical branches without ownership evidence are never adopted as runtime-owned.
+These operations retain their existing workspace-operation records, native Git
+output and run correlation. No new setting or credential is required.
+
 ### Nix
 
 `flake.nix` defines the fork's cached typechecks and tests (`nix flake check`), the installed workspace dependencies (`packages.<system>.nodeModules`) and a development shell (`nix develop`). The command inventory and what invalidates a check are in [AGENTS.md](AGENTS.md).
+
+The separately requested `coverage.server-ports` output runs the native
+server port/workspace suites and measures statements in workspace-runtime.ts.
+It retains the same reports and changed-line review contract as the gateway
+coverage operation below. Concurrent-start, interrupted-upstream recovery and
+real configuration-lock rollback regressions use test-owned Git repositories.
 
 The separately requested `coverage.run-gateway-auth` output measures native
 Vitest V8 statements for heartbeat, gateway, remote HTTP transport, policy and
