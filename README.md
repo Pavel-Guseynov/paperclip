@@ -661,6 +661,13 @@ before the Vitest gate are outside this capture. Each channel preserves its
 line order; the shared sequence orders complete-line delivery, rather than
 reconstructing cross-channel byte interleaving.
 
+The worktree-local dependency fixture emits JSON-RPC 2.0 `test.phase`
+notifications to stderr for setup, install, commit, realization and assertions.
+Its failure hook includes the active phase, child command, cwd, completion code
+and captured stdout/stderr, plus workspace operations recorded before each child
+starts and updated on completion. The gate retains these records with its
+original output; an unfinished child has an explicit running status.
+
 The gate sets `PAPERCLIP_TEST_EVIDENCE_DIR` and its source-identity metadata for
 fixtures. The issue-reconciliation fixture saves a repeatable-read lifecycle
 snapshot before cleanup: test, issue, comment, wake, run, decision and recovery

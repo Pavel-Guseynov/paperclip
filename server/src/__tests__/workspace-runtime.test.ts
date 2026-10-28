@@ -418,8 +418,7 @@ function createWorkspaceOperationRecorderDouble() {
       executionWorkspaceId = nextExecutionWorkspaceId;
     },
     recordOperation: async (input) => {
-      const result = await input.run();
-      operations.push({
+      const operation: (typeof operations)[number] = {
         phase: input.phase,
         command: input.command ?? null,
         cwd: input.cwd ?? null,
@@ -427,8 +426,22 @@ function createWorkspaceOperationRecorderDouble() {
           ...(input.metadata ?? {}),
           ...(executionWorkspaceId ? { executionWorkspaceId } : {}),
         },
-        result,
-      });
+        result: { status: "running" },
+      };
+      operations.push(operation);
+      const report = (outcome: string) => process.stderr.write(`${JSON.stringify({
+        jsonrpc: "2.0", method: "test.phase", params: { outcome, ...operation },
+      })}\n`);
+      report("started");
+      try {
+        operation.result = await input.run();
+      } catch (error) {
+        operation.result = { status: "failed", stderr: error instanceof Error ? error.message : String(error) };
+        report("failed");
+        throw error;
+      }
+      report("completed");
+      const result = operation.result;
       return {
         id: `op-${operations.length}`,
         companyId: "company-1",
@@ -2127,7 +2140,27 @@ describe("realizeExecutionWorkspace", () => {
 
   it(
     "provisions worktree-local pnpm node_modules instead of reusing base-repo links",
-    async () => {
+    async ({ onTestFailed }) => {
+    const { recorder, operations } = createWorkspaceOperationRecorderDouble();
+    let phase = "fixture_setup";
+    const children: Array<{
+      command: string[]; cwd: string; exitCode: number | string | null; stdout: string; stderr: string;
+    }> = [];
+    const report = (outcome: string, error?: unknown) => {
+      const evidence = { phase, outcome, children, operations, error: error ?? null };
+      process.stderr.write(`${JSON.stringify({ jsonrpc: "2.0", method: "test.phase", params: evidence })}\n`);
+      return JSON.stringify(evidence);
+    };
+    onTestFailed(({ task }) => {
+      const evidence = report("failed", task.result?.errors?.map(error => error.message));
+      for (const error of task.result?.errors ?? []) error.message += `\n${evidence}`;
+    });
+    const nextPhase = (next: string) => {
+      report("completed");
+      phase = next;
+      report("started");
+    };
+    report("started");
     const repoRoot = await createTempRepo();
     await writeRegisteredSourceConfig(repoRoot);
     await fs.mkdir(path.join(repoRoot, "scripts"), { recursive: true });
@@ -2186,11 +2219,34 @@ describe("realizeExecutionWorkspace", () => {
     await fs.writeFile(path.join(repoRoot, "server", "index.js"), "export {};\n", "utf8");
     await fs.copyFile(provisionWorktreeScriptPath, path.join(repoRoot, "scripts", "provision-worktree.sh"));
     await fs.chmod(path.join(repoRoot, "scripts", "provision-worktree.sh"), 0o755);
-    await runPnpm(repoRoot, ["install"]);
-    await runGit(repoRoot, ["add", "."]);
-    await runGit(repoRoot, ["commit", "-m", "Add pnpm workspace fixture"]);
+    const runFixture = async (command: string, args: string[]) => {
+      const child: (typeof children)[number] = {
+        command: [command, ...args], cwd: repoRoot, exitCode: null, stdout: "", stderr: "",
+      };
+      children.push(child);
+      report("child_started");
+      try {
+        const result = await execFileAsync(command, args, { cwd: repoRoot });
+        Object.assign(child, { exitCode: 0, stdout: result.stdout, stderr: result.stderr });
+      } catch (error) {
+        const failure = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
+        Object.assign(child, {
+          exitCode: failure.code ?? "unavailable", stdout: failure.stdout ?? "", stderr: failure.stderr ?? "",
+        });
+        report("child_failed", failure.message);
+        throw error;
+      }
+      report("child_completed");
+    };
+    nextPhase("fixture_install");
+    await runFixture("pnpm", ["install"]);
+    nextPhase("fixture_commit");
+    await runFixture("git", ["add", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "packages/shared", "server", "scripts/provision-worktree.sh"]);
+    await runFixture("git", ["commit", "-m", "Add pnpm workspace fixture"]);
+    nextPhase("realization");
 
     const workspace = await realizeExecutionWorkspace({
+      recorder,
       base: {
         baseCwd: repoRoot,
         source: "project_primary",
@@ -2218,6 +2274,8 @@ describe("realizeExecutionWorkspace", () => {
       },
     });
 
+    nextPhase("assertions");
+    expect(operations.some(operation => operation.phase === "workspace_provision" && operation.result.exitCode === 0)).toBe(true);
     expect((await fs.lstat(path.join(workspace.cwd, "node_modules"))).isSymbolicLink()).toBe(false);
     expect((await fs.lstat(path.join(workspace.cwd, "server", "node_modules"))).isSymbolicLink()).toBe(false);
     await expect(fs.realpath(path.join(workspace.cwd, "server", "node_modules", "@repo", "shared"))).resolves.toBe(
@@ -2226,6 +2284,7 @@ describe("realizeExecutionWorkspace", () => {
     await expect(fs.realpath(path.join(repoRoot, "server", "node_modules", "@repo", "shared"))).resolves.toBe(
       await fs.realpath(path.join(repoRoot, "packages", "shared")),
     );
+    nextPhase("finished");
     },
     30_000,
   );
@@ -2623,110 +2682,6 @@ describe("realizeExecutionWorkspace", () => {
     }
   });
 
-  it(
-    "provisions worktree-local pnpm node_modules instead of reusing base-repo links",
-    async () => {
-    const repoRoot = await createTempRepo();
-    await writeRegisteredSourceConfig(repoRoot);
-    await fs.mkdir(path.join(repoRoot, "scripts"), { recursive: true });
-    await fs.mkdir(path.join(repoRoot, "packages", "shared"), { recursive: true });
-    await fs.mkdir(path.join(repoRoot, "server"), { recursive: true });
-    await fs.writeFile(
-      path.join(repoRoot, "package.json"),
-      JSON.stringify(
-        {
-          name: "workspace-root",
-          private: true,
-          packageManager: "pnpm@11.27.0",
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    await fs.writeFile(
-      path.join(repoRoot, "pnpm-workspace.yaml"),
-      ["packages:", "  - packages/*", "  - server", ""].join("\n"),
-      "utf8",
-    );
-    await fs.writeFile(
-      path.join(repoRoot, "packages", "shared", "package.json"),
-      JSON.stringify(
-        {
-          name: "@repo/shared",
-          version: "1.0.0",
-          private: true,
-          type: "module",
-          exports: "./index.js",
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    await fs.writeFile(path.join(repoRoot, "packages", "shared", "index.js"), "export const value = 'shared';\n", "utf8");
-    await fs.writeFile(
-      path.join(repoRoot, "server", "package.json"),
-      JSON.stringify(
-        {
-          name: "server",
-          private: true,
-          type: "module",
-          dependencies: {
-            "@repo/shared": "workspace:*",
-          },
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    await fs.writeFile(path.join(repoRoot, "server", "index.js"), "export {};\n", "utf8");
-    await fs.copyFile(provisionWorktreeScriptPath, path.join(repoRoot, "scripts", "provision-worktree.sh"));
-    await fs.chmod(path.join(repoRoot, "scripts", "provision-worktree.sh"), 0o755);
-    await runPnpm(repoRoot, ["install"]);
-    await runGit(repoRoot, ["add", "."]);
-    await runGit(repoRoot, ["commit", "-m", "Add pnpm workspace fixture"]);
-
-    const workspace = await realizeExecutionWorkspace({
-      base: {
-        baseCwd: repoRoot,
-        source: "project_primary",
-        projectId: "project-1",
-        workspaceId: "workspace-1",
-        repoUrl: null,
-        repoRef: "HEAD",
-      },
-      config: {
-        workspaceStrategy: {
-          type: "git_worktree",
-          branchTemplate: "{{issue.identifier}}-{{slug}}",
-          provisionCommand: "bash ./scripts/provision-worktree.sh",
-        },
-      },
-      issue: {
-        id: "issue-1",
-        identifier: "PAP-551",
-        title: "Provision local workspace dependencies",
-      },
-      agent: {
-        id: "agent-1",
-        name: "Codex Coder",
-        companyId: "company-1",
-      },
-    });
-
-    expect((await fs.lstat(path.join(workspace.cwd, "node_modules"))).isSymbolicLink()).toBe(false);
-    expect((await fs.lstat(path.join(workspace.cwd, "server", "node_modules"))).isSymbolicLink()).toBe(false);
-    await expect(fs.realpath(path.join(workspace.cwd, "server", "node_modules", "@repo", "shared"))).resolves.toBe(
-      await fs.realpath(path.join(workspace.cwd, "packages", "shared")),
-    );
-    await expect(fs.realpath(path.join(repoRoot, "server", "node_modules", "@repo", "shared"))).resolves.toBe(
-      await fs.realpath(path.join(repoRoot, "packages", "shared")),
-    );
-    },
-    15_000,
-  );
 
   it("records worktree setup and provision operations when a recorder is provided", async () => {
     const repoRoot = await createTempRepo();
