@@ -3758,35 +3758,7 @@ export function environmentRuntimeService(
           const environment = leaseRow.environmentId
             ? await environmentsSvc.getById(leaseRow.environmentId)
             : null;
-          if (!environment) {
-            const lease = await environmentsSvc.releaseLease(
-              leaseRow.id,
-              status,
-              { cleanupStatus: "success" },
-            );
-            if (lease) {
-              released.push({
-                environment: {
-                  id: leaseRow.environmentId ?? "",
-                  name: "Unknown",
-                  description: null,
-                  driver: "local",
-                  status: "archived",
-                  config: {},
-                  envVars: {},
-                  metadata: null,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                },
-                lease,
-                leaseContext: {
-                  executionWorkspaceId: lease.executionWorkspaceId,
-                  executionWorkspaceMode: null,
-                },
-              });
-            }
-            continue;
-          }
+          if (!environment) continue;
 
           const leaseSnapshot = toEnvironmentLeaseSnapshot(leaseRow);
           if (

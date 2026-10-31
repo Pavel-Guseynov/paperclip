@@ -1746,10 +1746,6 @@ export function environmentService(db: Db) {
     releaseLeasesForRun: async (
       heartbeatRunId: string,
       status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> = "released",
-      options?: {
-        failureReason?: string;
-        cleanupStatus?: EnvironmentLeaseCleanupStatus;
-      },
     ): Promise<EnvironmentLease[]> => {
       const now = new Date();
       const rows = await db
@@ -1759,13 +1755,11 @@ export function environmentService(db: Db) {
           releasedAt: now,
           lastUsedAt: now,
           updatedAt: now,
-          ...(options?.failureReason !== undefined ? { failureReason: options.failureReason } : {}),
-          ...(options?.cleanupStatus !== undefined ? { cleanupStatus: options.cleanupStatus } : { cleanupStatus: "success" }),
         })
         .where(
           and(
             eq(environmentLeases.heartbeatRunId, heartbeatRunId),
-            inArray(environmentLeases.status, ["active", "pending_cleanup"]),
+            eq(environmentLeases.status, "active"),
           ),
         )
         .returning();
