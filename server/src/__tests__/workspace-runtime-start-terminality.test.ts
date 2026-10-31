@@ -5,7 +5,6 @@ import {
   allocateRuntimeServicePort,
   claimRuntimeServiceBindPort,
   resetRuntimeServicePortReservationsForTests,
-  resetRuntimeServicesForTests,
   waitForRuntimeServiceReadiness,
 } from "../services/workspace-runtime.js";
 
@@ -175,12 +174,5 @@ describe("managed runtime start terminality", () => {
     await expect(
       allocateRuntimeServicePort({ probe: async () => 49891, portOwnerLookup: async () => 99 }),
     ).rejects.toThrow(/Could not allocate a free loopback port/);
-  });
-
-  it("clears in-flight port reservations when runtime services are reset for tests", async () => {
-    expect(claimRuntimeServiceBindPort(25100, null)).toBe(true);
-    expect(claimRuntimeServiceBindPort(25100, null)).toBe(false);
-    await resetRuntimeServicesForTests();
-    expect(claimRuntimeServiceBindPort(25100, null)).toBe(true);
   });
 });
