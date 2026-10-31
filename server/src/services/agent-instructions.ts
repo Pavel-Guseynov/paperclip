@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { conflict, notFound, unprocessable } from "../errors.js";
-import { instructionFileRevision } from "./agent-instruction-file-revision.js";
+import { notFound, unprocessable } from "../errors.js";
 import { resolveHomeAwarePath, resolvePaperclipInstanceRoot } from "../home-paths.js";
 
 const ENTRY_FILE_DEFAULT = "AGENTS.md";
@@ -49,15 +48,7 @@ type AgentInstructionsFileSummary = {
 type AgentInstructionsFileDetail = AgentInstructionsFileSummary & {
   content: string;
   editable: boolean;
-  contentHash: string;
-  revision: { id: string; contentHash: string };
 };
-
-/** The revision fields every read carries, from the exact bytes of the file. */
-function revisionFields(bytes: Uint8Array) {
-  const revision = instructionFileRevision(bytes);
-  return { contentHash: revision.contentHash, revision };
-}
 
 type AgentInstructionsBundle = {
   agentId: string;
@@ -513,16 +504,15 @@ export function agentInstructionsService() {
         deprecated: true,
         virtual: true,
         content,
-        ...revisionFields(Buffer.from(content, "utf8")),
       };
     }
     if (!state.rootPath) throw notFound("Agent instructions bundle is not configured");
     const absolutePath = resolvePathWithinRoot(state.rootPath, relativePath);
-    const [bytes, stat] = await Promise.all([
-      fs.readFile(absolutePath).catch(() => null),
+    const [content, stat] = await Promise.all([
+      fs.readFile(absolutePath, "utf8").catch(() => null),
       fs.stat(absolutePath).catch(() => null),
     ]);
-    if (bytes === null || !stat?.isFile()) throw notFound("Instructions file not found");
+    if (content === null || !stat?.isFile()) throw notFound("Instructions file not found");
     const normalizedPath = normalizeRelativeFilePath(relativePath);
     return {
       path: normalizedPath,
@@ -533,37 +523,8 @@ export function agentInstructionsService() {
       editable: true,
       deprecated: false,
       virtual: false,
-      content: bytes.toString("utf8"),
-      ...revisionFields(bytes),
+      content,
     };
-  }
-
-  /**
-   * Rejects a save whose base is not the file as it is now. The entry file must name
-   * its base; null stands for a file that does not exist yet. Runs before the bundle
-   * is prepared, so a rejected save changes nothing.
-   */
-  async function assertBaseRevision(agent: AgentLike, relativePath: string, baseRevisionId: string | null | undefined) {
-    const state = await recoverManagedBundleState(agent, deriveBundleState(agent));
-    const normalizedPath = normalizeRelativeFilePath(relativePath);
-    if (baseRevisionId === undefined) {
-      if (normalizedPath !== state.entryFile) return;
-      throw unprocessable("Read the entry file and supply baseRevisionId (null for a new entry file)", {
-        code: "INSTRUCTION_BASE_REQUIRED",
-        entryFile: state.entryFile,
-      });
-    }
-    const bytes = state.rootPath
-      ? await fs.readFile(resolvePathWithinRoot(state.rootPath, normalizedPath)).catch(() => null)
-      : null;
-    const currentRevisionId = bytes === null ? null : instructionFileRevision(bytes).id;
-    if (currentRevisionId === baseRevisionId) return;
-    throw conflict("The file changed since it was read", {
-      code: "INSTRUCTION_REVISION_CONFLICT",
-      baseRevisionId,
-      currentRevisionId,
-      entryFile: state.entryFile,
-    });
   }
 
   async function ensureWritableBundle(
@@ -661,16 +622,13 @@ export function agentInstructionsService() {
     agent: AgentLike,
     relativePath: string,
     content: string,
-    options?: { clearLegacyPromptTemplate?: boolean; baseRevisionId?: string | null },
+    options?: { clearLegacyPromptTemplate?: boolean },
   ): Promise<{
     bundle: AgentInstructionsBundle;
     file: AgentInstructionsFileDetail;
     adapterConfig: Record<string, unknown>;
   }> {
     const current = deriveBundleState(agent);
-    if (relativePath !== LEGACY_PROMPT_TEMPLATE_PATH) {
-      await assertBaseRevision(agent, relativePath, options?.baseRevisionId);
-    }
     if (relativePath === LEGACY_PROMPT_TEMPLATE_PATH) {
       const adapterConfig: Record<string, unknown> = {
         ...current.config,
