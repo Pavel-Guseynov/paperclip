@@ -1,9 +1,11 @@
+import { notifyStatusCardIssueChange } from "../services/status-card-notifications.js";
+import { removePluginWorkspace } from "../services/plugin-workspaces.js";
 import { canActorReadWorkspaceOperation } from "../services/heartbeat-run-privacy.js";
 import { canActorReadExecutionWorkspace, executionWorkspaceReadSqlCondition } from "../services/authorization.js";
 import { spawn } from "node:child_process";
 import { accessSync, constants as fsConstants, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import { issues, projects, projectWorkspaces } from "@paperclipai/db";
@@ -87,7 +89,7 @@ function resolveFallbackSeedSourceConfigPath(baseWorkspaceCwd: string): string |
 
 export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: PluginWorkerManager } = {}) {
   const router = Router();
-  const svc = executionWorkspaceService(db);
+  const svc = executionWorkspaceService(db, { pluginWorkerManager: opts.pluginWorkerManager });
   const access = accessService(db);
   const workspaceOperationsSvc = workspaceOperationService(db);
   const runtimeLeases = workspaceRuntimeLeaseService(db);
@@ -137,6 +139,7 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
       issueId: req.query.issueId as string | undefined,
       status: req.query.status as string | undefined,
       reuseEligible: req.query.reuseEligible === "true",
+      selectableForTask: req.query.selectableForTask === "true",
     };
     const workspaces = req.query.summary === "true"
       ? await svc.listSummaries(companyId, filters)
@@ -321,7 +324,7 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
             and(
               eq(projectWorkspaces.id, existing.projectWorkspaceId),
               eq(projectWorkspaces.companyId, existing.companyId),
-              eq(projectWorkspaces.projectId, existing.projectId),
+              existing.projectId ? eq(projectWorkspaces.projectId, existing.projectId) : sql`false`,
             ),
           )
           .then((rows) => rows[0] ?? null)
@@ -1243,7 +1246,9 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
       await runtimeLeases.release({ executionWorkspaceId: existing.id, force: true });
 
       if (existing.mode === "shared_workspace") {
-        await db
+        await db.transaction(async tx => {
+          await notifyStatusCardIssueChange(tx, existing.companyId);
+          await tx
           .update(issues)
           .set({
             executionWorkspaceId: null,
@@ -1255,6 +1260,7 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
               eq(issues.executionWorkspaceId, existing.id),
             ),
           );
+        });
       }
 
       try {
@@ -1304,6 +1310,10 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
               executionWorkspaceId: existing.id,
               workspaceCwd: existing.cwd,
             });
+            if (workspace.providerType === "plugin") {
+              await removePluginWorkspace(db, opts.pluginWorkerManager, workspace, readiness.git?.headSha ?? null);
+              return { cleaned: true, warnings: [] };
+            }
             return cleanupExecutionWorkspaceArtifacts({
               workspace: existing,
               projectWorkspace,
