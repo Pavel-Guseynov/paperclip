@@ -68,7 +68,7 @@ export type {
 
 export type ToolActorType = "agent" | "user" | "system" | "plugin";
 export type ToolConnectionTransport =
-  "mcp_remote" | "rest_api" | "local_stdio" | "chat_sdk" | "runtime_auth";
+  "mcp_remote" | "rest_api" | "local_stdio" | "chat_sdk" | "runtime_auth" | "voice";
 export type ToolConnectionPurpose = "tool" | "channel" | "ai";
 export type ToolConnectionAuthKind = "oauth" | "api_key" | "none";
 export type ToolConnectionOwnership =
@@ -233,6 +233,8 @@ export interface ConnectionGrant {
        * request, so this is the baseline its response is judged against.
        */
       requestedScopes?: string[];
+      /** Last successful consent; ordinary token refresh preserves this. */
+      consentedAt?: string;
       tokenType?: string;
       refreshTokenExpiresAt?: string;
       refreshedAt?: string;
@@ -256,6 +258,7 @@ export interface ConnectionGrant {
         id: string;
         fullName: string;
         installationId: string;
+        ownerType?: "personal" | "organization";
         private?: boolean;
       }>;
       installationUrl?: string;
@@ -301,6 +304,8 @@ export interface ConnectionGrantCapabilities {
  * not "render disabled".
  */
 export interface ToolConnectionCapabilities {
+  management?: { allowed: boolean; reason: string; operation: string };
+  usage?: { allowed: boolean; reason: string; operation: string; requiresApproval?: boolean; allowedCount?: number; askFirstCount?: number };
   canConfigure: boolean;
   canCreateOrganizationGrant: boolean;
   canSetCompanyInstall: boolean;
@@ -744,6 +749,8 @@ export interface ToolMcpGatewayToken {
   revokedAt: Date | string | null;
   createdByAgentId: string | null;
   createdByUserId: string | null;
+  /** Agent client delegation. Null with an issuing agent identifies an unbound legacy client. */
+  responsibleUserId?: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
 }
@@ -1233,7 +1240,8 @@ export interface ToolOAuthStartResult {
   connectionId: string;
   provider: string;
   authorizationUrl: string;
-  expiresAt: string;
+  /** Null until the addressed human starts provider authorization from a saved setup. */
+  expiresAt: string | null;
   /**
    * Opaque Paperclip Cloud authorization handoff. The board submits this only
    * to its fixed same-origin Cloud endpoint; it is never treated as a URL.
@@ -1573,6 +1581,7 @@ export interface ToolAccessDecisionInput {
   };
   runContext?: {
     heartbeatRunId?: string | null;
+    originatingAgentId?: string | null;
     issueId?: string | null;
     projectId?: string | null;
     routineId?: string | null;
