@@ -5,6 +5,7 @@ import {
   parseIssueExecutionState,
 } from "../services/issue-execution-policy.ts";
 import type { DeploymentMode, IssueExecutionPolicy, IssueExecutionState } from "@paperclipai/shared";
+import { buildExecutionPolicy } from "../../../ui/src/lib/issue-execution-policy.ts";
 
 /**
  * Cases here mostly exercise stage selection, not deployment reachability, so
@@ -71,6 +72,23 @@ describe("normalizeIssueExecutionPolicy", () => {
 
   it("returns null when stages are empty", () => {
     expect(normalizeIssueExecutionPolicy({ stages: [] })).toBeNull();
+  });
+
+  it("retains an independent review limit through removing and restoring the last reviewer", () => {
+    const original = normalizeIssueExecutionPolicy({
+      maxReviewRounds: 4,
+      stages: [{ type: "review", participants: [{ type: "agent", agentId: qaAgentId }] }],
+    });
+    const edited = buildExecutionPolicy({ existingPolicy: original, reviewerValues: [], approverValues: [] });
+    const saved = normalizeIssueExecutionPolicy(edited);
+    expect(saved).toEqual({ mode: "normal", commentRequired: true, stages: [], maxReviewRounds: 4 });
+    expect(applyIssueExecutionPolicyTransition({
+      issue: { status: "in_progress", assigneeAgentId: coderAgentId },
+      policy: saved, requestedStatus: "done", requestedAssigneePatch: {}, actor: { agentId: coderAgentId },
+    })).toEqual({ patch: {} });
+    expect(normalizeIssueExecutionPolicy(buildExecutionPolicy({
+      existingPolicy: saved, reviewerValues: [`agent:${qaAgentId}`], approverValues: [],
+    }))).toMatchObject({ maxReviewRounds: 4, stages: [{ type: "review" }] });
   });
 
   it("throws when all participants are invalid (missing agentId)", () => {

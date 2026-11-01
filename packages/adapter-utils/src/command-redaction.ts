@@ -1,7 +1,7 @@
 export const REDACTED_COMMAND_TEXT_VALUE = "***REDACTED***";
 
-// These exact public Executor helper addresses resemble dotted bearer tokens.
-// Do not exempt arbitrary provider paths, prefixes, or user-defined selectors.
+// Public Executor helper addresses retained for callers of this predicate.
+// Dotted addresses alone do not meet the JWT credential heuristic.
 const PUBLIC_EXECUTOR_TOOL_SELECTORS = new Set([
   "executor.coreTools.integrations.list",
   "executor.coreTools.connections.list",
@@ -14,14 +14,12 @@ export function isPublicExecutorToolSelector(value: string): boolean {
   return PUBLIC_EXECUTOR_TOOL_SELECTORS.has(value);
 }
 
-// A secret name is one whole run of name characters that contains a keyword. It
-// is only tried from the start of its run (the lookbehind), and the run is read
-// once: the lookahead finds the keyword, then the run is consumed greedily. An
-// unanchored "name characters, keyword, name characters" pattern is tried from
-// every position of a run and from every keyword inside it, which is quadratic
-// on a long hyphen or underscore separated run such as a base64url blob.
-const SECRET_NAME_KEYWORDS = String.raw`(?:api[-_]?key|(?:access[-_]?|auth[-_]?)?token|token|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connectionstring)`;
-const SECRET_NAME_PATTERN = String.raw`(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]*?${SECRET_NAME_KEYWORDS})[A-Za-z0-9_-]+`;
+// A secret name is only tried from the start of its run (the lookbehind) so an
+// unanchored "name characters, keyword, name characters" pattern is not tried
+// from every position of a long hyphen or underscore separated run.
+const SECRET_NAME_KEYWORDS = String.raw`(?:api[-_]?key|(?:access[-_]?|auth[-_]?)?token|token|authorization(?:[-_]?code)?|bearer|secrets?|passwd|passwords?|credentials?|jwt|private[-_]?key|cookie|connectionstring)`;
+const SECRET_NAME_SUFFIX = String.raw`(?:[-_]?(?:value|header|prod(?:uction)?|dev(?:elopment)?|test|staging|primary|secondary))*`;
+const SECRET_NAME_PATTERN = String.raw`(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*${SECRET_NAME_KEYWORDS}${SECRET_NAME_SUFFIX}`;
 
 // An option's dashes belong to its run. It starts at the run's first dash that
 // follows a non-word character: the run's own first character, or the second
@@ -48,8 +46,20 @@ const COMMAND_GITHUB_TOKEN_RE = /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g;
 // Tried once per run, like a secret name. A run's leading dashes are not part of
 // the first segment: the match begins at the run's first word character.
 const COMMAND_JWT_RE =
-  /(?<![A-Za-z0-9_-])(-*)\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]{8,})?\b/g;
-const DOTTED_ADDRESS_RE = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/;
+  /(?<![A-Za-z0-9_-])(-*)(\b[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]{8,}){2}(?:\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})?\b)/g;
+/** Recognize encoded JSON headers, without treating dotted identifiers as tokens. */
+export function looksLikeCredentialJwt(value: string): boolean {
+  const segments = value.split(".");
+  if (![3, 5].includes(segments.length) || segments.some((part) => !/^[A-Za-z0-9_-]{8,}$/.test(part))) return false;
+  if (segments[0].startsWith("eyJ")) return true;
+  try {
+    const header = JSON.parse(atob(segments[0].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof header === "object" && header !== null && typeof header.alg === "string";
+  } catch {
+    return false;
+  }
+}
+
 const COMMAND_SECRET_HINTS = [
   "api",
   "key",
@@ -104,18 +114,9 @@ export function redactCommandText(
     )
     .replace(COMMAND_OPENAI_KEY_RE, redactedValue)
     .replace(COMMAND_GITHUB_TOKEN_RE, redactedValue)
-    .replace(COMMAND_JWT_RE, (match, dashes: string, offset: number, source: string) => {
-      // The JWT heuristic may match only the first three segments; inspect the
-      // complete address so a longer secret sharing a prefix stays redacted.
-      // Reading two characters past the longest public selector is enough to tell
-      // it from a longer address, and keeps a long dotted chain from being read
-      // again for every match inside it.
-      const addressStart = offset + dashes.length;
-      const address = source
-        .slice(addressStart, addressStart + MAX_PUBLIC_SELECTOR_LENGTH + 2)
-        .match(DOTTED_ADDRESS_RE)?.[0];
-      return address && isPublicExecutorToolSelector(address) ? match : dashes + redactedValue;
-    });
+    .replace(COMMAND_JWT_RE, (match, dashes: string, jwt: string) =>
+      looksLikeCredentialJwt(jwt) ? `${dashes}${redactedValue}` : match,
+    );
 }
 
 // A JSON secret field is a key/value pair such as `"token":"opaque-value"`. The

@@ -37,6 +37,10 @@ export const CREDENTIAL_HEADER_NAMES = [
   "x-csrf-token",
   "x-xsrf-token",
   "x-api-key",
+  // Cloud proxy credentials and signed assertions authorize tenant access.
+  "x-paperclip-cloud-tenant-token",
+  "x-paperclip-cloud-session-id",
+  "x-paperclip-cloud-inspection",
   // Runtime GitHub capabilities authorize credential acquisition for a live run.
   "x-paperclip-github-capability",
   // Telegram's optional webhook verification header is a reusable bearer
@@ -77,6 +81,7 @@ function redactPath(container: string, name: string): string {
 }
 
 export const HTTP_LOG_REDACT_PATHS: readonly string[] = [
+  "res.headers.location",
   // Request and response header objects produced by pino's HTTP serializers.
   ...CREDENTIAL_HEADER_NAMES.flatMap((name) => [
     redactPath("req.headers", name),

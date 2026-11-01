@@ -35,14 +35,14 @@ describeEmbeddedPostgres("database compatibility with legacy removed migrations 
     const sql = postgres(database.connectionString, { max: 1, onnotice: () => {} });
     cleanups.push(async () => sql.end());
 
-    // 1. Calculate hash of 0284_rapid_prowler.sql
+    // 1. Calculate hash of 0334_rapid_prowler.sql
     const rapidProwlerSql = await readFile(
-      new URL("./migrations/0284_rapid_prowler.sql", import.meta.url),
+      new URL("./migrations/0334_rapid_prowler.sql", import.meta.url),
       "utf8",
     );
     const rapidProwlerHash = createHash("sha256").update(rapidProwlerSql).digest("hex");
 
-    // 2. Simulate a database that has had 0284_rapid_prowler removed from history,
+    // 2. Simulate a database that has had 0334_rapid_prowler removed from history,
     // and instead has entries for 0280_panoramic_the_spike, 0282, 0283, 0284.
     // First, remove rapid prowler index and its migration entry
     await sql.unsafe(`
@@ -79,16 +79,16 @@ describeEmbeddedPostgres("database compatibility with legacy removed migrations 
     `);
     expect(insertedRows).toHaveLength(4);
 
-    // 4. Inspect migrations: should detect only 0284_rapid_prowler.sql as pending,
+    // 4. Inspect migrations: should detect only 0334_rapid_prowler.sql as pending,
     // ignoring the 4 unknown hash entries
     const inspection = await inspectMigrations(database.connectionString);
     expect(inspection.status).toBe("needsMigrations");
     if (inspection.status !== "needsMigrations") {
       throw new Error(`Expected needsMigrations, got ${inspection.status}`);
     }
-    expect(inspection.pendingMigrations).toEqual(["0284_rapid_prowler.sql"]);
+    expect(inspection.pendingMigrations).toEqual(["0334_rapid_prowler.sql"]);
 
-    // 5. Apply pending migrations: must apply only 0284_rapid_prowler.sql cleanly
+    // 5. Apply pending migrations: must apply only 0334_rapid_prowler.sql cleanly
     await expect(applyPendingMigrations(database.connectionString)).resolves.toBeUndefined();
 
     // 6. Verify migration status is now up to date
@@ -118,9 +118,9 @@ describeEmbeddedPostgres("database compatibility with legacy removed migrations 
 
     // 2. Simulate historical 044ba08d9 database state:
     // 0280..0283 from upstream v2026.1001.0 were NOT yet applied in __drizzle_migrations.
-    // 0280_rapid_prowler.sql (now 0284_rapid_prowler.sql) was already applied with hash 275adf1a...
+    // 0280_rapid_prowler.sql (now 0334_rapid_prowler.sql) was already applied with hash 275adf1a...
     const rapidProwlerSql = await readFile(
-      new URL("./migrations/0284_rapid_prowler.sql", import.meta.url),
+      new URL("./migrations/0334_rapid_prowler.sql", import.meta.url),
       "utf8",
     );
     const rapidProwlerHash = createHash("sha256").update(rapidProwlerSql).digest("hex");

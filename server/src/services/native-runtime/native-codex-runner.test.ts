@@ -1,5 +1,9 @@
 import * as fs from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as runner from "../../vendor/paperclip-runner/index.js";
 
 const fsMocks = vi.hoisted(() => ({
   failAccess: false,
@@ -29,6 +33,40 @@ import {
   executeNativeCodexRunner,
   resolvePaperclipRunnerBinary,
 } from "./native-codex-runner.js";
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("installed runner selection", () => {
+  it("uses the runner's platform-aware packaged selection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "paperclip-runner-selection-"));
+    const binary = join(root, "paperclip-runnerd");
+    try {
+      await writeFile(binary, "test executable", { mode: 0o700 });
+      const select = vi.spyOn(runner, "defaultCapabilityRunnerdBinary").mockReturnValue(binary);
+      expect(resolvePaperclipRunnerBinary("")).toBe(binary);
+      expect(select).toHaveBeenCalledOnce();
+      expect(resolvePaperclipRunnerBinary(join(root, "missing"))).toBe(binary);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an explicit usable override and rejects a relative override", async () => {
+    const root = await mkdtemp(join(tmpdir(), "paperclip-runner-selection-"));
+    const binary = join(root, "configured-runnerd");
+    try {
+      await writeFile(binary, "test executable", { mode: 0o700 });
+      const select = vi.spyOn(runner, "defaultCapabilityRunnerdBinary").mockImplementation(() => {
+        throw new Error("must not inspect package when override is usable");
+      });
+      expect(resolvePaperclipRunnerBinary(binary)).toBe(binary);
+      expect(select).not.toHaveBeenCalled();
+      expect(() => resolvePaperclipRunnerBinary("relative-runnerd")).toThrow("absolute path");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("buildNativeRunnerArguments", () => {
   it("binds every durable identity without exposing the bootstrap ticket", () => {
