@@ -928,7 +928,7 @@
           src = installSource;
           fetcherVersion = 4;
           pnpm = pkgs.pnpm_11;
-          hash = "sha256-BuMJR9pEgn8GdEIUz4KhEacfmC3JjA8nkbZD363AZwk=";
+          hash = "sha256-kftAEUQXmxNJLJYMXJPNTCMAAMR2n7JflVxfcNUVyVA=";
         };
 
         nodeModules = pkgs.stdenv.mkDerivation (finalAttrs: {

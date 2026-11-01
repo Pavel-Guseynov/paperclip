@@ -13,6 +13,7 @@ import {
 import {
   isPrivateWebhookHttpRequest,
   isSecretSensitiveHttpRequest,
+  isPrivateAgentCommentaryHttpRequest,
   shouldSilenceHttpSuccessLog,
 } from "./http-log-policy.js";
 import {
@@ -164,6 +165,9 @@ export function createHttpLogger(baseLogger: Logger) {
       // into `message` and `stack`) and only has to sanitize it.
       err: sanitizeErrorObject,
       req(req: Record<string, unknown> & { url?: unknown; headers?: unknown }) {
+        if (isPrivateAgentCommentaryHttpRequest(typeof req.url === "string" ? req.url : undefined)) {
+          return { id: req.id, method: req.method, url: stripSecretBearingUrlParts(req.url as string) };
+        }
         if (
           isPrivateWebhook({
             method: typeof req.method === "string" ? req.method : undefined,
@@ -206,7 +210,11 @@ export function createHttpLogger(baseLogger: Logger) {
       ) {
         // A provider error may also be reflected in response headers. Keep the
         // same content-free contract on both sides of a webhook request.
-        if (res.raw?.req && isPrivateWebhook(res.raw.req)) {
+        if (
+          res.raw?.req &&
+          (isPrivateWebhook(res.raw.req) ||
+            isPrivateAgentCommentaryHttpRequest(requestClassificationUrl(res.raw.req)))
+        ) {
           return { statusCode: res.statusCode };
         }
         if (res.headers && typeof res.headers === "object") {
@@ -248,6 +256,9 @@ export function createHttpLogger(baseLogger: Logger) {
       return `${req.method} ${stripSecretBearingUrlParts(req.url ?? "")} ${res.statusCode} — ${errMsg}`;
     },
     customErrorObject(req, _res, _err, value) {
+      if (isPrivateAgentCommentaryHttpRequest(requestClassificationUrl(req))) {
+        return { ...value, err: { type: "Error", message: "Feedback request failed" } };
+      }
       // pino-http serializes res.err independently of customProps/errorContext.
       // Do not rely on a particular error handler having sanitized an SDK Error.
       return isPrivateWebhook(req)
@@ -263,7 +274,10 @@ export function createHttpLogger(baseLogger: Logger) {
       if (typeof method === "string") props.mcpMethod = redactSensitive(method);
       if (res.statusCode >= 400) {
         const ctx = (res as any).__errorContext;
-        if (isPrivateWebhook(req)) {
+        if (/^\/mcp\/(?:oauth|paperclip)(?:\/|$)/.test(requestClassificationUrl(req) ?? "")) {
+          return { reqBody: "[REDACTED]", ...(ctx ? { errorContext: { name: "Error" } } : {}) };
+        }
+        if (isPrivateWebhook(req) || isPrivateAgentCommentaryHttpRequest(requestClassificationUrl(req))) {
           // Omit, rather than recursively redact, the entire provider payload.
           // This applies equally before/after parsing and with/without context.
           return {

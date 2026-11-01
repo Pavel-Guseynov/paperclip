@@ -156,6 +156,10 @@ Read the Vitest evidence contract in `README.md`. Preserve the invocation's
 manifest, safe output records and fixture snapshots with failed-test evidence;
 an unchanged rerun does not replace an incomplete original failure record.
 
+[feature-map/README.md](feature-map/README.md) is an optional reference for user
+entry points, verification recipes, and coverage gaps. The map records coverage
+scope, not proof that a live journey passed.
+
 Default local/agent test path:
 
 ```sh

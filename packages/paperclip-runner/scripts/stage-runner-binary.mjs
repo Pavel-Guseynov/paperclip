@@ -1,35 +1,50 @@
 import { execFile } from "node:child_process";
-import { chmod, copyFile, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, copyFile, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
-export async function stageRunnerBinary({
-  packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
-  source = null,
-  destinationDirectory = null,
-} = {}) {
+export async function stageRunnerBinary(sourceOrOptions = {}, destinationArg = null) {
+  const defaultPackageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const executable = process.platform === "win32" ? "paperclip-runnerd.exe" : "paperclip-runnerd";
-  const resolvedSource = source ?? path.join(packageRoot, "runner", "target", "release", executable);
-  const resolvedDestDir = destinationDirectory ?? path.join(packageRoot, "dist", "bin");
-  const destination = path.join(resolvedDestDir, executable);
-
-  await mkdir(resolvedDestDir, { recursive: true });
-  await copyFile(resolvedSource, destination);
-  if (process.platform !== "win32") await chmod(destination, 0o755);
-  // Rust's linker emits an ad-hoc Mach-O signature. Copying that executable to
-  // its package location preserves the bytes but can leave the kernel rejecting
-  // the new inode with SIGKILL. Re-sign the staged inode so local packaged-runner
-  // evals execute the same artifact that was just built.
-  if (process.platform === "darwin") {
-    await execFileAsync("codesign", ["--force", "--sign", "-", destination]);
+  let source;
+  let destination;
+  if (typeof sourceOrOptions === "string") {
+    source = sourceOrOptions;
+    destination = destinationArg ?? path.join(defaultPackageRoot, "dist", "bin", executable);
+  } else {
+    const {
+      packageRoot = defaultPackageRoot,
+      source: optSource = null,
+      destinationDirectory: optDestDir = null,
+    } = sourceOrOptions ?? {};
+    source = optSource ?? path.join(packageRoot, "runner", "target", "release", executable);
+    destination = path.join(optDestDir ?? path.join(packageRoot, "dist", "bin"), executable);
   }
-  return destination;
+  const destinationDirectory = path.dirname(destination);
+  await mkdir(destinationDirectory, { recursive: true });
+  const stagingDirectory = await mkdtemp(path.join(destinationDirectory, ".runnerd-stage-"));
+  const staged = path.join(stagingDirectory, path.basename(destination));
+  try {
+    await copyFile(source, staged, constants.COPYFILE_EXCL);
+    if (process.platform !== "win32") await chmod(staged, 0o755);
+    // Sign the new inode before publication. Replacing the pathname atomically
+    // preserves a running old executable instead of truncating its live inode.
+    if (process.platform === "darwin") {
+      await execFileAsync("codesign", ["--force", "--sign", "-", staged], { timeout: 30_000 });
+      await execFileAsync("codesign", ["--verify", "--strict", staged], { timeout: 30_000 });
+    }
+    await rename(staged, destination);
+    return destination;
+  } finally {
+    // This fresh directory is the only cleanup target, never the destination.
+    await rm(stagingDirectory, { recursive: true, force: true });
+  }
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await stageRunnerBinary();
 }

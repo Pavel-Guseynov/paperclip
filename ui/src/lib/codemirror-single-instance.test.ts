@@ -1,21 +1,29 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-// CodeMirror validates extensions with instanceof, so the installed graph
-// must contain exactly one physical copy of these packages. Two resolved
-// versions ship two module instances and crash the editor at runtime with
-// "Unrecognized extension value in extension set" — a failure no unit test
-// of the editor itself catches, because each test file sees only one copy.
+// CodeMirror validates extensions with instanceof, and Lezer allocates
+// NodeProp IDs within each module instance. The installed graph must contain
+// one physical copy of their shared primitives. Duplicates can crash extension
+// validation or read unrelated syntax metadata as highlighting tags.
 // The overrides entries in pnpm-workspace.yaml hold the graph to a
 // single resolution; this file pins that invariant against the graph the
 // current install actually resolved, so it holds wherever the tests run —
 // CI (which installs from the lockfile it regenerates for the PR) and
 // local checkouts alike.
-const SINGLE_INSTANCE_PACKAGES = ["@codemirror/state", "@codemirror/view"];
+const SINGLE_INSTANCE_PACKAGES = [
+  ["@codemirror/state", 6],
+  ["@codemirror/view", 6],
+  ["@lezer/common", 1],
+] as const;
 
 const repoRoot = path.resolve(__dirname, "../../..");
 const uiRoot = path.resolve(__dirname, "../..");
+const uiRequire = createRequire(path.join(uiRoot, "package.json"));
+const editorRequire = createRequire(uiRequire.resolve("@mdxeditor/editor"));
+const languagesRequire = createRequire(editorRequire.resolve("@codemirror/language-data"));
+const languageRequire = createRequire(languagesRequire.resolve("@codemirror/language"));
 const workspaceManifest = readFileSync(
   path.join(repoRoot, "pnpm-workspace.yaml"),
   "utf8",
@@ -92,13 +100,13 @@ function reachableCopies(target: string): string[] {
 }
 
 describe("codemirror single-instance invariant", () => {
-  for (const pkg of SINGLE_INSTANCE_PACKAGES) {
+  for (const [pkg, major] of SINGLE_INSTANCE_PACKAGES) {
     it(`keeps the ${pkg} override in the workspace manifest and proves package.json#pnpm is removed`, () => {
       expect(rootManifest.pnpm).toBeUndefined();
       expect(
         workspaceManifest,
-        `pnpm-workspace.yaml is the single authority for overrides and must carry the ${pkg} entry.`,
-      ).toMatch(new RegExp(`^\\s+"${pkg}":`, "m"));
+        `pnpm-workspace.yaml is the single authority for overrides and must carry the ${pkg} ^${major}.* entry.`,
+      ).toMatch(new RegExp(`^\\s+"${pkg}":\\s*"\\^${major}\\.`, "m"));
     });
 
     it(`installs exactly one physical copy of ${pkg}`, () => {
@@ -110,11 +118,36 @@ describe("codemirror single-instance invariant", () => {
       expect(
         copies,
         `the installed graph carries multiple physical copies of ${pkg}, ` +
-          "which break instanceof checks inside the editor. Reinstall " +
+          "which break shared primitives inside the editor. Reinstall " +
           "against the current manifests; if the copies persist, fix the " +
           "overrides entry in pnpm-workspace.yaml instead of " +
           "allowing a second copy.",
       ).toHaveLength(1);
     });
   }
+
+  // Exercise the installed editor graph directly. Separate @lezer/common
+  // instances allocate colliding NodeProp IDs: the highlighter then reads
+  // another parser property as style tags and throws "tags is not iterable".
+  // Using Node resolution also keeps a test bundler from hiding the split.
+  it.each([
+    ["@codemirror/lang-python", "python", "def greet(name):\n    return name + '!'\n"],
+    ["@codemirror/lang-javascript", "javascript", "function greet(name) { return name + '!'; }"],
+    ["@codemirror/lang-html", "html", '<div class="greeting">Hello</div>'],
+    ["@codemirror/lang-sql", "sql", "SELECT name FROM greetings WHERE id = 1;"],
+  ])("highlights code with %s through the editor's installed dependencies", (pkg, factory, code) => {
+    const language = languagesRequire(pkg)[factory]().language;
+    const { highlightTree, classHighlighter } = languageRequire("@lezer/highlight");
+    const spans: Array<{ from: number; to: number; css: string }> = [];
+    highlightTree(language.parser.parse(code), classHighlighter, (from: number, to: number, css: string) => {
+      spans.push({ from, to, css });
+    });
+    expect(spans.length).toBeGreaterThan(0);
+    for (const span of spans) {
+      expect(span.from).toBeGreaterThanOrEqual(0);
+      expect(span.to).toBeGreaterThan(span.from);
+      expect(span.to).toBeLessThanOrEqual(code.length);
+      expect(span.css).toMatch(/\S/);
+    }
+  });
 });

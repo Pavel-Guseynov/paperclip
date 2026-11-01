@@ -1,3 +1,5 @@
+import type { ActivityPublication } from "../types/activity-publication.js";
+export type { ActivityPublication } from "../types/activity-publication.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
@@ -70,13 +72,6 @@ export interface LogActivityInput {
   issueId?: string | null;
   details?: Record<string, unknown> | null;
   responsibleUserIdOverride?: string | null;
-}
-
-export interface ActivityPublication {
-  companyId: string;
-  payload: Record<string, unknown>;
-  pluginEvent: PluginEvent | null;
-  lifecycleRecord?: TaskLifecycleRecord | Record<string, unknown> | null;
 }
 
 export async function createActivityDetailsRedactor(db: Db) {
@@ -185,6 +180,7 @@ export async function persistActivity(db: Db, input: LogActivityInput) {
   }).returning({ id: activityLog.id, createdAt: activityLog.createdAt });
 
   const payload = {
+    issueId: input.issueId ?? (input.entityType === "issue" ? input.entityId : null),
     actorType: input.actorType,
     actorId: input.actorId,
     action: input.action,
