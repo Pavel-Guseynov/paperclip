@@ -574,6 +574,8 @@ export interface ServerAdapterModule {
    */
   supportsInstructionsBundle?: boolean;
 
+  supportsConversationContinuation?: boolean;
+
   /**
    * The adapterConfig key that holds the instructions file path.
    * Defaults to "instructionsFilePath" when supportsInstructionsBundle is true.

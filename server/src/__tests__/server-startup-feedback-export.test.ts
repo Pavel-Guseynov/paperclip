@@ -350,6 +350,16 @@ function buildTestConfig(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const externalAdapters = vi.hoisted(() => ({ ready: null as Promise<void> | null }));
+
+vi.mock("../adapters/registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../adapters/registry.js")>();
+  return {
+    ...actual,
+    waitForExternalAdapters: () => externalAdapters.ready ?? actual.waitForExternalAdapters(),
+  };
+});
+
 vi.mock("node:http", () => ({
   createServer: vi.fn(() => fakeServer),
 }));
@@ -1833,6 +1843,26 @@ describe("startServer feedback export wiring", () => {
     expect(heartbeatServiceMock.reapOrphanedRuns).not.toHaveBeenCalled();
     expect(heartbeatServiceMock.registerResidualRecoveryWork).toHaveBeenCalledTimes(1);
     expect(heartbeatServiceMock.registerActiveRunSilenceWork).toHaveBeenCalledTimes(1);
+  });
+
+  it("reaps orphaned runs only after external adapters are registered", async () => {
+    loadConfigMock.mockReturnValue(buildTestConfig({
+      heartbeatSchedulerEnabled: true,
+      heartbeatSchedulerIntervalMs: 30000,
+    }));
+    let markAdaptersReady!: () => void;
+    externalAdapters.ready = new Promise<void>((resolve) => { markAdaptersReady = resolve; });
+    try {
+      const started = startServer();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(heartbeatServiceMock.reapOrphanedRuns).not.toHaveBeenCalled();
+
+      markAdaptersReady();
+      await started;
+      expect(heartbeatServiceMock.reapOrphanedRuns).toHaveBeenCalledTimes(1);
+    } finally {
+      externalAdapters.ready = null;
+    }
   });
 
   it.each(["recoverPendingSessionGoalActions", "recoverActiveSessionGoals"] as const)("continues independent recovery after %s startup failure", async method => {
