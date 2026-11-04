@@ -3721,8 +3721,10 @@ export function issueRoutes(
     res: Response,
     issue: { id: string; identifier?: string | null; companyId: string },
     kind: CrossIssueInfluenceKind,
+    options: { allowRunlessStandardAgentKey?: boolean } = {},
   ) {
     if (req.actor.type !== "agent") return true;
+    if (options.allowRunlessStandardAgentKey && isRunlessStandardAgentKey(req)) return true;
     if (!req.actor.agentId || !req.actor.runId)
       throw crossIssueInfluenceRunContextError();
 
@@ -5649,6 +5651,13 @@ export function issueRoutes(
     return null;
   }
 
+  function isRunlessStandardAgentKey(req: Request) {
+    return req.actor.type === "agent" &&
+      req.actor.source === "agent_key" &&
+      req.actor.keyScope?.kind === "standard" &&
+      !req.actor.runId?.trim();
+  }
+
   async function hasActiveCheckoutManagementOverride(
     actorAgentId: string,
     companyId: string,
@@ -5677,7 +5686,7 @@ export function issueRoutes(
       /** Used only to name the task in denial copy (plan §6). */
       identifier?: string | null;
     },
-    options: { allowVisibleIssueWrite?: boolean } = {},
+    options: { allowVisibleIssueWrite?: boolean; allowRunlessAssignedAgentKey?: boolean } = {},
   ) {
     if (!(await assertIssueReadAllowed(req, res, issue))) return false;
     if (req.actor.type !== "agent") return true;
@@ -5785,6 +5794,21 @@ export function issueRoutes(
       return true;
     }
     if (issue.status !== "in_progress") {
+      return true;
+    }
+    if (
+      options.allowRunlessAssignedAgentKey &&
+      isRunlessStandardAgentKey(req)
+    ) {
+      const ownership = await svc.assertCheckoutOwner(issue.id, actorAgentId, null);
+      if (ownership.executionRunId) {
+        throw conflict("Issue run ownership conflict", {
+          issueId: issue.id,
+          executionRunId: ownership.executionRunId,
+          actorAgentId,
+          actorRunId: null,
+        });
+      }
       return true;
     }
     const runId = requireAgentRunId(req, res);
@@ -14076,7 +14100,7 @@ export function issueRoutes(
         req,
         res,
         existing,
-        { allowVisibleIssueWrite: true },
+        { allowVisibleIssueWrite: true, allowRunlessAssignedAgentKey: true },
       );
       if (!issueMutationAccess) return;
       if (req.body.comment && !(await assertBoardCommentNotPaused(req, res, existing))) return;
@@ -14356,6 +14380,7 @@ export function issueRoutes(
           res,
           existing,
           "update",
+          { allowRunlessStandardAgentKey: true },
         ))
       )
         return;
@@ -14366,6 +14391,7 @@ export function issueRoutes(
           res,
           existing,
           "comment",
+          { allowRunlessStandardAgentKey: true },
         ))
       )
         return;
