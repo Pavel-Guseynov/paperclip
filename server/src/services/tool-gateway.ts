@@ -2113,6 +2113,13 @@ export function createToolGatewayService(
       );
     }
     if (namedGatewayTokenId(token)) {
+      if (!namedGatewayProtocol?.gatewayId && !namedGatewayProtocol?.gatewayPublicId) {
+        throw new ToolGatewayHttpError(
+          401,
+          "Tool gateway session is expired or invalid",
+          "session_invalid",
+        );
+      }
       return namedGatewaySessionFromBearer({
         gatewayId: namedGatewayProtocol?.gatewayId ?? null,
         gatewayPublicId: namedGatewayProtocol?.gatewayPublicId ?? null,
