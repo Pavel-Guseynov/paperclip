@@ -89,7 +89,7 @@ export async function createAssignedMcpTools(input: {
   /** Bound provider grammar complexity independently of protocol byte capacity. */
   delivery?: "on_demand";
 }) {
-  const listed = await input.gateway.listToolsForNamedGateway({
+  const { tools: listed } = await input.gateway.listToolsForNamedGateway({
     gatewayPublicId: input.gatewayPublicId,
     bearerToken: input.bearerToken,
   });
@@ -131,7 +131,7 @@ export async function createAssignedMcpTools(input: {
     // take effect immediately; newly assigned tools require a new session.
     const current = new Map(deduplicateToolDescriptors(await input.gateway.listToolsForNamedGateway({
       gatewayPublicId: input.gatewayPublicId, bearerToken: input.bearerToken,
-    })).map(tool => [tool.name, tool]));
+    })).tools.map(tool => [tool.name, tool]));
     const terms = args.query.toLowerCase().trim().split(/\s+/).filter(Boolean);
     const authorized = [...tools].filter(([, tool]) => {
       const fresh = current.get(tool.name);
