@@ -2007,7 +2007,8 @@ async function startServerWithDatabaseTeardown(
       await drainRunExecutionFinalizersForShutdown({
         signal,
         drain: drainHeartbeatExecutionFinalizers,
-        timeoutMs: 30_000,
+        timeoutMs: config.shutdownDrainTimeoutMs,
+        getActiveRunIds: () => heartbeat?.getActiveRunExecutionIds() ?? [],
         log: logger,
       });
     }

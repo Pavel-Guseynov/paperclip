@@ -9,7 +9,7 @@ import { createHeartbeatRunPreparation } from "../../services/heartbeat/run-prep
 import type { HeartbeatQueueDependencies } from "../../services/heartbeat/queue.js";
 
 type Run = typeof heartbeatRuns.$inferSelect;
-type MockedCallback = "getAgent" | "setRunStatus" | "setWakeupStatus" | "appendRunEvent" | "finalizeAgentStatus" | "getAgentInvokability" | "getWorktreeExecutionCutoff" | "applyRunDispatchPostCommitEffects" | "getSchedulingSuppression" | "canStartNewExternalBotWork" | "executeRun" | "applyWakeQueuePostCommitEffects" | "releaseIssueExecutionAndPromote" | "publishRunLifecyclePluginEvent" | "cancelRunInternal" | "cancelActiveForAgentInternal" | "resumeExecutionWaitComments" | "resumeQueuedCommentInterrupt" | "resumeSavedLegacyComments" | "sweepPendingCleanupLeases";
+type MockedCallback = "getAgent" | "setRunStatus" | "setWakeupStatus" | "appendRunEvent" | "finalizeAgentStatus" | "getAgentInvokability" | "getWorktreeExecutionCutoff" | "applyRunDispatchPostCommitEffects" | "getSchedulingSuppression" | "canStartNewExternalBotWork" | "runStartsStoppedForShutdown" | "executeRun" | "applyWakeQueuePostCommitEffects" | "releaseIssueExecutionAndPromote" | "publishRunLifecyclePluginEvent" | "cancelRunInternal" | "cancelActiveForAgentInternal" | "resumeExecutionWaitComments" | "resumeQueuedCommentInterrupt" | "resumeSavedLegacyComments" | "sweepPendingCleanupLeases";
 type QueueTestDependencies = HeartbeatQueueDependencies & { [K in MockedCallback]: Mock<HeartbeatQueueDependencies[K]> } & {
   issuesSvc: Mocked<HeartbeatQueueDependencies["issuesSvc"]>;
   treeControlSvc: Mocked<HeartbeatQueueDependencies["treeControlSvc"]>;
@@ -57,6 +57,7 @@ export function createHeartbeatQueueTestDependencies(db: Db): QueueTestDependenc
     filterZombieCoalesceTarget: <T extends { id: string; status: string }>(run: T | null) => run,
     getSchedulingSuppression: vi.fn<HeartbeatQueueDependencies["getSchedulingSuppression"]>(async () => ({ suppressed: false, reason: null } as Awaited<ReturnType<HeartbeatQueueDependencies["getSchedulingSuppression"]>>)),
     canStartNewExternalBotWork: vi.fn<HeartbeatQueueDependencies["canStartNewExternalBotWork"]>(async () => true),
+    runStartsStoppedForShutdown: vi.fn<HeartbeatQueueDependencies["runStartsStoppedForShutdown"]>(() => false),
     executeRun: vi.fn<HeartbeatQueueDependencies["executeRun"]>(async () => undefined),
     applyWakeQueuePostCommitEffects: vi.fn<HeartbeatQueueDependencies["applyWakeQueuePostCommitEffects"]>(async () => undefined),
     releaseIssueExecutionAndPromote: vi.fn<HeartbeatQueueDependencies["releaseIssueExecutionAndPromote"]>(async () => undefined),

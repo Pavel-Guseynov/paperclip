@@ -123,6 +123,7 @@ export interface Config extends StorageConfig {
   telemetryEnabled: boolean;
   announcementsEnabled: boolean;
   announcementsFeedUrl: string;
+  shutdownDrainTimeoutMs: number;
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -343,6 +344,15 @@ export function loadConfig(override?: PaperclipConfig | null): Config {
   const gitRestorePointTerminalDelayDays = nonNegativeIntegerEnv("PAPERCLIP_GIT_RESTORE_POINT_TERMINAL_DELAY_DAYS", 3);
   const gitRestorePointIdleDays = nonNegativeIntegerEnv("PAPERCLIP_GIT_RESTORE_POINT_IDLE_DAYS", 7);
   const taskDirectoryOrphanGraceDays = Math.max(1, nonNegativeIntegerEnv("PAPERCLIP_TASK_DIRECTORY_ORPHAN_GRACE_DAYS", 7));
+  const shutdownDrainTimeoutMsEnv = process.env.PAPERCLIP_SHUTDOWN_DRAIN_TIMEOUT_MS?.trim();
+  const shutdownDrainTimeoutMsRaw = Number(shutdownDrainTimeoutMsEnv);
+  const shutdownDrainTimeoutMs =
+    shutdownDrainTimeoutMsEnv
+      && Number.isInteger(shutdownDrainTimeoutMsRaw)
+      && shutdownDrainTimeoutMsRaw > 0
+      && shutdownDrainTimeoutMsRaw <= 2_147_483_647
+      ? shutdownDrainTimeoutMsRaw
+      : (fileConfig?.server.shutdownDrainTimeoutMs ?? 60_000);
   const bindValidationErrors = validateConfiguredBindMode({
     deploymentMode,
     deploymentExposure,
@@ -437,6 +447,7 @@ export function loadConfig(override?: PaperclipConfig | null): Config {
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
     announcementsEnabled: process.env.PAPERCLIP_ANNOUNCEMENTS_ENABLED !== "false",
     announcementsFeedUrl: process.env.PAPERCLIP_ANNOUNCEMENTS_FEED_URL?.trim() || "https://pages.paperclip.ing/announcements/v1/current.json",
+    shutdownDrainTimeoutMs,
   };
 }
 
