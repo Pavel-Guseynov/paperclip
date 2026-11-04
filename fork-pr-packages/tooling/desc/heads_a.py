@@ -66,7 +66,7 @@ This pull request does not depend on pull request 01 (`pr/01-codex-managed-mcp-a
 "id": "02b",
 "branch": "pr/02b-session-routes-reject-gateway-tokens",
 "title": "fix(tool-gateway): reject named gateway tokens on session routes",
-"stack": None,
+"stack": ("pr/02-tool-gateway-session-token-verification", "Pull request 02 hands `pcgt_` session bearers on the session routes to the gateway service; this pull request rejects `pcgw_` named gateway tokens on those routes."),
 "thinking": [
 "Paperclip is the open source app people use to manage AI agents for work.",
 "The tool gateway has run-scoped session routes and named gateway routes, each with its own token type.",
@@ -90,7 +90,7 @@ The session routes accept only a run-scoped session token. A named gateway token
 3. See `200` and the tool list.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Both `local_trusted` and `authenticated`.
@@ -132,7 +132,7 @@ Agent callbacks use an origin that the agent process can reach. An operator can 
 3. See the MCP and API calls fail with a DNS or connection error.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any mode where the public URL differs from the internal one.
@@ -181,7 +181,7 @@ A timeout marks the connection `degraded`. Its tools stay listed. The next excha
 3. List tools: the connection's tools are gone.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.
@@ -226,7 +226,7 @@ The replay is refused with `409` and `ambiguous_invocation_timeout`. Reads and l
 3. See the stored timed-out invocation returned as a replay.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf` with pull request 04 applied.
+`paperclipai/paperclip` master `925965a09` with pull request 04 applied.
 
 **Deployment mode**
 Any.
@@ -271,7 +271,7 @@ Credential headers, fields, and token-shaped text are redacted in every log reco
 3. See the token in the request headers and in the error message.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.

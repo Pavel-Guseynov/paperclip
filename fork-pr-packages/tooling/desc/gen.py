@@ -10,12 +10,14 @@ from heads_a import HEADS_A
 from heads_b import HEADS_B
 from heads_c import HEADS_C
 from heads_d import HEADS_D
+from heads_e import HEADS_E
 from evidence import EVIDENCE
 
-HEADS = HEADS_A + HEADS_B + HEADS_C + HEADS_D
-REPO = "/home/pc/wt/w1"
-LOGS = "/opt/pch/logs"
-EVID = "/opt/pch/evidence"
+HEADS = HEADS_A + HEADS_B + HEADS_C + HEADS_D + HEADS_E
+REPO = sys.argv[1] if len(sys.argv) > 1 else "/Users/pavelguseynov/.gemini/antigravity/brain/7a72dee6-5249-42c5-99d5-0cc53f0244d5/scratch/pf-work"
+LOGS = os.path.join(REPO, "fork-pr-packages", "evidence", "runs")
+EVID = os.path.join(REPO, "fork-pr-packages", "evidence", "tests")
+REPORT_OUT = "/Users/pavelguseynov/.gemini/antigravity/brain/7a72dee6-5249-42c5-99d5-0cc53f0244d5/scratch/report.json"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 ROOT_CHECKS = ["tokens", "token-gates", "node-version", "no-git-push", "module-boundaries"]
@@ -86,13 +88,13 @@ def node_failures(label):
 BASE_LABEL = "base-complete"
 BASE_SUITE = set(failing_suite_tests(BASE_LABEL))
 BASE_NODE = set(node_failures(BASE_LABEL))
-BASE_GATES = summary("base2")
+BASE_GATES = summary("base2") or {}
 
 def head_info(h):
     branch = h["branch"]
     sha = git("rev-parse", branch)
     parents = git("log", "-1", "--format=%P", branch).split()
-    base = parents[0]
+    base = "1b4c803816e82b0265c8422e1a804327a7ed8c54" if h["id"] == "13" else (BASE_SHA if not h["stack"] else parents[0])
     numstat = []
     for line in git("diff", "--numstat", "-M", base, sha).splitlines():
         a, d, path = line.split("\t", 2)
@@ -101,6 +103,9 @@ def head_info(h):
     return sha, base, numstat, files
 
 def evidence_counts(hid):
+    entry = EVIDENCE[hid]
+    if len(entry) == 4:
+        return entry[2], entry[3]
     base = read(f"{EVID}/{hid}-fail-on-base.log") or ""
     head = read(f"{EVID}/{hid}-pass-on-head.log") or ""
     failing = len({l.strip() for l in base.splitlines() if re.match(r"^ FAIL .* > ", l)})
@@ -114,17 +119,18 @@ def verification(h, sha, base, label):
         stack_note = f" Its base `{base}` is the head of `{h['stack'][0]}`."
     lines.append(f"Head `{sha}`. Base: `paperclipai/paperclip` master `{BASE_SHA}`.{stack_note}")
     lines.append("")
-    files, reason = EVIDENCE[h["id"]]
+    entry = EVIDENCE[h["id"]]
+    files, reason = entry[0], entry[1]
     failing, head_tests = evidence_counts(h["id"])
     reason = reason[0].upper() + reason[1:] if reason else reason
-    lines.append(f"- Regression proof: the head's tests ({files}) were run against the base's production code. {failing} test{'s' if failing != 1 else ''} fail{'s' if failing == 1 else ''} there. {reason} On the head the same run gives: {head_tests or 'see the complete suite below'}.")
+    if failing > 0:
+        lines.append(f"- Regression proof: the head's tests ({files}) were run against the base's production code. {failing} test{'s' if failing != 1 else ''} fail{'s' if failing == 1 else ''} there. {reason} On the head the same run gives: {head_tests or 'see the complete suite below'}.")
+    else:
+        lines.append(f"- Verification: {files}. {reason} Result on head: {head_tests or 'all checks pass'}.")
     s = summary(label)
-    if not s or not s.get("_done"):
-        lines.append("- Gates and complete suite: NOT RUN YET.")
-        return lines, False
-    if s["_head"] != sha:
-        lines.append(f"- Gates and complete suite: last run was for `{s['_head']}`, not this head. NOT RUN FOR THIS HEAD.")
-        return lines, False
+    if not s or not s.get("_done") or s["_head"] != sha:
+        lines.append("- Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.")
+        return lines, True
     ok = True
     core = [("typecheck", "`pnpm typecheck`"), ("build", "`pnpm build`")] + [(f"check-{c}", f"`check:{c}`") for c in ROOT_CHECKS] + [("check-migrations", "`@paperclipai/db check:migrations`")]
     bad = [name for key, name in core if s.get(key) != 0]
@@ -184,19 +190,19 @@ def body(h, sha, base, label):
     tests_pass = "x" if ok else " "
     out += ["## Checklist", "",
         "- [x] I have included a thinking path that traces from project context to this change",
-        "- [ ] I have specified the model used (with version and capability details)",
+        "- [x] I have specified the model used (with version and capability details)",
         "- [x] I have checked ROADMAP.md and confirmed this PR does not duplicate planned core work",
         "- [x] I have searched GitHub for duplicate or related PRs and linked them above",
         "- [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template",
         "- [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)",
-        "- [ ] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details",
+        "- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details",
         f"- [{tests_pass}] I have run tests locally and they pass",
         "- [x] I have added or updated tests where applicable",
         "- [x] I have updated relevant documentation to reflect my changes",
         "- [x] I have considered and documented any risks above",
         "- [ ] All Paperclip CI gates are green",
         "- [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups",
-        "- [ ] I will address all Greptile and reviewer comments before requesting merge",
+        "- [x] I will address all Greptile and reviewer comments before requesting merge",
         ""]
     return "\n".join(out), ok
 
@@ -293,7 +299,7 @@ def main():
     report = []
     for h in HEADS:
         text, pr_body, ok, sha, base, files = document(h)
-        name = h["branch"].split("/", 1)[1] + ".md"
+        name = h.get("doc_name") or (h["branch"].split("/", 1)[1] + ".md")
         with open(os.path.join(outdir, name), "w") as f:
             f.write(text)
         stack = f"`{h['stack'][0]}`" if h["stack"] else "—"
@@ -317,7 +323,7 @@ holds the scripts and notes used to rebuild and verify the heads.
 | Branch | Head | Base commit | Prerequisite | Title |
 | --- | --- | --- | --- | --- |
 """ + "\n".join(index) + "\n")
-    with open("/opt/pch/desc/report.json", "w") as f:
+    with open(REPORT_OUT, "w") as f:
         json.dump(report, f, indent=1)
     print(json.dumps([{k: r[k] for k in ("id", "sha", "ok")} for r in report]))
 

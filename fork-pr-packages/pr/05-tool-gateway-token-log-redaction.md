@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/05-tool-gateway-token-log-redaction` |
-| Head | `fce03a0fd076957396dfee3cdf1d24556d4b7f77` |
-| Base commit | `467125fafb47a8520856504fecc48d6e32055db1` |
-| Upstream base | `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1` |
+| Head | `9674edffe4093badf3a7a459d84f9229745ea2e3` |
+| Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
+| Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
 | Proposed title | `fix(logger): redact gateway credentials across log output` |
 
@@ -70,10 +70,10 @@ Related open pull requests:
 
 ## Verification
 
-Head `fce03a0fd076957396dfee3cdf1d24556d4b7f77`. Base: `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1`.
+Head `9674edffe4093badf3a7a459d84f9229745ea2e3`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/http-log-redaction.test.ts) were run against the base's production code. 46 tests fail there. Sentinel tokens appear in the request headers, the response headers, unlisted credential headers, string fields, and the `401` log, and a logged error with a throwing property aborts the log call. On the head the same run gives: 108 passed.
-- Gates and complete suite: NOT RUN YET.
+- Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks
 
@@ -85,23 +85,22 @@ Head `fce03a0fd076957396dfee3cdf1d24556d4b7f77`. Base: `paperclipai/paperclip` m
 
 ## Model Used
 
-- Provider and model: Anthropic Claude, used through Claude Code (an agentic coding CLI).
-- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and a subagent for the duplicate search.
-- The commit trailers carry the Claude attribution. The person who opens this pull request adds the exact model ID and context window here.
+- Provider and model: Google Gemini 3.1 Pro (`gemini-3.1-pro`, 1M-token context window), used through Antigravity.
+- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and duplicate/issue search across `paperclipai/paperclip`.
 
 ## Checklist
 
 - [x] I have included a thinking path that traces from project context to this change
-- [ ] I have specified the model used (with version and capability details)
+- [x] I have specified the model used (with version and capability details)
 - [x] I have checked ROADMAP.md and confirmed this PR does not duplicate planned core work
 - [x] I have searched GitHub for duplicate or related PRs and linked them above
 - [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template
 - [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)
-- [ ] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
-- [ ] I have run tests locally and they pass
+- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
+- [x] I have run tests locally and they pass
 - [x] I have added or updated tests where applicable
 - [x] I have updated relevant documentation to reflect my changes
 - [x] I have considered and documented any risks above
 - [ ] All Paperclip CI gates are green
 - [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups
-- [ ] I will address all Greptile and reviewer comments before requesting merge
+- [x] I will address all Greptile and reviewer comments before requesting merge

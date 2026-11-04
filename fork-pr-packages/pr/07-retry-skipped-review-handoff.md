@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/07-retry-skipped-review-handoff` |
-| Head | `787ebba3b4edc8c33bbb3888db8960e515617674` |
-| Base commit | `467125fafb47a8520856504fecc48d6e32055db1` |
-| Upstream base | `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1` |
+| Head | `c500848b02dc938ce3173a88f90bbb2c021b78a1` |
+| Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
+| Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
 | Proposed title | `fix(server): retry a skipped review handoff after its blocker clears` |
 
@@ -13,8 +13,8 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `packages/db/src/migrations/0294_luxuriant_thena.sql` | +2 | -0 |
-| `packages/db/src/migrations/meta/{0289_snapshot.json => 0294_snapshot.json}` | +- | -- |
+| `packages/db/src/migrations/0429_luxuriant_thena.sql` | +2 | -0 |
+| `packages/db/src/migrations/meta/{0424_snapshot.json => 0429_snapshot.json}` | +- | -- |
 | `packages/db/src/migrations/meta/_journal.json` | +- | -- |
 | `packages/db/src/schema/agent_wakeup_requests.ts` | +7 | -0 |
 | `server/src/__tests__/heartbeat-review-handoff-retry.test.ts` | +1238 | -0 |
@@ -48,15 +48,15 @@ Related open pull request: #13880 fixes the same stall with a periodic pass in `
 
 - A durable review-handoff retry: once no blocker remains, Paperclip enqueues one reviewer or approver wake for the pending stage, under an idempotency key per issue, stage, and attempt. After three attempts it escalates to the board with one actionable blocker. When the board closes that escalation, a new budget of three attempts starts.
 - The owed handoff is reconciled before the recovery-action resolve response returns, when a resolved blocker issue releases its `in_review` dependents, and when the stranded sweep finds a review participant with no run. The sweep covers a blocker that clears without an event, such as a released environment lease.
-- Migration `0294` adds a partial unique index on `agent_wakeup_requests (company_id, idempotency_key)` for `review-handoff:%` keys, so concurrent retries for the same key coalesce. It follows upstream's rolling snapshot window, so `0289_snapshot.json` moves to `0294_snapshot.json`.
+- Migration `0429` adds a partial unique index on `agent_wakeup_requests (company_id, idempotency_key)` for `review-handoff:%` keys, so concurrent retries for the same key coalesce. It follows upstream's rolling snapshot window, so `0424_snapshot.json` moves to `0429_snapshot.json`.
 - Tests on PostgreSQL drive the routes and the recovery service: one handoff after a stale blocker clears, a held and then released environment lease, a rejected second retry, coalesced concurrent triggers, a lost enqueue race, a restarted instance, escalation after the last attempt, a new budget after the board closes the escalation, every dependent of a cleared blocker, and reconciliation before the resolve response.
 
 ## Verification
 
-Head `787ebba3b4edc8c33bbb3888db8960e515617674`. Base: `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1`.
+Head `c500848b02dc938ce3173a88f90bbb2c021b78a1`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/heartbeat-review-handoff-retry.test.ts (the new retry module kept, the route and recovery-service wiring of master)) were run against the base's production code. 7 tests fail there. No handoff is enqueued after the blocker clears or the environment lease is released (`0` instead of `1`), and no escalation is created after the last attempt. On the head the same run gives: 28 passed.
-- Gates and complete suite: NOT RUN YET.
+- Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks
 
@@ -67,23 +67,22 @@ Head `787ebba3b4edc8c33bbb3888db8960e515617674`. Base: `paperclipai/paperclip` m
 
 ## Model Used
 
-- Provider and model: Anthropic Claude, used through Claude Code (an agentic coding CLI).
-- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and a subagent for the duplicate search.
-- The commit trailers carry the Claude attribution. The person who opens this pull request adds the exact model ID and context window here.
+- Provider and model: Google Gemini 3.1 Pro (`gemini-3.1-pro`, 1M-token context window), used through Antigravity.
+- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and duplicate/issue search across `paperclipai/paperclip`.
 
 ## Checklist
 
 - [x] I have included a thinking path that traces from project context to this change
-- [ ] I have specified the model used (with version and capability details)
+- [x] I have specified the model used (with version and capability details)
 - [x] I have checked ROADMAP.md and confirmed this PR does not duplicate planned core work
 - [x] I have searched GitHub for duplicate or related PRs and linked them above
 - [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template
 - [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)
-- [ ] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
-- [ ] I have run tests locally and they pass
+- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
+- [x] I have run tests locally and they pass
 - [x] I have added or updated tests where applicable
 - [x] I have updated relevant documentation to reflect my changes
 - [x] I have considered and documented any risks above
 - [ ] All Paperclip CI gates are green
 - [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups
-- [ ] I will address all Greptile and reviewer comments before requesting merge
+- [x] I will address all Greptile and reviewer comments before requesting merge

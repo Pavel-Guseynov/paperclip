@@ -70,7 +70,7 @@ The key can update an issue its agent is authorized to edit, including blocker c
 3. See `403`.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.
@@ -283,7 +283,7 @@ The run that owns the child fails with a clear error. Other runs continue.
 3. See the server process exit.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.

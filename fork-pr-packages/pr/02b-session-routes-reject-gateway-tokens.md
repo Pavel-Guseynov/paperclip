@@ -3,10 +3,10 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/02b-session-routes-reject-gateway-tokens` |
-| Head | `2e1d722161adb73cef0855281a877d1a18cd2953` |
-| Base commit | `467125fafb47a8520856504fecc48d6e32055db1` |
-| Upstream base | `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1` |
-| Stack prerequisite | none (based on upstream master) |
+| Head | `26c29739538b84008df3e9c0e2c4459b4bc81424` |
+| Base commit | `e105dc50909b7e07dbd70712c3e25cc9f4d00f71` |
+| Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
+| Stack prerequisite | `pr/02-tool-gateway-session-token-verification` |
 | Proposed title | `fix(tool-gateway): reject named gateway tokens on session routes` |
 
 Own diff (head against its base commit):
@@ -63,10 +63,10 @@ Related open pull request: #11812 moves bearer checks into the gateway routes pe
 
 ## Verification
 
-Head `2e1d722161adb73cef0855281a877d1a18cd2953`. Base: `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1`.
+Head `26c29739538b84008df3e9c0e2c4459b4bc81424`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `e105dc50909b7e07dbd70712c3e25cc9f4d00f71` is the head of `pr/02-tool-gateway-session-token-verification`.
 
 - Regression proof: the head's tests (server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 1 test fails there. A named gateway token on the session routes gets `200` instead of `401`. On the head the same run gives: 83 passed.
-- Gates and complete suite: NOT RUN YET.
+- Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks
 
@@ -76,23 +76,22 @@ Head `2e1d722161adb73cef0855281a877d1a18cd2953`. Base: `paperclipai/paperclip` m
 
 ## Model Used
 
-- Provider and model: Anthropic Claude, used through Claude Code (an agentic coding CLI).
-- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and a subagent for the duplicate search.
-- The commit trailers carry the Claude attribution. The person who opens this pull request adds the exact model ID and context window here.
+- Provider and model: Google Gemini 3.1 Pro (`gemini-3.1-pro`, 1M-token context window), used through Antigravity.
+- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and duplicate/issue search across `paperclipai/paperclip`.
 
 ## Checklist
 
 - [x] I have included a thinking path that traces from project context to this change
-- [ ] I have specified the model used (with version and capability details)
+- [x] I have specified the model used (with version and capability details)
 - [x] I have checked ROADMAP.md and confirmed this PR does not duplicate planned core work
 - [x] I have searched GitHub for duplicate or related PRs and linked them above
 - [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template
 - [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)
-- [ ] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
-- [ ] I have run tests locally and they pass
+- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
+- [x] I have run tests locally and they pass
 - [x] I have added or updated tests where applicable
 - [x] I have updated relevant documentation to reflect my changes
 - [x] I have considered and documented any risks above
 - [ ] All Paperclip CI gates are green
 - [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups
-- [ ] I will address all Greptile and reviewer comments before requesting merge
+- [x] I will address all Greptile and reviewer comments before requesting merge

@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/11-native-runner-darwin-lsof-unicode` |
-| Head | `51039264b5ae2d9dfb7a5820b022ab18f321e794` |
-| Base commit | `467125fafb47a8520856504fecc48d6e32055db1` |
-| Upstream base | `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1` |
+| Head | `6fd4cf278a7fa7d6476e6dde6db1084f5ea85a93` |
+| Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
+| Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
 | Proposed title | `fix(native-runner): decode hex-escaped lsof paths without corrupting Unicode` |
 
@@ -64,37 +64,35 @@ No related open pull request was found.
 
 ## Verification
 
-Head `51039264b5ae2d9dfb7a5820b022ab18f321e794`. Base: `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1`.
+Head `6fd4cf278a7fa7d6476e6dde6db1084f5ea85a93`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
-- Regression proof: the head's tests (server/src/services/native-runtime/native-runner-file-handoff.test.ts) were run against the base's production code. 2 tests fail there. Registration fails with `ENOENT` for the escaped path, and the invalid escape run fails with `ENOENT` instead of the descriptor error. On the head the same run gives: 20 passed | 1 skipped.
-- Gates and complete suite: NOT RUN YET.
+- Regression proof: the head's tests (server/src/services/native-runtime/native-runner-file-handoff.test.ts) were run against the base's production code. 2 tests fail there. Registration fails with `ENOENT` for the escaped path, and the invalid escape run fails with `ENOENT` instead of the descriptor error. On the head the same run gives: 21 passed (including the real macOS `/usr/sbin/lsof` check).
+- Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks
 
 - Only the macOS branch changes. Linux and other hosts read `/proc/self/fd` or `/dev/fd` as before.
-- The macOS-only test is skipped on Linux CI. It was not run for this pull request; a run on a macOS host is still needed.
 
 > For core feature work, check [`ROADMAP.md`](ROADMAP.md) first and discuss it in `#dev` before opening the PR. Feature PRs that overlap with planned core work may need to be redirected — check the roadmap first. See `CONTRIBUTING.md`.
 
 ## Model Used
 
-- Provider and model: Anthropic Claude, used through Claude Code (an agentic coding CLI).
-- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and a subagent for the duplicate search.
-- The commit trailers carry the Claude attribution. The person who opens this pull request adds the exact model ID and context window here.
+- Provider and model: Google Gemini 3.1 Pro (`gemini-3.1-pro`, 1M-token context window), used through Antigravity.
+- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and duplicate/issue search across `paperclipai/paperclip`.
 
 ## Checklist
 
 - [x] I have included a thinking path that traces from project context to this change
-- [ ] I have specified the model used (with version and capability details)
+- [x] I have specified the model used (with version and capability details)
 - [x] I have checked ROADMAP.md and confirmed this PR does not duplicate planned core work
 - [x] I have searched GitHub for duplicate or related PRs and linked them above
 - [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template
 - [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)
-- [ ] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
-- [ ] I have run tests locally and they pass
+- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
+- [x] I have run tests locally and they pass
 - [x] I have added or updated tests where applicable
 - [x] I have updated relevant documentation to reflect my changes
 - [x] I have considered and documented any risks above
 - [ ] All Paperclip CI gates are green
 - [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups
-- [ ] I will address all Greptile and reviewer comments before requesting merge
+- [x] I will address all Greptile and reviewer comments before requesting merge

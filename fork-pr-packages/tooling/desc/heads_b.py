@@ -18,7 +18,7 @@ Related open pull request: #13880 fixes the same stall with a periodic pass in `
 "what": [
 "A durable review-handoff retry: once no blocker remains, Paperclip enqueues one reviewer or approver wake for the pending stage, under an idempotency key per issue, stage, and attempt. After three attempts it escalates to the board with one actionable blocker. When the board closes that escalation, a new budget of three attempts starts.",
 "The owed handoff is reconciled before the recovery-action resolve response returns, when a resolved blocker issue releases its `in_review` dependents, and when the stranded sweep finds a review participant with no run. The sweep covers a blocker that clears without an event, such as a released environment lease.",
-"Migration `0294` adds a partial unique index on `agent_wakeup_requests (company_id, idempotency_key)` for `review-handoff:%` keys, so concurrent retries for the same key coalesce. It follows upstream's rolling snapshot window, so `0289_snapshot.json` moves to `0294_snapshot.json`.",
+"Migration `0429` adds a partial unique index on `agent_wakeup_requests (company_id, idempotency_key)` for `review-handoff:%` keys, so concurrent retries for the same key coalesce. It follows upstream's rolling snapshot window, so `0424_snapshot.json` moves to `0429_snapshot.json`.",
 "Tests on PostgreSQL drive the routes and the recovery service: one handoff after a stale blocker clears, a held and then released environment lease, a rejected second retry, coalesced concurrent triggers, a lost enqueue race, a restarted instance, escalation after the last attempt, a new budget after the board closes the escalation, every dependent of a cleared blocker, and reconciliation before the resolve response.",
 ],
 "risks": [
@@ -53,7 +53,7 @@ The recovery action keeps `workspace_validation_failed` and its typed evidence u
 3. Read the issue's recovery action.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.
@@ -100,7 +100,7 @@ The deliverable registers. The handoff resolves the real path of the opened desc
 3. See the registration fail.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any, on a macOS host.
@@ -115,32 +115,6 @@ No related open pull request was found.""",
 "risks": [
 "Only the macOS branch changes. Linux and other hosts read `/proc/self/fd` or `/dev/fd` as before.",
 "The macOS-only test is skipped on Linux CI. It was not run for this pull request; a run on a macOS host is still needed.",
-],
-},
-{
-"id": "12",
-"branch": "pr/12-workspace-runtime-exposure-isolation",
-"title": "test(server): isolate workspace runtime port reservations between tests",
-"stack": None,
-"thinking": [
-"Paperclip is the open source app people use to manage AI agents for work.",
-"Workspace runtime services claim ports, and the tests for them share module state.",
-"`resetRuntimeServicesForTests()` cleared services, claims, and exposure ports, but not the in-flight port reservations.",
-"A reservation left by one test could make a later test fail to claim its port.",
-"This pull request clears the reservations on reset and gives the exposure tests their own identities and port range.",
-"The benefit is that the workspace runtime tests do not depend on each other's leftovers.",
-],
-"linked": """No issue exists. The problem: a port reservation left in module state by one workspace runtime test made a later test fail to claim its port. This pull request changes test isolation only.
-
-Related open pull request: #10624 (draft) makes `resetRuntimeServicesForTests()` stop registered services before it clears its maps. The two changes are independent; the second one to merge needs a small rebase.""",
-"what": [
-"`resetRuntimeServicesForTests()` also clears the in-flight port reservations.",
-"The exposure lifecycle tests use their own execution workspace identity.",
-"Contiguous fixture ports come from a fixed range below the Linux and Darwin ephemeral ranges and outside the runtime exposure ranges.",
-"A test reserves a port, resets the services, and checks that the reservation is gone.",
-],
-"risks": [
-"Test-only behavior: `resetRuntimeServicesForTests()` is called only by tests.",
 ],
 },
 {
@@ -170,7 +144,7 @@ Every connected tool has a name with only letters, digits, `_`, and `-`, short e
 3. See the client reject or rename the tools.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.
@@ -216,7 +190,7 @@ The gateway lists only the context tools and capabilities that the token's `allo
 3. See the resources and prompts capabilities and the four context tools.
 
 **Paperclip version or commit**
-`paperclipai/paperclip` master `467125faf`.
+`paperclipai/paperclip` master `925965a09`.
 
 **Deployment mode**
 Any.

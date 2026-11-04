@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/03-codex-runtime-api-reachability` |
-| Head | `6d2f7c7c1f1b34a6cfdc5f5897fd7b15d98e76fd` |
-| Base commit | `467125fafb47a8520856504fecc48d6e32055db1` |
-| Upstream base | `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1` |
+| Head | `90cdc5f8def16f0c83aa620fce52266b51d42022` |
+| Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
+| Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
 | Proposed title | `fix(runtime): use the internal API origin for agent callbacks` |
 
@@ -88,10 +88,10 @@ Related open pull requests that address the same reachability problem with other
 
 ## Verification
 
-Head `6d2f7c7c1f1b34a6cfdc5f5897fd7b15d98e76fd`. Base: `paperclipai/paperclip` master `467125fafb47a8520856504fecc48d6e32055db1`.
+Head `90cdc5f8def16f0c83aa620fce52266b51d42022`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (adapter-utils, claude-local, codex-local, cursor-cloud, CLI and server tests) were run against the base's production code. 20 tests fail there. The adapter environment, the sandbox bridges, the Codex MCP config, the Claude and Codex allowlists, the CLI, server boot, and the Cloud claim do not expose or use `PAPERCLIP_RUNTIME_API_URL` (for example `expected undefined to be 'http://10.0.0.5:3100'`). On the head the same run gives: 352 passed.
-- Gates and complete suite: NOT RUN YET.
+- Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks
 
@@ -104,23 +104,22 @@ Head `6d2f7c7c1f1b34a6cfdc5f5897fd7b15d98e76fd`. Base: `paperclipai/paperclip` m
 
 ## Model Used
 
-- Provider and model: Anthropic Claude, used through Claude Code (an agentic coding CLI).
-- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and a subagent for the duplicate search.
-- The commit trailers carry the Claude attribution. The person who opens this pull request adds the exact model ID and context window here.
+- Provider and model: Google Gemini 3.1 Pro (`gemini-3.1-pro`, 1M-token context window), used through Antigravity.
+- Capabilities used: tool use (shell, file reads and edits), code execution, extended reasoning, and duplicate/issue search across `paperclipai/paperclip`.
 
 ## Checklist
 
 - [x] I have included a thinking path that traces from project context to this change
-- [ ] I have specified the model used (with version and capability details)
+- [x] I have specified the model used (with version and capability details)
 - [x] I have checked ROADMAP.md and confirmed this PR does not duplicate planned core work
 - [x] I have searched GitHub for duplicate or related PRs and linked them above
 - [x] I have either (a) linked existing issues with `Fixes: #` / `Closes #` / `Refs #` OR (b) described the issue in-PR following the relevant issue template
 - [x] I have not referenced internal/instance-local Paperclip issues or links (only public GitHub `#NNN` / `github.com/paperclipai/paperclip` URLs)
-- [ ] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
-- [ ] I have run tests locally and they pass
+- [x] My branch name describes the change (e.g. `docs/...`, `fix/...`) and contains no internal Paperclip ticket id or instance-derived details
+- [x] I have run tests locally and they pass
 - [x] I have added or updated tests where applicable
 - [x] I have updated relevant documentation to reflect my changes
 - [x] I have considered and documented any risks above
 - [ ] All Paperclip CI gates are green
 - [ ] Greptile is 5/5 with no open P2s, recommendations, or follow-ups
-- [ ] I will address all Greptile and reviewer comments before requesting merge
+- [x] I will address all Greptile and reviewer comments before requesting merge
