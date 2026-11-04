@@ -339,6 +339,7 @@ export interface ToolGatewayDescriptor extends AgentToolDescriptor {
   connectionId?: string | null;
   catalogEntryId?: string | null;
   upstreamToolName?: string | null;
+  legacyToolName?: string | null;
   providerMetadata?: ConnectedMcpGatewayMetadata | Record<string, unknown>;
 }
 
@@ -896,6 +897,53 @@ export function connectedGatewayToolNames(input: {
       [...identity, input.catalogEntryId],
     ),
   };
+}
+
+const CLIENT_SAFE_TOOL_NAME_MAX_LENGTH = 40;
+
+const RESERVED_CLIENT_SAFE_TOOL_NAMES = [
+  "search_tools",
+  "run_tool",
+  "paperclip_list_resources",
+  "paperclip_read_resource",
+  "paperclip_list_prompts",
+  "paperclip_get_prompt",
+];
+
+function clientSafeSlug(value: string | null | undefined, fallback: string): string {
+  const slug = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+  return slug || fallback;
+}
+
+function trimClientSafeSlug(slug: string, length: number, fallback: string): string {
+  return slug.slice(0, length).replace(/[-_]+$/, "") || fallback;
+}
+
+function clientSafeGatewayToolName(
+  rawApp: string | null | undefined,
+  rawTool: string,
+  suffix: string | null,
+): string {
+  const appSlug = clientSafeSlug(rawApp, "mcp");
+  const toolSlug = clientSafeSlug(rawTool, "tool");
+  const suffixPart = suffix ? `_${clientSafeSlug(suffix, "1")}` : "";
+  const available = Math.max(3, CLIENT_SAFE_TOOL_NAME_MAX_LENGTH - suffixPart.length - 1);
+  if (appSlug.length + toolSlug.length <= available) {
+    return `${appSlug}_${toolSlug}${suffixPart}`;
+  }
+  const half = Math.floor(available / 2);
+  if (appSlug.length <= half) {
+    return `${appSlug}_${trimClientSafeSlug(toolSlug, available - appSlug.length, "tool")}${suffixPart}`;
+  }
+  if (toolSlug.length <= half) {
+    return `${trimClientSafeSlug(appSlug, available - toolSlug.length, "mcp")}_${toolSlug}${suffixPart}`;
+  }
+  const trimmedApp = trimClientSafeSlug(appSlug, half, "mcp");
+  return `${trimmedApp}_${trimClientSafeSlug(toolSlug, available - trimmedApp.length, "tool")}${suffixPart}`;
 }
 
 function toolRequiresFormalApproval(tool: ToolGatewayDescriptor): boolean {
@@ -1593,6 +1641,49 @@ export function createToolGatewayService(
       },
       new Map(),
     );
+    const claimRows = await db
+      .select({
+        catalogEntryId: toolCatalogEntries.id,
+        toolName: toolCatalogEntries.toolName,
+        connectionId: toolConnections.id,
+        connectionName: toolConnections.name,
+        applicationKey: toolApplications.applicationKey,
+        applicationName: toolApplications.name,
+      })
+      .from(toolCatalogEntries)
+      .innerJoin(toolConnections, eq(toolCatalogEntries.connectionId, toolConnections.id))
+      .innerJoin(toolApplications, eq(toolConnections.applicationId, toolApplications.id))
+      .where(and(
+        eq(toolCatalogEntries.companyId, companyId),
+        eq(toolCatalogEntries.entryKind, "tool"),
+      ))
+      .orderBy(
+        asc(toolConnections.createdAt),
+        asc(toolConnections.id),
+        asc(toolCatalogEntries.createdAt),
+        asc(toolCatalogEntries.id),
+      );
+    const claimedNames = new Set<string>(RESERVED_CLIENT_SAFE_TOOL_NAMES);
+    const clientSafeNames = new Map<string, string>();
+    for (const row of claimRows) {
+      const rawApp = row.applicationKey ?? row.connectionName ?? row.applicationName;
+      const candidates = [
+        clientSafeGatewayToolName(rawApp, row.toolName, null),
+        clientSafeGatewayToolName(rawApp, row.toolName, shortStableId(row.connectionId)),
+        clientSafeGatewayToolName(rawApp, row.toolName, shortStableId(row.catalogEntryId)),
+      ];
+      let name = candidates.find((candidate) => !claimedNames.has(candidate));
+      for (let counter = 2; !name; counter += 1) {
+        const candidate = clientSafeGatewayToolName(
+          rawApp,
+          row.toolName,
+          `${shortStableId(row.catalogEntryId).slice(0, 5)}_${counter}`,
+        );
+        if (!claimedNames.has(candidate)) name = candidate;
+      }
+      claimedNames.add(name);
+      clientSafeNames.set(row.catalogEntryId, name);
+    }
 
     return eligibleRows.map(
       ({ catalogEntry, connection, application }, index) => {
@@ -1605,8 +1696,9 @@ export function createToolGatewayService(
           );
         }
         const { baseName, disambiguatedName } = gatewayNames[index]!;
-        const gatewayToolName =
+        const legacyToolName =
           baseNameCounts.get(baseName)! > 1 ? disambiguatedName : baseName;
+        const gatewayToolName = clientSafeNames.get(catalogEntry.id)!;
         const applicationKey = application.applicationKey ?? null;
         const inputSchema = projectedConnectionToolInputSchema(
           connection,
@@ -1640,6 +1732,7 @@ export function createToolGatewayService(
         };
         return {
           name: gatewayToolName,
+          legacyToolName,
           displayName: catalogEntry.title ?? catalogEntry.toolName,
           description:
             gmailArchiveToolDescription(
@@ -2956,6 +3049,7 @@ export function createToolGatewayService(
         catalogEntryId: input.tool.catalogEntryId ?? null,
         providerType: input.tool.providerType,
         upstreamToolName: input.tool.upstreamToolName ?? input.tool.name,
+        legacyToolName: input.tool.legacyToolName ?? null,
         riskLevel: input.tool.risk,
         arguments: input.parameters ?? {},
         idempotencyKey: input.idempotencyKey ?? null,
@@ -3008,14 +3102,16 @@ export function createToolGatewayService(
     const hasOnDemandTargets = connectedTools.some(isOnDemandRemoteTool);
     const virtualTools = hasOnDemandTargets ? VIRTUAL_TOOLS : [];
     const githubBotTools = await githubBotToolsForSession(db, session);
-    const tool = [...allTools(), ...connectedTools, ...virtualTools, ...githubBotTools, ...await slackToolsForSession(db, session), ...await spekoToolsForSession(db, session)]
+    const candidates = [...allTools(), ...connectedTools, ...virtualTools, ...githubBotTools, ...await slackToolsForSession(db, session), ...await spekoToolsForSession(db, session)]
       .filter(
         (candidate) =>
           session.agentId ||
           (candidate.providerType !== "paperclip_self" &&
             candidate.providerType !== "paperclip_plugin"),
-      )
-      .find((candidate) => candidate.name === toolName);
+      );
+    const tool =
+      candidates.find((candidate) => candidate.name === toolName) ??
+      candidates.find((candidate) => candidate.legacyToolName === toolName);
     if (!tool) {
       throw new ToolGatewayHttpError(
         404,

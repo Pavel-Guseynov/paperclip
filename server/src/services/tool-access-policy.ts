@@ -80,6 +80,7 @@ type ToolAccessContext = {
   applicationKey: string | null;
   upstreamToolName: string | null;
   toolName: string;
+  legacyToolName?: string | null;
   riskLevel: ToolRiskLevel | null;
   argumentsHash: string;
   arguments: unknown;
@@ -446,7 +447,7 @@ function selectorMatches(selector: ToolAccessSelector | Record<string, unknown> 
     match("catalogEntryId", "catalogEntryIds", ctx.catalogEntryId) &&
     match("applicationKey", "applicationKeys", ctx.applicationKey) &&
     match("providerType", "providerTypes", ctx.providerType) &&
-    matchAny("toolName", "toolNames", [ctx.toolName, ctx.upstreamToolName]) &&
+    matchAny("toolName", "toolNames", [ctx.toolName, ctx.upstreamToolName, ctx.legacyToolName ?? null]) &&
     match("riskLevel", "riskLevels", ctx.riskLevel)
   );
 }
@@ -771,6 +772,7 @@ function scopeAllowsTool(scope: Record<string, unknown> | null, ctx: ToolAccessC
         !values.every((value) => typeof value === "string" && value.trim().length > 0)) return false;
     if (!values.includes(`tool:${ctx.toolName}`) &&
         !(ctx.upstreamToolName && values.includes(`tool:${ctx.upstreamToolName}`)) &&
+        !(ctx.legacyToolName && values.includes(`tool:${ctx.legacyToolName}`)) &&
         !(ctx.connectionId && values.includes(`connection:${ctx.connectionId}`)) &&
         !(ctx.applicationId && values.includes(`application:${ctx.applicationId}`))) return false;
   }
@@ -1193,6 +1195,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
         applicationKey,
         upstreamToolName,
         toolName: input.request.toolName,
+        legacyToolName: input.request.legacyToolName ?? null,
         riskLevel,
         argumentsHash: input.request.sideEffecting
           ? toolRequestIdentityHash(input.request.arguments, options.toolActionSigningSecret)

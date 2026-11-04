@@ -121,7 +121,7 @@ const initialTools = [
     f.request.mockClear();
     const { deploymentId: _, ...ids } = target;
     const parameters = { ...ids, repository: "example/app", commitSha: "a".repeat(40) };
-    await expect(gateway.executeTool({ sessionToken: session.token, tool: restart.name.replace("paperclip-railway-restart", names[0]), parameters, idempotencyKey: randomUUID() })).rejects.toMatchObject({ reasonCode: "tool_not_found" });
+    await expect(gateway.executeTool({ sessionToken: session.token, tool: names[0]!, parameters, idempotencyKey: randomUUID() })).rejects.toMatchObject({ reasonCode: "tool_not_found" });
     for (const toolName of names) {
       await expect(gateway.executeTestCall({ companyId: f.company.id, connectionId: f.connectionId, agentId: agent.id, userId: actor.actorId, toolName, parameters })).rejects.toMatchObject({ reasonCode: "tool_not_found" });
     }
