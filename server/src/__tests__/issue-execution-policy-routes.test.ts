@@ -10,7 +10,7 @@ const mockIssueService = vi.hoisted(() => ({
   assertCheckoutOwner: vi.fn(),
   update: vi.fn(),
   createChild: vi.fn(),
-  addComment: vi.fn(),
+  addComment: vi.fn(async (_id: string, body: string = "") => ({ id: "comment-1", body })),
   findMentionedAgents: vi.fn(),
   getRelationSummaries: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
@@ -21,9 +21,9 @@ const mockHeartbeatService = vi.hoisted(() => ({
   wakeup: vi.fn(async () => undefined),
   triggerIssueMonitor: vi.fn(async (): Promise<{ outcome: "triggered" } | { outcome: "skipped"; reason: string }> => ({ outcome: "triggered" })),
   reportRunActivity: vi.fn(async () => undefined),
-  getRun: vi.fn(async () => null),
-  getActiveRunForAgent: vi.fn(async () => null),
-  cancelRun: vi.fn(async () => null),
+  getRun: vi.fn(async (_id: string): Promise<unknown> => null),
+  getActiveRunForAgent: vi.fn(async (_agentId: string): Promise<unknown> => null),
+  cancelRun: vi.fn(async (_id: string): Promise<unknown> => null),
 }));
 
 const mockAccessService = vi.hoisted(() => ({
@@ -53,10 +53,14 @@ const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
 })));
 const mockDbSelectFrom = vi.hoisted(() => vi.fn(() => ({ where: mockDbSelectWhere })));
 const mockDbSelect = vi.hoisted(() => vi.fn(() => ({ from: mockDbSelectFrom })));
+const mockDbInsert = vi.hoisted(() => vi.fn(() => ({
+  values: vi.fn(async () => []),
+})));
 const mockDb = vi.hoisted(() => ({
   select: mockDbSelect,
-  transaction: vi.fn(async (callback: (tx: { select: typeof mockDbSelect }) => Promise<unknown>) =>
-    callback({ select: mockDbSelect })),
+  insert: mockDbInsert,
+  transaction: vi.fn(async (callback: (tx: { select: typeof mockDbSelect; insert: typeof mockDbInsert }) => Promise<unknown>) =>
+    callback({ select: mockDbSelect, insert: mockDbInsert })),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async (_db: unknown, _input: unknown) => undefined));
@@ -221,6 +225,7 @@ describe("issue execution policy routes", () => {
     mockIssueThreadInteractionService.expireRequestConfirmationsSupersededByComment.mockResolvedValue([]);
     mockIssueApprovalService.listApprovalsForIssue.mockResolvedValue([]);
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
+    mockDbInsert.mockImplementation(() => ({ values: vi.fn(async () => []) }));
     mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
     mockDbSelectWhere.mockImplementation(() => ({
       for: () => ({
@@ -1340,5 +1345,111 @@ describe("issue execution policy routes", () => {
         details: expect.not.objectContaining({ externalRef: expect.anything() }),
       }),
     );
+  });
+
+  describe("stage decision recorded from the participant's own run", () => {
+    const reviewerAgentId = "33333333-3333-4333-8333-333333333333";
+    const nextParticipantAgentId = "44444444-4444-4444-8444-444444444444";
+    const authorAgentId = "22222222-1111-4111-8111-111111111111";
+    const otherAgentId = "77777777-7777-4777-8777-777777777777";
+    const callingRunId = "55555555-5555-4555-8555-555555555555";
+    const differentRunId = "66666666-6666-4666-8666-666666666666";
+    const issueId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    async function recordDecision(input: {
+      withApprovalStage: boolean;
+      executionRunAgentId: string;
+      activeRunId: string;
+      sendRunIdHeader: boolean;
+      status: "done" | "in_progress";
+    }) {
+      const stages = [
+        { id: "11111111-1111-4111-8111-111111111111", type: "review", participants: [{ type: "agent", agentId: reviewerAgentId }] },
+        ...(input.withApprovalStage
+          ? [{ id: "22222222-2222-4222-8222-222222222222", type: "approval", participants: [{ type: "agent", agentId: nextParticipantAgentId }] }]
+          : []),
+      ];
+      const issue = {
+        id: issueId,
+        companyId: "company-1",
+        status: "in_review",
+        assigneeAgentId: reviewerAgentId,
+        assigneeUserId: null,
+        createdByUserId: "local-board",
+        identifier: "PAP-1020",
+        title: "Stage decision from the participant's own run",
+        executionPolicy: normalizeIssueExecutionPolicy({ stages })!,
+        executionRunId: callingRunId,
+        executionState: {
+          status: "pending",
+          currentStageId: "11111111-1111-4111-8111-111111111111",
+          currentStageIndex: 0,
+          currentStageType: "review",
+          currentParticipant: { type: "agent", agentId: reviewerAgentId },
+          returnAssignee: { type: "agent", agentId: authorAgentId },
+          completedStageIds: [],
+          lastDecisionId: null,
+          lastDecisionOutcome: null,
+        },
+      };
+      const runAgentId = (id: string) => (id === callingRunId ? input.executionRunAgentId : reviewerAgentId);
+      mockIssueService.getById.mockResolvedValue(issue);
+      mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+        ...issue,
+        ...patch,
+        updatedAt: new Date(),
+      }));
+      mockHeartbeatService.getRun.mockImplementation(async (id: string) =>
+        id === callingRunId || id === differentRunId ? ({ id, agentId: runAgentId(id), status: "running" } as any) : null,
+      );
+      mockHeartbeatService.getActiveRunForAgent.mockImplementation(async (agentId: string) =>
+        agentId === reviewerAgentId
+          ? ({ id: input.activeRunId, agentId: runAgentId(input.activeRunId), status: "running", contextSnapshot: { issueId } } as any)
+          : null,
+      );
+      mockHeartbeatService.cancelRun.mockImplementation(async (id: string) => ({ id, status: "cancelled" } as any));
+
+      const app = await createApp({ type: "agent", agentId: reviewerAgentId, companyId: "company-1", runId: callingRunId });
+      const patch = request(app).patch(`/api/issues/${issueId}`);
+      if (input.sendRunIdHeader) patch.set("X-Paperclip-Run-Id", callingRunId);
+      return patch.send({ status: input.status, comment: input.status === "done" ? "Approved" : "Please add tests" });
+    }
+
+    const approval = { withApprovalStage: true, executionRunAgentId: reviewerAgentId, activeRunId: callingRunId, sendRunIdHeader: true, status: "done" } as const;
+
+    it.each([
+      ["records an approval", approval, nextParticipantAgentId, "execution_approval_requested"],
+      ["requests changes", { ...approval, withApprovalStage: false, status: "in_progress" }, authorAgentId, "execution_changes_requested"],
+      ["omits X-Paperclip-Run-Id and relies on the agent token's run", { ...approval, sendRunIdHeader: false }, nextParticipantAgentId, "execution_approval_requested"],
+    ] as const)("keeps the calling run when its agent %s, and wakes the next owner", async (_case, input, wokenAgentId, reason) => {
+      const res = await recordDecision(input);
+
+      expect(res.status).toBe(200);
+      expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+      expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(wokenAgentId, expect.objectContaining({ reason }));
+    });
+
+    it("keeps the calling run but stops a different active run on the issue", async () => {
+      const res = await recordDecision({ ...approval, activeRunId: differentRunId });
+
+      expect(res.status).toBe(200);
+      expect(mockHeartbeatService.cancelRun).toHaveBeenCalledTimes(1);
+      expect(mockHeartbeatService.cancelRun).toHaveBeenCalledWith(
+        differentRunId,
+        "Cancelled before issue reassignment",
+        expect.objectContaining({ errorCode: "issue_reassigned" }),
+      );
+    });
+
+    it("stops a run with the calling run's id when another agent owns it", async () => {
+      const res = await recordDecision({ ...approval, executionRunAgentId: otherAgentId });
+
+      expect(res.status).toBe(200);
+      expect(mockHeartbeatService.cancelRun).toHaveBeenCalledWith(callingRunId, "Cancelled before issue reassignment", expect.anything());
+      expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+        nextParticipantAgentId,
+        expect.objectContaining({ reason: "execution_approval_requested" }),
+      );
+    });
   });
 });
