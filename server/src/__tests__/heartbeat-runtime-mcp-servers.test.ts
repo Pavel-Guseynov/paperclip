@@ -138,7 +138,6 @@ describeEmbeddedPostgres("heartbeat runtime MCP servers", () => {
       targetId: agent!.id,
     });
 
-    const before = Date.now();
     const first = await buildPaperclipRuntimeMcpServers({ db, agent: agent!, runId: randomUUID() });
     const second = await buildPaperclipRuntimeMcpServers({ db, agent: agent!, runId: randomUUID() });
 
@@ -166,8 +165,7 @@ describeEmbeddedPostgres("heartbeat runtime MCP servers", () => {
     for (const token of tokens) {
       expect(token.subjectType).toBe("heartbeat_run");
       expect(token.subjectId).toMatch(/^[0-9a-f-]{36}$/);
-      expect(token.expiresAt!.getTime()).toBeGreaterThanOrEqual(before + 59 * 60 * 1000);
-      expect(token.expiresAt!.getTime()).toBeLessThanOrEqual(Date.now() + 61 * 60 * 1000);
+      expect(token.expiresAt).toBeNull();
     }
     expect(JSON.stringify(tokens)).not.toContain(first[0]!.token);
 
@@ -815,5 +813,10 @@ describeEmbeddedPostgres("heartbeat runtime MCP servers", () => {
       endpointPath: `/mcp/gateways/${gateways[0]!.gatewayPublicId}`,
     });
     expect(config?.gateways.some((gateway) => gateway.id === gateways[1]!.id)).toBe(false);
+    const [managedToken] = await db
+      .select()
+      .from(toolMcpGatewayTokens)
+      .where(eq(toolMcpGatewayTokens.gatewayId, gateways[0]!.id));
+    expect(managedToken).toMatchObject({ subjectType: "heartbeat_run", expiresAt: null });
   });
 });
