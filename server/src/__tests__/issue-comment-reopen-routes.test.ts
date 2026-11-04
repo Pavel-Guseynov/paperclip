@@ -32,6 +32,7 @@ const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(),
   decide: vi.fn(),
   hasPermission: vi.fn(),
+  listAssignableUserIds: vi.fn(async () => new Set<string>()),
 }));
 
 const mockHeartbeatService = vi.hoisted(() => ({

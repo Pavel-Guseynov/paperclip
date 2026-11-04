@@ -31,6 +31,7 @@ import { authorizationService, type AuthorizationActor, type AuthorizationResour
 import { ensureHumanRoleDefaultGrants } from "./principal-access-compatibility.js";
 
 type MembershipRow = typeof companyMemberships.$inferSelect;
+type DbReader = Pick<Db, "select">;
 type GrantInput = {
   permissionKey: PermissionKey;
   scope?: Record<string, unknown> | null;
@@ -475,8 +476,8 @@ export function accessService(db: Db) {
       .then((rows) => rows[0] ?? null);
   }
 
-  async function listActiveUserMemberships(companyId: string) {
-    return db
+  async function listActiveUserMemberships(companyId: string, reader: DbReader = db) {
+    return reader
       .select()
       .from(companyMemberships)
       .where(
@@ -487,6 +488,11 @@ export function accessService(db: Db) {
         ),
       )
       .orderBy(sql`${companyMemberships.createdAt} asc`);
+  }
+
+  async function listAssignableUserIds(companyId: string, reader: DbReader = db): Promise<Set<string>> {
+    const memberships = await listActiveUserMemberships(companyId, reader);
+    return new Set(memberships.map((membership) => membership.principalId));
   }
 
   async function setMemberPermissions(
@@ -1215,6 +1221,7 @@ export function accessService(db: Db) {
     ensureMembership,
     listMembers,
     listActiveUserMemberships,
+    listAssignableUserIds,
     copyActiveUserMemberships,
     ensureRoleDefaultGrants,
     archiveMember,

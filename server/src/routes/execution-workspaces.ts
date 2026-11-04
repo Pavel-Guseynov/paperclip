@@ -26,6 +26,7 @@ import {
 } from "@paperclipai/shared/worktree-seed-source";
 import { resolvePaperclipConfigPath } from "../paths.js";
 import { validate } from "../middleware/validate.js";
+import { deploymentModeOfActor } from "../middleware/auth.js";
 import {
   accessService,
   executionWorkspaceService,
@@ -1099,6 +1100,7 @@ export function executionWorkspaceRoutes(db: Db, opts: { pluginWorkerManager?: P
         agentId: actor.agentId,
         runId: actor.runId,
       },
+      deploymentMode: deploymentModeOfActor(req.actor),
     });
 
     await logActivity(db, {

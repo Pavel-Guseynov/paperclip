@@ -66,6 +66,7 @@ import {
   workspaceRuntimeServices,
 } from "@paperclipai/db";
 import type {
+  DeploymentMode,
   ExecutionWorkspace,
   ExecutionWorkspaceDeliveryState,
   ExecutionWorkspaceSummary,
@@ -93,6 +94,7 @@ import {
 } from "./issue-execution-policy.js";
 import { buildExecutionWorkspaceAdapterConfig, resolveEffectiveWorkspaceStrategyType, parseProjectExecutionWorkspacePolicy, gateProjectExecutionWorkspacePolicy, parseIssueExecutionWorkspaceSettings, resolveExecutionWorkspaceMode, parseIssueAssigneeAdapterOverrides, applyDefaultIsolatedExecutionWorkspacePolicy } from "./execution-workspace-policy.js";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
+import { accessService } from "./access.js";
 import { logActivity } from "./activity-log.js";
 import {
   createPullRequestMergeDetailsResolver,
@@ -1749,6 +1751,7 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
   }
 
   const recoveryActionsSvc = issueRecoveryActionService(db);
+  const access = accessService(db);
   const resolvePullRequestDetails = opts.resolvePullRequestDetails ?? createPullRequestMergeDetailsResolver(db);
   const resolveWorkspaceDelivery = opts.resolveWorkspaceDelivery ?? createGitHubWorkspaceDeliveryResolver(db);
   const now = opts.now ?? (() => new Date());
@@ -4961,6 +4964,7 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
         reason?: string | null;
         actor: ExecutionWorkspaceBranchReconcileActor;
         alternateRecoveryFingerprints?: string[] | null;
+        deploymentMode?: DeploymentMode;
       },
     ): Promise<ExecutionWorkspaceBranchReconcileResult> => {
       const existingRow = await db
@@ -5217,6 +5221,7 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
 
           const requestedStatus = quarantineRestoreRequestedSourceStatus(sourceBefore);
           const policy = normalizeIssueExecutionPolicy(sourceBefore.executionPolicy ?? null);
+          const assignableUserIds = await access.listAssignableUserIds(sourceBefore.companyId, tx);
           const transition = applyIssueExecutionPolicyTransition({
             issue: sourceBefore,
             policy,
@@ -5227,6 +5232,8 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
               agentId: input.actor.agentId ?? null,
               userId: input.actor.actorType === "user" ? input.actor.actorId : null,
             },
+            deploymentMode: input.deploymentMode ?? "authenticated",
+            canAssignUser: (userId: string) => assignableUserIds.has(userId),
             commentBody: null,
           });
           const { issueService } = await import("./issues.js");

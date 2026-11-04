@@ -30,6 +30,7 @@ const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(async () => false),
   decide: vi.fn(),
   hasPermission: vi.fn(async () => false),
+  listAssignableUserIds: vi.fn(async () => new Set<string>()),
 }));
 const mockDbSelectWhere = vi.hoisted(() => vi.fn(() => ({
   for: () => ({

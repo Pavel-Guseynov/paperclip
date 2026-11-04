@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  DeploymentMode,
   IssueExecutionDecision,
   IssueExecutionMonitorClearReason,
   IssueExecutionMonitorPolicy,
@@ -55,6 +56,11 @@ type TransitionInput = {
   monitorExplicitlyUpdated?: boolean;
 };
 
+type StageTransitionInput = TransitionInput & {
+  deploymentMode: DeploymentMode;
+  canAssignUser: (userId: string) => boolean;
+};
+
 type TransitionResult = {
   patch: Record<string, unknown>;
   decision?: Pick<IssueExecutionDecision, "stageId" | "stageType" | "outcome" | "body">;
@@ -75,6 +81,12 @@ const MONITOR_INVALID_MESSAGE = "Monitor can only be scheduled on issues assigne
 const MONITOR_BOUNDS_EXHAUSTED_MESSAGE = "Monitor bounds are already exhausted";
 const STAGE_DECISION_COMMENT_HINT = "Include the decision comment in the same PATCH request; prior comments are not considered.";
 export const REDACTED_ISSUE_MONITOR_EXTERNAL_REF = "[redacted]";
+
+const LOCAL_BOARD_SENTINEL_USER_ID = "local-board";
+
+export function isLocalBoardActableInDeployment(deploymentMode: DeploymentMode): boolean {
+  return deploymentMode === "local_trusted";
+}
 
 function normalizeMonitorNotes(notes: string | null | undefined) {
   if (typeof notes !== "string") return null;
@@ -446,16 +458,26 @@ function resolveMaxReviewRounds(policy: IssueExecutionPolicy | null): number {
   return typeof configured === "number" && configured > 0 ? configured : DEFAULT_MAX_REVIEW_ROUNDS;
 }
 
+function isUnreachableUserId(
+  userId: string | null | undefined,
+  localBoardIsActable: boolean,
+): boolean {
+  return userId === LOCAL_BOARD_SENTINEL_USER_ID && !localBoardIsActable;
+}
+
 /**
  * The human a review stage escalates to when agents exhaust their
  * changes-requested rounds. Without one the loop keeps handing back to the
  * return assignee (pre-existing behavior) rather than stalling the stage.
  */
-function reviewEscalationUserId(issue: IssueLike): string | null {
-  const responsible = issue.responsibleUserId?.trim();
-  if (responsible) return responsible;
-  const creator = issue.createdByUserId?.trim();
-  if (creator) return creator;
+function reviewEscalationUserId(
+  issue: IssueLike,
+  isSatisfiableUser: (userId: string) => boolean,
+): string | null {
+  for (const candidate of [issue.responsibleUserId, issue.createdByUserId]) {
+    const userId = candidate?.trim();
+    if (userId && isSatisfiableUser(userId)) return userId;
+  }
   return null;
 }
 
@@ -657,8 +679,14 @@ function canAutoSkipPendingStage(input: {
     input.stage.participants.every((participant) => principalsEqual(participant, input.returnAssignee));
 }
 
-function applyIssueExecutionStageTransition(input: TransitionInput): TransitionResult {
+function applyIssueExecutionStageTransition(input: StageTransitionInput): TransitionResult {
   const patch: Record<string, unknown> = {};
+  const localBoardIsActable = isLocalBoardActableInDeployment(input.deploymentMode);
+  const isSatisfiableUser = (userId: string | null | undefined) =>
+    typeof userId === "string" &&
+    userId.length > 0 &&
+    !isUnreachableUserId(userId, localBoardIsActable) &&
+    input.canAssignUser(userId);
   const existingState = parseIssueExecutionState(input.issue.executionState);
   const currentAssignee = assigneePrincipal(input.issue);
   const actor = actorPrincipal(input.actor);
@@ -739,6 +767,7 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
     const escalatedHold =
       currentParticipant.type === "user" &&
       !stageHasParticipant(activeStage, currentParticipant) &&
+      isSatisfiableUser(currentParticipant.userId) &&
       (existingState?.changesRequestedCount ?? 0) >= resolveMaxReviewRounds(input.policy);
     if (escalatedHold && !principalsEqual(currentParticipant, actor)) {
       // An empty patch would not override the caller's own requested fields,
@@ -882,7 +911,7 @@ function applyIssueExecutionStageTransition(input: TransitionInput): TransitionR
         const actorIsHuman = actor?.type === "user";
         const nextRounds = actorIsHuman ? 0 : (existingState.changesRequestedCount ?? 0) + 1;
         if (!actorIsHuman && nextRounds >= resolveMaxReviewRounds(input.policy)) {
-          const escalationUserId = reviewEscalationUserId(input.issue);
+          const escalationUserId = reviewEscalationUserId(input.issue, isSatisfiableUser);
           if (escalationUserId) {
             // Rounds exhausted: keep the stage pending but hand it to the
             // responsible human instead of bouncing back to the implementer.
@@ -1230,7 +1259,7 @@ export function buildIssueMonitorClearedPatch(input: {
   };
 }
 
-export function applyIssueExecutionPolicyTransition(input: TransitionInput): TransitionResult {
+export function applyIssueExecutionPolicyTransition(input: StageTransitionInput): TransitionResult {
   const stageResult = applyIssueExecutionStageTransition(input);
   const monitorPatch = applyMonitorTransition(input, stageResult.patch);
   Object.assign(stageResult.patch, monitorPatch);

@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { applyIssueExecutionPolicyTransition, normalizeIssueExecutionPolicy, parseIssueExecutionState, stripMonitorFromExecutionPolicy } from "../services/issue-execution-policy.ts";
-import type { IssueExecutionPolicy, IssueExecutionState } from "@paperclipai/shared";
+import {
+  applyIssueExecutionPolicyTransition as applyStageTransition,
+  normalizeIssueExecutionPolicy,
+  parseIssueExecutionState,
+  stripMonitorFromExecutionPolicy,
+} from "../services/issue-execution-policy.ts";
+import type { DeploymentMode, IssueExecutionPolicy, IssueExecutionState } from "@paperclipai/shared";
 import { buildExecutionPolicy } from "../../../ui/src/lib/issue-execution-policy.ts";
+
+function applyIssueExecutionPolicyTransition(
+  input: Omit<Parameters<typeof applyStageTransition>[0], "deploymentMode" | "canAssignUser"> & {
+    deploymentMode?: DeploymentMode;
+    canAssignUser?: (userId: string) => boolean;
+  },
+) {
+  return applyStageTransition({
+    deploymentMode: "authenticated",
+    canAssignUser: () => true,
+    ...input,
+  });
+}
 
 const coderAgentId = "11111111-1111-4111-8111-111111111111";
 const qaAgentId = "22222222-2222-4222-8222-222222222222";
@@ -2035,6 +2053,7 @@ describe("issue execution policy transitions", () => {
 describe("review round circuit breaker", () => {
   const policy = reviewOnlyPolicy();
   const reviewStageId = policy.stages[0].id;
+  const localBoardSentinelUserId = "local-board";
 
   function reviewPendingIssue(overrides: Record<string, unknown> = {}, stateOverrides: Record<string, unknown> = {}) {
     return {
@@ -2320,5 +2339,204 @@ describe("review round circuit breaker", () => {
       currentParticipant: { type: "user", userId: boardUserId },
       changesRequestedCount: 1,
     });
+  });
+
+  it("does not hand the stage to the board sentinel on an authenticated deployment", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      deploymentMode: "authenticated",
+      issue: reviewPendingIssue(
+        {
+          responsibleUserId: localBoardSentinelUserId,
+          createdByUserId: localBoardSentinelUserId,
+        },
+        { changesRequestedCount: 2 },
+      ),
+      policy,
+      requestedStatus: "in_progress",
+      requestedAssigneePatch: {},
+      actor: { agentId: qaAgentId },
+      commentBody: "Round three feedback — still not converging",
+    });
+
+    expect(result.patch.assigneeUserId).toBeNull();
+    expect(result.patch.assigneeAgentId).toBe(coderAgentId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "changes_requested",
+      changesRequestedCount: 3,
+    });
+  });
+
+  it("escalates to the sentinel when the deployment is local_trusted", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      deploymentMode: "local_trusted",
+      issue: reviewPendingIssue(
+        {
+          responsibleUserId: localBoardSentinelUserId,
+          createdByUserId: localBoardSentinelUserId,
+        },
+        { changesRequestedCount: 2 },
+      ),
+      policy,
+      requestedStatus: "in_progress",
+      requestedAssigneePatch: {},
+      actor: { agentId: qaAgentId },
+      commentBody: "Round three feedback — still not converging",
+    });
+
+    expect(result.patch.assigneeUserId).toBe(localBoardSentinelUserId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "pending",
+      currentParticipant: { type: "user", userId: localBoardSentinelUserId },
+      changesRequestedCount: 3,
+    });
+  });
+
+  it("escalates to the creator when the responsible user cannot be assigned", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      canAssignUser: (userId) => userId === boardUserId,
+      issue: reviewPendingIssue(
+        { responsibleUserId: "left-behind-user", createdByUserId: boardUserId },
+        { changesRequestedCount: 2 },
+      ),
+      policy,
+      requestedStatus: "in_progress",
+      requestedAssigneePatch: {},
+      actor: { agentId: qaAgentId },
+      commentBody: "Round three feedback — still not converging",
+    });
+
+    expect(result.patch.assigneeUserId).toBe(boardUserId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "pending",
+      currentParticipant: { type: "user", userId: boardUserId },
+      changesRequestedCount: 3,
+    });
+  });
+
+  it("hands the round back when no escalation candidate can be assigned", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      canAssignUser: () => false,
+      issue: reviewPendingIssue({ createdByUserId: boardUserId }, { changesRequestedCount: 2 }),
+      policy,
+      requestedStatus: "in_progress",
+      requestedAssigneePatch: {},
+      actor: { agentId: qaAgentId },
+      commentBody: "Round three feedback — still not converging",
+    });
+
+    expect(result.patch.assigneeUserId).toBeNull();
+    expect(result.patch.assigneeAgentId).toBe(coderAgentId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "changes_requested",
+      changesRequestedCount: 3,
+    });
+  });
+
+  it("releases a hold on a user the company can no longer assign", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      canAssignUser: () => false,
+      issue: reviewPendingIssue(
+        { assigneeAgentId: null, assigneeUserId: boardUserId },
+        {
+          currentParticipant: { type: "user", userId: boardUserId },
+          changesRequestedCount: 3,
+        },
+      ),
+      policy,
+      requestedStatus: "todo",
+      requestedAssigneePatch: { assigneeAgentId: coderAgentId },
+      actor: { userId: boardUserId },
+    });
+
+    expect(result.patch.assigneeUserId).toBeNull();
+    expect(result.patch.assigneeAgentId).toBe(qaAgentId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "pending",
+      currentParticipant: { type: "agent", agentId: qaAgentId },
+    });
+  });
+
+  it("escalates to a real creator when only the responsible user is the sentinel", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      issue: reviewPendingIssue(
+        {
+          responsibleUserId: localBoardSentinelUserId,
+          createdByUserId: boardUserId,
+        },
+        { changesRequestedCount: 2 },
+      ),
+      policy,
+      requestedStatus: "in_progress",
+      requestedAssigneePatch: {},
+      actor: { agentId: qaAgentId },
+      commentBody: "Round three feedback — still not converging",
+    });
+
+    expect(result.patch.assigneeUserId).toBe(boardUserId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "pending",
+      currentParticipant: { type: "user", userId: boardUserId },
+    });
+  });
+
+  it("releases a stage already stranded on the sentinel", () => {
+    const result = applyIssueExecutionPolicyTransition({
+      issue: reviewPendingIssue(
+        { assigneeAgentId: null, assigneeUserId: localBoardSentinelUserId },
+        {
+          currentParticipant: { type: "user", userId: localBoardSentinelUserId },
+          changesRequestedCount: 3,
+        },
+      ),
+      policy,
+      requestedStatus: "todo",
+      requestedAssigneePatch: { assigneeAgentId: coderAgentId },
+      actor: { userId: boardUserId },
+    });
+
+    expect(result.patch.assigneeUserId).toBeNull();
+    expect(result.patch.assigneeAgentId).toBe(qaAgentId);
+    expect(result.patch.executionState).toMatchObject({
+      status: "pending",
+      currentParticipant: { type: "agent", agentId: qaAgentId },
+    });
+  });
+
+  it("keeps a stage held on the sentinel where the deployment assumes it", () => {
+    expect(() =>
+      applyIssueExecutionPolicyTransition({
+        deploymentMode: "local_trusted",
+        issue: reviewPendingIssue(
+          { assigneeAgentId: null, assigneeUserId: localBoardSentinelUserId },
+          {
+            currentParticipant: { type: "user", userId: localBoardSentinelUserId },
+            changesRequestedCount: 3,
+          },
+        ),
+        policy,
+        requestedStatus: "todo",
+        requestedAssigneePatch: { assigneeAgentId: coderAgentId },
+        actor: { userId: boardUserId },
+      }),
+    ).toThrow("Only the escalated reviewer can advance the current execution stage");
+  });
+
+  it("still holds the stage for a reachable escalated human", () => {
+    expect(() =>
+      applyIssueExecutionPolicyTransition({
+        issue: reviewPendingIssue(
+          { assigneeAgentId: null, assigneeUserId: boardUserId },
+          {
+            currentParticipant: { type: "user", userId: boardUserId },
+            changesRequestedCount: 3,
+          },
+        ),
+        policy,
+        requestedStatus: "done",
+        requestedAssigneePatch: {},
+        actor: { agentId: qaAgentId },
+        commentBody: "Agent trying to close it anyway",
+      }),
+    ).toThrow("Only the escalated reviewer can advance the current execution stage");
   });
 });
