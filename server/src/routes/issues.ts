@@ -7348,16 +7348,23 @@ export function issueRoutes(
     }
   }
 
-  async function resolveActiveIssueRun(issue: {
-    id: string;
-    assigneeAgentId: string | null;
-    executionRunId?: string | null;
-  }, options?: { queueStateOnly: true }) {
+  async function resolveActiveIssueRun(
+    issue: {
+      id: string;
+      assigneeAgentId: string | null;
+      executionRunId?: string | null;
+    },
+    options: { queueStateOnly?: true; keepRun?: { runId: string; agentId: string } | null } = {},
+  ) {
+    const keepRun = options.keepRun ?? null;
+    const isKeptRun = (run: { id: string; agentId: string }) =>
+      keepRun !== null && run.id === keepRun.runId && run.agentId === keepRun.agentId;
     let runToInterrupt = issue.executionRunId
       ? options?.queueStateOnly
         ? await heartbeat.getRunIssueControl(issue.executionRunId)
         : await heartbeat.getRun(issue.executionRunId)
       : null;
+    if (runToInterrupt && isKeptRun(runToInterrupt)) runToInterrupt = null;
 
     if (
       (!runToInterrupt || runToInterrupt.status !== "running") &&
@@ -7378,7 +7385,8 @@ export function issueRoutes(
       if (
         activeRun &&
         activeRun.status === "running" &&
-        activeIssueId === issue.id
+        activeIssueId === issue.id &&
+        !isKeptRun(activeRun)
       ) {
         runToInterrupt = activeRun;
       }
@@ -14745,13 +14753,17 @@ export function issueRoutes(
       // Only this request may finish a mutation that intentionally stops its
       // own run (for example handing work to a signoff reviewer).
       const issueMutationStopId = randomUUID();
+      const keepRun =
+        transition.decision && actor.actorType === "agent" && actor.agentId && actor.runId
+          ? { runId: actor.runId, agentId: actor.agentId }
+          : null;
       if (req.actor.source !== "mcp_oauth" && assigneeWillChange && existing.assigneeAgentId) {
         await stopRunnerGoalForOwnershipChange({
           companyId: existing.companyId,
           issueId: existing.id,
           agentId: existing.assigneeAgentId,
         });
-        const runToStopForReassignment = await resolveActiveIssueRun(existing);
+        const runToStopForReassignment = await resolveActiveIssueRun(existing, { keepRun });
         const isHumanSelfHandoff =
           req.actor.type === "agent" &&
           req.actor.source === "agent_jwt" &&
@@ -14803,7 +14815,7 @@ export function issueRoutes(
         });
         const runToStopForTerminalization = goalStopAction ||
           (req.actor.type === "board" && existing.executionRunId)
-          ? await resolveActiveIssueRun(existing)
+          ? await resolveActiveIssueRun(existing, { keepRun })
           : null;
         // Closing a native task revokes its tool binding. Retire the board's
         // active executor before releasing that binding, even without a goal.
