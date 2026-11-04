@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/mcp-remote-event-stream-tool-calls` |
-| Head | `45a75ca28295a839ba03e68f61cc1cdf6333dfd2` |
+| Head | `b0f13ac34014e1829421553219662b863ef6c047` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -17,7 +17,7 @@ Own diff (head against its base commit):
 | `server/src/__tests__/tool-gateway.test.ts` | +78 | -0 |
 | `server/src/services/mcp-http.ts` | +24 | -3 |
 | `server/src/services/remote-http-fetch.ts` | +2 | -2 |
-| `server/src/services/tool-gateway.ts` | +52 | -13 |
+| `server/src/services/tool-gateway.ts` | +48 | -13 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -65,7 +65,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `45a75ca28295a839ba03e68f61cc1cdf6333dfd2`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `b0f13ac34014e1829421553219662b863ef6c047`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/mcp-http.test.ts`, `server/src/__tests__/tool-gateway.test.ts`) were run against the base's production code. 9 tests fail there. On the base open-ended `text/event-stream` responses wait for EOF until the 10-second deadline expires, abort with `Error: aborted`, and mark the connection `error` instead of `degraded` `504 tool_timeout`. On the head the same run gives: 184 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

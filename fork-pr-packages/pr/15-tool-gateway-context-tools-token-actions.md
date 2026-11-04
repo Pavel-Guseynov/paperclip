@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/15-tool-gateway-context-tools-token-actions` |
-| Head | `03b919300853e8e024cfd3c2213731d1e114869d` |
+| Head | `2c5b10f0f92105490fc5c9d36d72814fef0d33b3` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,7 +14,11 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `server/src/__tests__/browser-use-connection.test.ts` | +1 | -1 |
-| `server/src/__tests__/tool-gateway.test.ts` | +270 | -0 |
+| `server/src/__tests__/dot-runner.test.ts` | +1 | -1 |
+| `server/src/__tests__/tool-gateway-discovery-http.test.ts` | +2 | -2 |
+| `server/src/__tests__/tool-gateway-listing-memory.test.ts` | +2 | -2 |
+| `server/src/__tests__/tool-gateway.test.ts` | +257 | -0 |
+| `server/src/__tests__/tool-grant-scope.test.ts` | +2 | -2 |
 | `server/src/routes/tool-gateway.ts` | +57 | -23 |
 | `server/src/services/native-runtime/assigned-mcp-tools.test.ts` | +9 | -6 |
 | `server/src/services/native-runtime/assigned-mcp-tools.ts` | +2 | -2 |
@@ -68,7 +72,7 @@ Related open pull request: #14427 filters the same four context tools on `tools/
 
 ## Verification
 
-Head `03b919300853e8e024cfd3c2213731d1e114869d`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `2c5b10f0f92105490fc5c9d36d72814fef0d33b3`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 1 test fails there. `initialize` advertises resources and prompts to a token that allows neither. On the head the same run gives: 154 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

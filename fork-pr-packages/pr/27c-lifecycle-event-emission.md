@@ -3,10 +3,10 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/27c-lifecycle-event-emission` |
-| Head | `eb2209947255a2260e63d20799bcc63aa31cd240` |
-| Base commit | `55c2884d912197391aa0ee616b4a4de9269d1942` |
+| Head | `f251f8e8dc88725e427574fd8ea80867096be09c` |
+| Base commit | `a291f9e7b1cfbc750c546e56c04190acfd9582d4` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
-| Stack prerequisite | `pr/27a-run-status-transition-authority + pr/27b-database-post-commit-hook` |
+| Stack prerequisite | `pr/27b-database-post-commit-hook` |
 | Proposed title | `feat(server): log committed run and task status changes` |
 
 Own diff (head against its base commit):
@@ -17,7 +17,7 @@ Own diff (head against its base commit):
 | `server/src/__tests__/lifecycle-events.test.ts` | +127 | -0 |
 | `server/src/services/heartbeat-run-lifecycle.ts` | +9 | -9 |
 | `server/src/services/issues.ts` | +4 | -0 |
-| `server/src/services/lifecycle-events.ts` | +101 | -0 |
+| `server/src/services/lifecycle-events.ts` | +91 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -54,7 +54,7 @@ This is server log output (pino). It is not Telemetry, not an OpenTelemetry span
 
 No related open pull request was found.
 
-Stack: this pull request is based on `pr/27a-run-status-transition-authority + pr/27b-database-post-commit-hook`. This head is based on a plain merge commit of pull requests 27a and 27b. It reads the transition that 27a returns and logs through the post-commit hook that 27b adds. Until both merge, this pull request also shows their commits. Review and merge that pull request first.
+Stack: this pull request is based on `pr/27b-database-post-commit-hook` (which is stacked on `pr/27a-run-status-transition-authority`). It reads the transition that 27a returns and logs through the post-commit hook that 27b adds. Until both merge, this pull request also shows their commits. Review and merge those pull requests first.
 
 ## What Changed
 
@@ -66,7 +66,7 @@ Stack: this pull request is based on `pr/27a-run-status-transition-authority + p
 
 ## Verification
 
-Head `eb2209947255a2260e63d20799bcc63aa31cd240`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `55c2884d912197391aa0ee616b4a4de9269d1942` is the head of `pr/27a-run-status-transition-authority + pr/27b-database-post-commit-hook`.
+Head `f251f8e8dc88725e427574fd8ea80867096be09c`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `a291f9e7b1cfbc750c546e56c04190acfd9582d4` is the head of `pr/27b-database-post-commit-hook`.
 
 - Regression proof: the head's tests (server/src/__tests__/lifecycle-events.test.ts) were run against the base's production code. 3 tests fail there. (Base: the merge of 27a and 27b.) no record is logged. The rollback and same-status tests pass on both. On the head the same run gives: 5 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

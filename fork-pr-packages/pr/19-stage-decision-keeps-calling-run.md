@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/19-stage-decision-keeps-calling-run` |
-| Head | `49e33f198f6de2e3aa3a161478934b95e8ae6677` |
+| Head | `9398b5a2b145f7a15323d0697d3d1657b3fc854e` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,7 +14,7 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `server/src/__tests__/issue-execution-policy-routes.test.ts` | +407 | -3 |
-| `server/src/routes/issues.ts` | +25 | -8 |
+| `server/src/routes/issues.ts` | +20 | -8 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -64,7 +64,7 @@ Related: issue #13730 and its open pull request #13782 fix the same self-cancel 
 
 ## Verification
 
-Head `49e33f198f6de2e3aa3a161478934b95e8ae6677`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `9398b5a2b145f7a15323d0697d3d1657b3fc854e`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/issue-execution-policy-routes.test.ts) were run against the base's production code. 4 tests fail there. The route cancels the calling agent's own run. On the head the same run gives: 24 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

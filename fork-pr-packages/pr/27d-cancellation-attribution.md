@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/27d-cancellation-attribution` |
-| Head | `318d4b1187e86496b61cdfa7fe95e31f62a07285` |
-| Base commit | `eb2209947255a2260e63d20799bcc63aa31cd240` |
+| Head | `77ec603a8a3bce3a104589ab0af9f3635823aa36` |
+| Base commit | `f251f8e8dc88725e427574fd8ea80867096be09c` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | `pr/27c-lifecycle-event-emission` |
 | Proposed title | `feat(heartbeat): attribute cancelled runs in their lifecycle record` |
@@ -15,7 +15,7 @@ Own diff (head against its base commit):
 | --- | --- | --- |
 | `doc/SPEC-implementation.md` | +3 | -1 |
 | `server/src/__tests__/heartbeat-run-cancellation-attribution.test.ts` | +95 | -0 |
-| `server/src/services/lifecycle-events.ts` | +28 | -0 |
+| `server/src/services/lifecycle-events.ts` | +20 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -61,7 +61,7 @@ Stack: this pull request is based on `pr/27c-lifecycle-event-emission`. This pul
 
 ## Verification
 
-Head `318d4b1187e86496b61cdfa7fe95e31f62a07285`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `eb2209947255a2260e63d20799bcc63aa31cd240` is the head of `pr/27c-lifecycle-event-emission`.
+Head `77ec603a8a3bce3a104589ab0af9f3635823aa36`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `f251f8e8dc88725e427574fd8ea80867096be09c` is the head of `pr/27c-lifecycle-event-emission`.
 
 - Regression proof: the head's tests (server/src/__tests__/heartbeat-run-cancellation-attribution.test.ts) were run against the base's production code. 2 tests fail there. (Base: pull request 27c.) the cancellation record has no `cancellation` object. On the head the same run gives: 2 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

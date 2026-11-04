@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/03-codex-runtime-api-reachability` |
-| Head | `90cdc5f8def16f0c83aa620fce52266b51d42022` |
+| Head | `6528bf90697673d34bf32c8b8ad15bc823c9d660` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -18,24 +18,25 @@ Own diff (head against its base commit):
 | `doc/AGENT-ARTIFACTS.md` | +2 | -1 |
 | `doc/CLI.md` | +9 | -4 |
 | `docs/deploy/environment-variables.md` | +2 | -0 |
-| `packages/adapter-utils/src/execution-target-sandbox.test.ts` | +7 | -0 |
+| `packages/adapter-utils/src/execution-target-sandbox.test.ts` | +2 | -0 |
 | `packages/adapter-utils/src/execution-target.ts` | +2 | -0 |
-| `packages/adapter-utils/src/server-utils.test.ts` | +45 | -0 |
-| `packages/adapter-utils/src/server-utils.ts` | +8 | -5 |
+| `packages/adapter-utils/src/server-utils.test.ts` | +38 | -0 |
+| `packages/adapter-utils/src/server-utils.ts` | +4 | -2 |
 | `packages/adapters/claude-local/src/server/execute.acp-fallback.test.ts` | +20 | -0 |
-| `packages/adapters/claude-local/src/server/execute.ts` | +5 | -2 |
-| `packages/adapters/codex-local/src/server/execute.runtime-callback.test.ts` | +200 | -0 |
-| `packages/adapters/codex-local/src/server/execute.ts` | +10 | -1 |
-| `packages/adapters/cursor-cloud/src/server/execute.test.ts` | +5 | -0 |
-| `packages/adapters/cursor-cloud/src/server/execute.ts` | +3 | -0 |
-| `server/src/__tests__/cloud-runtime-identity.test.ts` | +19 | -0 |
-| `server/src/__tests__/file-delivery-bridges.test.ts` | +27 | -0 |
-| `server/src/__tests__/heartbeat-runtime-mcp-servers.test.ts` | +10 | -1 |
-| `server/src/__tests__/server-startup-feedback-export.test.ts` | +45 | -0 |
-| `server/src/index.ts` | +13 | -1 |
-| `server/src/runtime-api.ts` | +8 | -0 |
-| `server/src/services/cloud-runtime-identity.ts` | +6 | -0 |
-| `server/src/services/heartbeat.ts` | +18 | -5 |
+| `packages/adapters/claude-local/src/server/execute.ts` | +3 | -2 |
+| `packages/adapters/codex-local/src/server/execute.runtime-callback.test.ts` | +181 | -0 |
+| `packages/adapters/codex-local/src/server/execute.ts` | +2 | -1 |
+| `packages/adapters/cursor-cloud/src/server/execute.test.ts` | +2 | -0 |
+| `packages/adapters/cursor-cloud/src/server/execute.ts` | +1 | -0 |
+| `server/src/__tests__/cloud-runtime-identity.test.ts` | +18 | -0 |
+| `server/src/__tests__/file-delivery-bridges.test.ts` | +26 | -0 |
+| `server/src/__tests__/heartbeat-runtime-mcp-servers.test.ts` | +6 | -1 |
+| `server/src/__tests__/server-startup-feedback-export.test.ts` | +28 | -0 |
+| `server/src/index.ts` | +3 | -1 |
+| `server/src/runtime-api.ts` | +2 | -0 |
+| `server/src/services/cloud-runtime-identity.ts` | +3 | -0 |
+| `server/src/services/heartbeat/run-preparation.ts` | +8 | -4 |
+| `server/src/services/heartbeat/runtime-execution.ts` | +2 | -2 |
 | `skills/paperclip/scripts/paperclip-upload-artifact.sh` | +4 | -3 |
 
 The pull request body follows the line. Copy it as it is.
@@ -88,7 +89,7 @@ Related open pull requests that address the same reachability problem with other
 
 ## Verification
 
-Head `90cdc5f8def16f0c83aa620fce52266b51d42022`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `6528bf90697673d34bf32c8b8ad15bc823c9d660`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (adapter-utils, claude-local, codex-local, cursor-cloud, CLI and server tests) were run against the base's production code. 20 tests fail there. The adapter environment, the sandbox bridges, the Codex MCP config, the Claude and Codex allowlists, the CLI, server boot, and the Cloud claim do not expose or use `PAPERCLIP_RUNTIME_API_URL` (for example `expected undefined to be 'http://10.0.0.5:3100'`). On the head the same run gives: 352 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

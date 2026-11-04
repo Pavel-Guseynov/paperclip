@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/27a-run-status-transition-authority` |
-| Head | `60ede799488caf8751f808df3f2f5c8609e6812a` |
+| Head | `462cb89f7b6c340450f5c8662715fd1ce44b7714` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,23 +13,26 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/heartbeat-run-status-transition-authority.test.ts` | +263 | -0 |
+| `server/src/__tests__/heartbeat-run-status-transition-authority.test.ts` | +251 | -0 |
 | `server/src/modules/active-run-watchdog/adapters/postgres.ts` | +8 | -9 |
-| `server/src/modules/run-dispatch/adapters/postgres.ts` | +29 | -39 |
+| `server/src/modules/run-dispatch/adapters/postgres.ts` | +37 | -49 |
 | `server/src/modules/wake-queue/adapters/queued-comment-postgres.ts` | +14 | -6 |
 | `server/src/services/execution-control-reconciliation.ts` | +6 | -7 |
-| `server/src/services/heartbeat-run-lifecycle.ts` | +93 | -0 |
-| `server/src/services/heartbeat.ts` | +79 | -132 |
-| `server/src/services/legacy-execution-recovery.ts` | +11 | -14 |
+| `server/src/services/heartbeat-run-lifecycle.ts` | +75 | -0 |
+| `server/src/services/heartbeat/queue.ts` | +67 | -105 |
+| `server/src/services/heartbeat/run-completion.ts` | +2 | -1 |
+| `server/src/services/heartbeat/run-lifecycle.ts` | +17 | -22 |
+| `server/src/services/legacy-execution-recovery.ts` | +12 | -15 |
 | `server/src/services/native-runtime/native-finalization-reconciler.ts` | +25 | -20 |
 | `server/src/services/native-runtime/native-restart-recovery.ts` | +11 | -13 |
 | `server/src/services/native-runtime/native-review-dispatch.ts` | +10 | -6 |
-| `server/src/services/native-runtime/native-run-finalizer.ts` | +104 | -123 |
-| `server/src/services/native-runtime/native-session-executor.ts` | +33 | -46 |
+| `server/src/services/native-runtime/native-run-finalizer.ts` | +40 | -38 |
+| `server/src/services/native-runtime/native-run-projection.ts` | +7 | -10 |
+| `server/src/services/native-runtime/native-session-executor.ts` | +27 | -26 |
 | `server/src/services/native-runtime/native-workspace-export-recovery.ts` | +13 | -4 |
 | `server/src/services/native-runtime/native-workspace-export-retry.ts` | +13 | -3 |
 | `server/src/services/native-runtime/status-decision-committer.ts` | +13 | -27 |
-| `server/src/services/recovery/service.ts` | +51 | -55 |
+| `server/src/services/recovery/service.ts` | +7 | -8 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -80,7 +83,7 @@ No related open pull request was found. #11394 copies status publish logic into 
 
 ## Verification
 
-Head `60ede799488caf8751f808df3f2f5c8609e6812a`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `462cb89f7b6c340450f5c8662715fd1ce44b7714`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/heartbeat-run-status-transition-authority.test.ts) were run against the base's production code. 1 test fails there. The source scan finds 33 status writes outside the authority. Restoring the base version of the native session executor alone makes it flag that file's hidden writes. On the head the same run gives: 7 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

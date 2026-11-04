@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/concurrent-worktree-realization` |
-| Head | `e95ba1d66d8b5b65d833bc0dde156e8911f1ae3e` |
+| Head | `3deb96d0e2d5666da5365813b5c0c93785c60c59` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -59,7 +59,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `e95ba1d66d8b5b65d833bc0dde156e8911f1ae3e`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `3deb96d0e2d5666da5365813b5c0c93785c60c59`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/workspace-runtime.test.ts`) were run against the base's production code. 11 tests fail there. On the base concurrent worktree realizations against the same repository overlap without serialization and `git worktree add -b <branch> <path> <remote>/<base>` leaves implicit tracking to `<base>` instead of `refs/heads/<branch>`. On the head the same run gives: 99 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/recreate-unregistered-managed-worktree` |
-| Head | `45a23d98e60a20b599c35683d6958e9e8641a16c` |
+| Head | `97f49f85153bcdeaa1a038a3f359460eeaf049ac` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,8 +13,8 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/workspace-runtime.test.ts` | +42 | -30 |
-| `server/src/services/workspace-runtime.ts` | +34 | -15 |
+| `server/src/__tests__/workspace-runtime.test.ts` | +40 | -30 |
+| `server/src/services/workspace-runtime.ts` | +30 | -15 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -60,7 +60,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `45a23d98e60a20b599c35683d6958e9e8641a16c`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `97f49f85153bcdeaa1a038a3f359460eeaf049ac`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/workspace-runtime.test.ts`) were run against the base's production code. 1 test fails there. On the base `realizeGitWorktree` fails with `already exists and is not a reusable git worktree` when a managed worktree directory is absent from `git worktree list`. On the head the same run gives: 88 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

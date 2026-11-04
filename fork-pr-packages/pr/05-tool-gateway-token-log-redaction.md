@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/05-tool-gateway-token-log-redaction` |
-| Head | `9674edffe4093badf3a7a459d84f9229745ea2e3` |
+| Head | `9dc925c0260972f0e3deeeab5103d57dcdb0994e` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,9 +13,9 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/http-log-redaction.test.ts` | +1021 | -3 |
-| `server/src/middleware/http-log-redaction.ts` | +460 | -18 |
-| `server/src/middleware/logger.ts` | +110 | -9 |
+| `server/src/__tests__/tool-gateway-log-redaction.test.ts` | +996 | -0 |
+| `server/src/middleware/http-log-redaction.ts` | +352 | -20 |
+| `server/src/middleware/logger.ts` | +84 | -13 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -66,13 +66,13 @@ Related open pull requests:
 - The `err` serializer folds the cause chain first, then sanitizes it, with a bounded walk. An error that cannot be read is logged as unreadable instead of aborting the log call.
 - Live HTTP objects are logged as a content-free summary.
 - Only the log path changes. API responses, including the error responses of secret-sensitive routes, are unchanged.
-- Tests in `server/src/__tests__/http-log-redaction.test.ts` capture real pino output and check every path above with sentinel tokens.
+- Tests in `server/src/__tests__/tool-gateway-log-redaction.test.ts` capture real pino output and check every path above with sentinel tokens.
 
 ## Verification
 
-Head `9674edffe4093badf3a7a459d84f9229745ea2e3`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `9dc925c0260972f0e3deeeab5103d57dcdb0994e`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
-- Regression proof: the head's tests (server/src/__tests__/http-log-redaction.test.ts) were run against the base's production code. 46 tests fail there. Sentinel tokens appear in the request headers, the response headers, unlisted credential headers, string fields, and the `401` log, and a logged error with a throwing property aborts the log call. On the head the same run gives: 108 passed.
+- Regression proof: the head's tests (server/src/__tests__/tool-gateway-log-redaction.test.ts) were run against the base's production code. 46 tests fail there. Sentinel tokens appear in the request headers, the response headers, unlisted credential headers, string fields, and the `401` log, and a logged error with a throwing property aborts the log call. On the head the same run gives: 46 passed (108 passed across both log redaction test files).
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks

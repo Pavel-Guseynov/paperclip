@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/06-approval-stage-return-assignee` |
-| Head | `9c7cf5bd8f14c4ad26c1ed1acb870f21b4095d09` |
+| Head | `078156be4fd94d0e43665c8b7b459871f4bc24d9` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,9 +13,9 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/issue-execution-policy-routes.test.ts` | +198 | -2 |
-| `server/src/__tests__/issue-execution-policy.test.ts` | +500 | -0 |
-| `server/src/services/issue-execution-policy.ts` | +148 | -48 |
+| `server/src/__tests__/issue-execution-policy-routes.test.ts` | +195 | -2 |
+| `server/src/__tests__/issue-execution-policy.test.ts` | +488 | -0 |
+| `server/src/services/issue-execution-policy.ts` | +130 | -48 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -53,7 +53,7 @@ Related open pull requests:
 
 ## Verification
 
-Head `9c7cf5bd8f14c4ad26c1ed1acb870f21b4095d09`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `078156be4fd94d0e43665c8b7b459871f4bc24d9`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/issue-execution-policy.test.ts, server/src/__tests__/issue-execution-policy-routes.test.ts) were run against the base's production code. 6 tests fail there. The approval returns `422` instead of `200`, and the transitions select no participant. On the head the same run gives: 102 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/04-remote-mcp-timeout-health` |
-| Head | `4f8f54bf7bbfe8225085bac74cebc2ed91053522` |
+| Head | `dd161293de8a198e5219a6617085c85beaf73de8` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,8 +13,8 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/remote-mcp-timeout-health.test.ts` | +681 | -0 |
-| `server/src/services/tool-gateway.ts` | +106 | -7 |
+| `server/src/__tests__/remote-mcp-timeout-health.test.ts` | +654 | -0 |
+| `server/src/services/tool-gateway.ts` | +71 | -5 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -64,7 +64,7 @@ Related open pull request: #11910 keeps the health `ok` after a timed-out call a
 
 ## Verification
 
-Head `4f8f54bf7bbfe8225085bac74cebc2ed91053522`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `dd161293de8a198e5219a6617085c85beaf73de8`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/remote-mcp-timeout-health.test.ts) were run against the base's production code. 9 tests fail there. After a timeout the connection health is `error` instead of `degraded`, the tools disappear, and the audit has no `failureKind`. On the head the same run gives: 12 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

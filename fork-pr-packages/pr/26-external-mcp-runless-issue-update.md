@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/26-external-mcp-runless-issue-update` |
-| Head | `d08ad6d54460b41c0df6270751b2acbc26364e6d` |
+| Head | `6a5c6346e18ca91ed0cbe8a0966c954d4fa032f7` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -15,8 +15,8 @@ Own diff (head against its base commit):
 | --- | --- | --- |
 | `doc/SPEC-implementation.md` | +11 | -3 |
 | `docs/api/issues.md` | +3 | -1 |
-| `server/src/__tests__/issue-runless-agent-key-routes.test.ts` | +225 | -0 |
-| `server/src/routes/issues.ts` | +30 | -2 |
+| `server/src/__tests__/issue-runless-agent-key-routes.test.ts` | +222 | -0 |
+| `server/src/routes/issues.ts` | +28 | -2 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -67,7 +67,7 @@ Related open pull requests: #14683 adds a run-less `service` key scope that can 
 
 ## Verification
 
-Head `d08ad6d54460b41c0df6270751b2acbc26364e6d`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `6a5c6346e18ca91ed0cbe8a0966c954d4fa032f7`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/issue-runless-agent-key-routes.test.ts) were run against the base's production code. 4 tests fail there. `403` "Cross-issue writes need a run" and `401` "Agent run id required" for the runless update, the inline comment, and the held-issue cases. On the head the same run gives: 6 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

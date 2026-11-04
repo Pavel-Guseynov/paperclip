@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/review-escalation-unreachable-board-sentinel` |
-| Head | `19dbd0f003042d30bfd7b5cb4fc7d0f393838e71` |
+| Head | `dde4d9f913eae03818d4b780a682d6086a03fac4` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,18 +13,18 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/execution-workspaces-routes.test.ts` | +63 | -0 |
-| `server/src/__tests__/issue-comment-reopen-routes.test.ts` | +4 | -0 |
-| `server/src/__tests__/issue-escalation-local-board-deployment-routes.test.ts` | +358 | -0 |
-| `server/src/__tests__/issue-execution-policy-routes.test.ts` | +4 | -0 |
-| `server/src/__tests__/issue-execution-policy.test.ts` | +243 | -2 |
-| `server/src/middleware/auth.ts` | +38 | -13 |
+| `server/src/__tests__/execution-workspaces-routes.test.ts` | +54 | -0 |
+| `server/src/__tests__/issue-comment-reopen-routes.test.ts` | +1 | -0 |
+| `server/src/__tests__/issue-escalation-local-board-deployment-routes.test.ts` | +308 | -0 |
+| `server/src/__tests__/issue-execution-policy-routes.test.ts` | +1 | -0 |
+| `server/src/__tests__/issue-execution-policy.test.ts` | +220 | -2 |
+| `server/src/middleware/auth.ts` | +22 | -13 |
 | `server/src/routes/execution-workspaces.ts` | +2 | -0 |
-| `server/src/routes/issues.ts` | +36 | -0 |
-| `server/src/services/access.ts` | +20 | -2 |
-| `server/src/services/execution-workspaces.ts` | +22 | -0 |
-| `server/src/services/issue-execution-policy.ts` | +102 | -9 |
-| `server/src/types/express.d.ts` | +9 | -1 |
+| `server/src/routes/issues.ts` | +14 | -0 |
+| `server/src/services/access.ts` | +9 | -2 |
+| `server/src/services/execution-workspaces.ts` | +7 | -0 |
+| `server/src/services/issue-execution-policy.ts` | +37 | -8 |
+| `server/src/types/express.d.ts` | +2 | -1 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -69,7 +69,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `19dbd0f003042d30bfd7b5cb4fc7d0f393838e71`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `dde4d9f913eae03818d4b780a682d6086a03fac4`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/issue-escalation-local-board-deployment-routes.test.ts`, `server/src/__tests__/issue-execution-policy.test.ts`, `server/src/__tests__/execution-workspaces-routes.test.ts`) were run against the base's production code. 11 tests fail there. On the base unreachable stage participants and board-sentinel escalations fail to authorize the board operator across `local_trusted` and authenticated routes. On the head the same run gives: 54 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

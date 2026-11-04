@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/24-run-gateway-token-lifetime` |
-| Head | `bf4e743daeabf7db96d7ffda847d4400ed28dc67` |
+| Head | `fa94fd41ce5e698743384bb6cf9c986deffaa231` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,9 +13,9 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/heartbeat-runtime-mcp-servers.test.ts` | +7 | -3 |
-| `server/src/__tests__/run-gateway-token-lifetime.test.ts` | +200 | -0 |
-| `server/src/services/heartbeat.ts` | +5 | -5 |
+| `server/src/__tests__/heartbeat-runtime-mcp-servers.test.ts` | +6 | -3 |
+| `server/src/__tests__/run-gateway-token-lifetime.test.ts` | +198 | -0 |
+| `server/src/services/heartbeat/run-preparation.ts` | +2 | -5 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -63,7 +63,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `bf4e743daeabf7db96d7ffda847d4400ed28dc67`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `fa94fd41ce5e698743384bb6cf9c986deffaa231`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/run-gateway-token-lifetime.test.ts, server/src/__tests__/heartbeat-runtime-mcp-servers.test.ts) were run against the base's production code. 4 tests fail there. The run tokens are stored with a one-hour expiry, and the running run's token is rejected with `gateway_token_expired` after two hours. On the head the same run gives: 9 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

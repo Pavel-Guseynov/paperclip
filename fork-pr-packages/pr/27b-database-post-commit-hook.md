@@ -3,19 +3,19 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/27b-database-post-commit-hook` |
-| Head | `27540ead55dc630c378ef9953e68a389d4ef78a1` |
-| Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
+| Head | `a291f9e7b1cfbc750c546e56c04190acfd9582d4` |
+| Base commit | `462cb89f7b6c340450f5c8662715fd1ce44b7714` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
-| Stack prerequisite | none (based on upstream master) |
+| Stack prerequisite | `pr/27a-run-status-transition-authority` |
 | Proposed title | `feat(db): run registered work after a transaction commits` |
 
 Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `packages/db/src/client.ts` | +54 | -0 |
+| `packages/db/src/client.ts` | +42 | -0 |
 | `packages/db/src/index.ts` | +2 | -0 |
-| `packages/db/src/post-commit-hooks.test.ts` | +108 | -0 |
+| `packages/db/src/post-commit-hooks.test.ts` | +107 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -61,7 +61,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `27540ead55dc630c378ef9953e68a389d4ef78a1`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `a291f9e7b1cfbc750c546e56c04190acfd9582d4`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `462cb89f7b6c340450f5c8662715fd1ce44b7714` is the head of `pr/27a-run-status-transition-authority`.
 
 - Regression proof: the head's tests (packages/db/src/post-commit-hooks.test.ts) were run against the base's production code. 5 tests fail there. `registerPostCommitHook` does not exist on the base. This is a new primitive, so no base behavior can fail for a different reason. On the head the same run gives: 5 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

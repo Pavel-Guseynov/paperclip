@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/25-remote-mcp-socks-proxy` |
-| Head | `0ac65719c46e1783849c172ef377d1be8030b790` |
+| Head | `d95f838099b9c4a236903993159134b04a447de8` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,10 +14,18 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `doc/connections/CONNECTOR-PLAYBOOK.md` | +1 | -1 |
-| `server/src/__tests__/remote-mcp-socks-proxy.test.ts` | +504 | -0 |
-| `server/src/services/remote-http-endpoint-guard.ts` | +84 | -0 |
-| `server/src/services/remote-http-fetch.ts` | +193 | -0 |
-| `server/src/services/tool-access.ts` | +35 | -10 |
+| `server/src/__tests__/remote-mcp-socks-proxy.test.ts` | +502 | -0 |
+| `server/src/services/remote-http-endpoint-guard.ts` | +72 | -0 |
+| `server/src/services/remote-http-fetch.ts` | +177 | -0 |
+| `server/src/services/tool-access/catalog/discovery.ts` | +4 | -2 |
+| `server/src/services/tool-access/oauth/client-registration.ts` | +3 | -0 |
+| `server/src/services/tool-access/oauth/client.ts` | +4 | -2 |
+| `server/src/services/tool-access/oauth/connection-refresh.ts` | +3 | -0 |
+| `server/src/services/tool-access/oauth/direct-callback.ts` | +3 | -0 |
+| `server/src/services/tool-access/oauth/discovery.ts` | +6 | -3 |
+| `server/src/services/tool-access/oauth/grant-refresh.ts` | +3 | -0 |
+| `server/src/services/tool-access/oauth/types.ts` | +1 | -1 |
+| `server/src/services/tool-access/remote-http.ts` | +25 | -6 |
 | `server/src/services/tool-gateway.ts` | +7 | -4 |
 
 The pull request body follows the line. Copy it as it is.
@@ -65,7 +73,7 @@ Related open pull request: #14291 adds an outbound connector for private-network
 
 ## Verification
 
-Head `0ac65719c46e1783849c172ef377d1be8030b790`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `d95f838099b9c4a236903993159134b04a447de8`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/remote-mcp-socks-proxy.test.ts) were run against the base's production code. 8 tests fail there. The proxy is ignored, so requests (also the OAuth sign-in) dial the target directly, and invalid or private proxies and oversized hostnames are accepted. On the head the same run gives: 11 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

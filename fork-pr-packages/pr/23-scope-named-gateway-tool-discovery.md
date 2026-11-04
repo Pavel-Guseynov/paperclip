@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/23-scope-named-gateway-tool-discovery` |
-| Head | `f38d37159bcefdac4cf7a7f72c7d8633075720e3` |
+| Head | `44898faf7d22151116be2218d9d6e7efaa98754e` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,9 +13,9 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/scope-named-gateway-tool-discovery.test.ts` | +255 | -0 |
-| `server/src/services/tool-access-policy.ts` | +88 | -0 |
-| `server/src/services/tool-gateway.ts` | +37 | -8 |
+| `server/src/__tests__/scope-named-gateway-tool-discovery.test.ts` | +254 | -0 |
+| `server/src/services/tool-access-policy.ts` | +76 | -0 |
+| `server/src/services/tool-gateway.ts` | +45 | -11 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -65,7 +65,7 @@ Related open pull request: #13115 speeds up the same discovery with a bounded wo
 
 ## Verification
 
-Head `f38d37159bcefdac4cf7a7f72c7d8633075720e3`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `44898faf7d22151116be2218d9d6e7efaa98754e`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/scope-named-gateway-tool-discovery.test.ts) were run against the base's production code. 11 tests fail there. Discovery evaluates the other connections' tools, and `namedGatewayDiscoveryScope` does not exist. The allow-policy guard test passes on both. On the head the same run gives: 12 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

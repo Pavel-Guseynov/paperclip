@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/20-conversation-continuation` |
-| Head | `92b693f006091123c472863781783a7336db23f9` |
+| Head | `e87308807e927bac4fead199e6a921439ea39aa4` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,10 +13,10 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `packages/adapter-utils/src/types.ts` | +8 | -0 |
-| `server/src/__tests__/conversation-continuation.test.ts` | +154 | -0 |
+| `packages/adapter-utils/src/types.ts` | +2 | -0 |
+| `server/src/__tests__/conversation-continuation.test.ts` | +153 | -0 |
 | `server/src/__tests__/server-startup-feedback-export.test.ts` | +30 | -0 |
-| `server/src/index.ts` | +4 | -0 |
+| `server/src/index.ts` | +2 | -0 |
 | `server/src/services/conversation-continuation.ts` | +18 | -3 |
 
 The pull request body follows the line. Copy it as it is.
@@ -61,7 +61,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `92b693f006091123c472863781783a7336db23f9`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `e87308807e927bac4fead199e6a921439ea39aa4`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/conversation-continuation.test.ts) were run against the base's production code. 1 test fails there. The lost run of the declaring adapter is not stamped for continuation (`stopReason: process_lost`). The control test passes on both. On the head the same run gives: 24 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

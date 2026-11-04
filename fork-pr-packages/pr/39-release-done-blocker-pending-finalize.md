@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/release-done-blocker-pending-finalize` |
-| Head | `8fa08dc94f571c7cd4b9e68c07f0d3f1092adb6d` |
+| Head | `932819684a4c5ef1706754dabd6dedcb182f8761` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,7 +13,7 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/issues-service.test.ts` | +96 | -0 |
+| `server/src/__tests__/issues-service.test.ts` | +93 | -0 |
 | `server/src/services/issues.ts` | +16 | -2 |
 
 The pull request body follows the line. Copy it as it is.
@@ -61,7 +61,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `8fa08dc94f571c7cd4b9e68c07f0d3f1092adb6d`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `932819684a4c5ef1706754dabd6dedcb182f8761`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/issues-service.test.ts`) were run against the base's production code. 2 tests fail there. On the base `listPendingFinalizeBlockerIssueIds` keeps a `done` blocker in `pendingFinalizeBlockerIssueIds` even after the run owning its latest workspace operation has terminated. On the head the same run gives: 46 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

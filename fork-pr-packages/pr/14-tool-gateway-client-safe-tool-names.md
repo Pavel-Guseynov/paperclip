@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/14-tool-gateway-client-safe-tool-names` |
-| Head | `6883cf4a034eca74e824de03ffbc177def315953` |
-| Base commit | `07a20f571e853fd7937f0a0a78d8db5703e17bff` |
+| Head | `3b3d28a327d46869177d4e34f36cb1798a65dfbf` |
+| Base commit | `5e3b92f71c7295849889ad87974e2dc2587f8cd2` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | `pr/16-tool-profile-tool-name-identity` |
 | Proposed title | `fix(tool-gateway): assign client-safe tool names and keep legacy names working` |
@@ -14,9 +14,11 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `packages/shared/src/types/tool-access.ts` | +1 | -0 |
-| `server/src/__tests__/tool-gateway.test.ts` | +260 | -18 |
+| `server/src/__tests__/browser-use-connection.test.ts` | +1 | -1 |
+| `server/src/__tests__/railway-connection.test.ts` | +1 | -1 |
+| `server/src/__tests__/tool-gateway.test.ts` | +256 | -17 |
 | `server/src/services/tool-access-policy.ts` | +4 | -1 |
-| `server/src/services/tool-gateway.ts` | +121 | -8 |
+| `server/src/services/tool-gateway.ts` | +100 | -4 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -69,7 +71,7 @@ Stack: this pull request is based on `pr/16-tool-profile-tool-name-identity`. Pu
 
 ## Verification
 
-Head `6883cf4a034eca74e824de03ffbc177def315953`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `07a20f571e853fd7937f0a0a78d8db5703e17bff` is the head of `pr/16-tool-profile-tool-name-identity`.
+Head `3b3d28a327d46869177d4e34f36cb1798a65dfbf`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `5e3b92f71c7295849889ad87974e2dc2587f8cd2` is the head of `pr/16-tool-profile-tool-name-identity`.
 
 - Regression proof: the head's tests (server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 22 tests fail there. (Base: pull request 16.) the tools are listed under the old `mcp.<app>-<connection>:<tool>` names. On the head the same run gives: 91 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

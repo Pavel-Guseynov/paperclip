@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/04b-refuse-ambiguous-timeout-replay` |
-| Head | `4e76748143213a524576078d2205953cfb22fe15` |
-| Base commit | `4f8f54bf7bbfe8225085bac74cebc2ed91053522` |
+| Head | `226f8c2a66e4208cc49f7686c2c9c5ea613783a8` |
+| Base commit | `dd161293de8a198e5219a6617085c85beaf73de8` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | `pr/04-remote-mcp-timeout-health` |
 | Proposed title | `fix(tool-access): refuse idempotent replay of an ambiguous timed-out write` |
@@ -13,8 +13,8 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/remote-mcp-timeout-health.test.ts` | +212 | -3 |
-| `server/src/services/tool-access-policy.ts` | +43 | -1 |
+| `server/src/__tests__/remote-mcp-timeout-health.test.ts` | +205 | -3 |
+| `server/src/services/tool-access-policy.ts` | +28 | -1 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -66,7 +66,7 @@ Stack: this pull request is based on `pr/04-remote-mcp-timeout-health`. With pul
 
 ## Verification
 
-Head `4e76748143213a524576078d2205953cfb22fe15`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `4f8f54bf7bbfe8225085bac74cebc2ed91053522` is the head of `pr/04-remote-mcp-timeout-health`.
+Head `226f8c2a66e4208cc49f7686c2c9c5ea613783a8`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `dd161293de8a198e5219a6617085c85beaf73de8` is the head of `pr/04-remote-mcp-timeout-health`.
 
 - Regression proof: the head's tests (server/src/__tests__/remote-mcp-timeout-health.test.ts) were run against the base's production code. 3 tests fail there. (Base: pull request 04.) the timed-out write is returned as `replayed` instead of `409`. On the head the same run gives: 17 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/02b-session-routes-reject-gateway-tokens` |
-| Head | `26c29739538b84008df3e9c0e2c4459b4bc81424` |
-| Base commit | `e105dc50909b7e07dbd70712c3e25cc9f4d00f71` |
+| Head | `4c9cf6ec66673068ced92346f46d97ac1aab1bdd` |
+| Base commit | `cf20828a3bd81fc38dc9cc9e2c416e53a52476f3` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | `pr/02-tool-gateway-session-token-verification` |
 | Proposed title | `fix(tool-gateway): reject named gateway tokens on session routes` |
@@ -13,8 +13,8 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/tool-gateway.test.ts` | +71 | -0 |
-| `server/src/services/tool-gateway.ts` | +12 | -0 |
+| `server/src/__tests__/tool-gateway.test.ts` | +67 | -0 |
+| `server/src/services/tool-gateway.ts` | +7 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -63,7 +63,7 @@ Related open pull request: #11812 moves bearer checks into the gateway routes pe
 
 ## Verification
 
-Head `26c29739538b84008df3e9c0e2c4459b4bc81424`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `e105dc50909b7e07dbd70712c3e25cc9f4d00f71` is the head of `pr/02-tool-gateway-session-token-verification`.
+Head `4c9cf6ec66673068ced92346f46d97ac1aab1bdd`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`. Its base `cf20828a3bd81fc38dc9cc9e2c416e53a52476f3` is the head of `pr/02-tool-gateway-session-token-verification`.
 
 - Regression proof: the head's tests (server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 1 test fails there. A named gateway token on the session routes gets `200` instead of `401`. On the head the same run gives: 83 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/01-codex-managed-mcp-auth` |
-| Head | `970c099fe52aff1482b5a00b7195514c1ebe6bb9` |
+| Head | `d9728534e99d2c488846e2b532a5e64fa6f87500` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,10 +14,10 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `doc/MCP-ACCESS-GOVERNANCE.md` | +1 | -0 |
-| `server/src/__tests__/tool-gateway.test.ts` | +456 | -1 |
-| `server/src/middleware/auth.ts` | +19 | -3 |
-| `server/src/routes/tool-gateway.ts` | +17 | -0 |
-| `server/src/services/tool-gateway.ts` | +28 | -6 |
+| `server/src/__tests__/tool-gateway.test.ts` | +448 | -1 |
+| `server/src/middleware/auth.ts` | +13 | -0 |
+| `server/src/routes/tool-gateway.ts` | +14 | -0 |
+| `server/src/services/tool-gateway.ts` | +24 | -6 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -55,7 +55,7 @@ Related open pull requests:
 
 ## Verification
 
-Head `970c099fe52aff1482b5a00b7195514c1ebe6bb9`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `d9728534e99d2c488846e2b532a5e64fa6f87500`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 59 tests fail there. Managed initialize and notifications get `401` with "Agent token did not verify" instead of the empty gateway response, in both deployment modes. On the head the same run gives: 154 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

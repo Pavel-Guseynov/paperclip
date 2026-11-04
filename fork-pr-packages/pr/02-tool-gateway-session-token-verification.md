@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/02-tool-gateway-session-token-verification` |
-| Head | `e105dc50909b7e07dbd70712c3e25cc9f4d00f71` |
+| Head | `cf20828a3bd81fc38dc9cc9e2c416e53a52476f3` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -15,10 +15,10 @@ Own diff (head against its base commit):
 | --- | --- | --- |
 | `doc/MCP-ACCESS-GOVERNANCE.md` | +1 | -1 |
 | `doc/MCP-DEMO-SCRIPT.md` | +2 | -2 |
-| `server/src/__tests__/agent-auth-middleware.test.ts` | +97 | -0 |
-| `server/src/__tests__/tool-gateway.test.ts` | +293 | -0 |
-| `server/src/middleware/auth.ts` | +22 | -0 |
-| `server/src/routes/tool-gateway.ts` | +11 | -1 |
+| `server/src/__tests__/agent-auth-middleware.test.ts` | +95 | -0 |
+| `server/src/__tests__/tool-gateway.test.ts` | +274 | -0 |
+| `server/src/middleware/auth.ts` | +14 | -0 |
+| `server/src/routes/tool-gateway.ts` | +6 | -1 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -52,7 +52,7 @@ This pull request does not depend on pull request 01 (`pr/01-codex-managed-mcp-a
 
 ## Verification
 
-Head `e105dc50909b7e07dbd70712c3e25cc9f4d00f71`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `cf20828a3bd81fc38dc9cc9e2c416e53a52476f3`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/agent-auth-middleware.test.ts, server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 5 tests fail there. A `pcgt_` bearer gets `401` instead of `200`, and bad session bearers get the middleware error instead of the gateway reason codes (`session_revoked`, `session_run_inactive`). On the head the same run gives: 119 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

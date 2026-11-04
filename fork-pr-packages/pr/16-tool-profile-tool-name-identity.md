@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/16-tool-profile-tool-name-identity` |
-| Head | `07a20f571e853fd7937f0a0a78d8db5703e17bff` |
+| Head | `5e3b92f71c7295849889ad87974e2dc2587f8cd2` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,12 +14,12 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `server/src/__tests__/server-startup-feedback-export.test.ts` | +5 | -0 |
-| `server/src/__tests__/tool-gateway.test.ts` | +184 | -25 |
+| `server/src/__tests__/tool-gateway.test.ts` | +171 | -25 |
 | `server/src/index.ts` | +8 | -0 |
 | `server/src/services/index.ts` | +1 | -0 |
 | `server/src/services/tool-access-policy.ts` | +1 | -1 |
-| `server/src/services/tool-gateway.ts` | +35 | -11 |
-| `server/src/services/tool-profile-migration.ts` | +163 | -0 |
+| `server/src/services/tool-gateway.ts` | +39 | -16 |
+| `server/src/services/tool-profile-migration.ts` | +147 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -51,7 +51,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `07a20f571e853fd7937f0a0a78d8db5703e17bff`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `5e3b92f71c7295849889ad87974e2dc2587f8cd2`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/tool-gateway.test.ts) were run against the base's production code. 5 tests fail there. A `tool_name` entry with the catalog name matches no tool at the gateway, and the stored gateway-name entries stay unconverted. On the head the same run gives: 105 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

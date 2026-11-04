@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/08-workspace-validation-recovery-precedence` |
-| Head | `273220e26e34b12016ff822f6f39dede8f8c9add` |
+| Head | `810a10c893e342ac138371487cc3ae5237e78fb2` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,12 +13,14 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/workspace-validation-recovery-precedence.test.ts` | +858 | -0 |
-| `server/src/services/heartbeat.ts` | +28 | -10 |
-| `server/src/services/issue-recovery-actions.ts` | +64 | -6 |
-| `server/src/services/recovery/service.ts` | +60 | -7 |
+| `server/src/__tests__/workspace-validation-recovery-precedence.test.ts` | +830 | -0 |
+| `server/src/services/heartbeat/run-completion.ts` | +4 | -9 |
+| `server/src/services/heartbeat/runtime-execution.ts` | +2 | -1 |
+| `server/src/services/heartbeat/workspaces.ts` | +16 | -1 |
+| `server/src/services/issue-recovery-actions.ts` | +39 | -6 |
+| `server/src/services/recovery/service.ts` | +49 | -7 |
 | `server/src/services/recovery/stranded-notice.test.ts` | +37 | -0 |
-| `server/src/services/recovery/stranded-notice.ts` | +27 | -0 |
+| `server/src/services/recovery/stranded-notice.ts` | +21 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -70,7 +72,7 @@ Related open pull requests: #14110 stops a finalization sweep from erasing a run
 
 ## Verification
 
-Head `273220e26e34b12016ff822f6f39dede8f8c9add`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `810a10c893e342ac138371487cc3ae5237e78fb2`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/workspace-validation-recovery-precedence.test.ts, server/src/services/recovery/stranded-notice.test.ts) were run against the base's production code. 10 tests fail there. The cause becomes `stranded_assigned_issue` or `execution_review_participant_recovery` instead of `workspace_validation_failed`, and a wrapped failure is recorded as `adapter_failed`. On the head the same run gives: 36 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/unchanged-unblock-descriptor-deduplication` |
-| Head | `912c3b0b526312d2cfb36d4199266ab2b0af2d57` |
+| Head | `3bb66e546ef335556a536abfb74e608a6ee91f2b` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,7 +13,7 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/__tests__/issues-service.test.ts` | +79 | -0 |
+| `server/src/__tests__/issues-service.test.ts` | +78 | -0 |
 | `server/src/services/issues.ts` | +19 | -12 |
 
 The pull request body follows the line. Copy it as it is.
@@ -61,7 +61,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `912c3b0b526312d2cfb36d4199266ab2b0af2d57`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `3bb66e546ef335556a536abfb74e608a6ee91f2b`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/issues-service.test.ts`) were run against the base's production code. 1 test fails there. On the base `issueService.update` resets `blockedTransitionAt` and clears `blockedOwnerNotifiedAt` when re-entering `blocked` from `in_progress` with an unchanged self-owned `unblockDescriptor`, enqueueing a duplicate owner wake. On the head the same run gives: 45 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

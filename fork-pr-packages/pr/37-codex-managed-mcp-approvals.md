@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/codex-managed-mcp-approvals` |
-| Head | `7e821633252a7b859152fa093bbc7d0fe7663844` |
+| Head | `30a9615043da7f44beb5f8426ec51edb7c3165db` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -16,7 +16,7 @@ Own diff (head against its base commit):
 | `README.md` | +12 | -0 |
 | `doc/execution-semantics.md` | +7 | -0 |
 | `packages/adapters/codex-local/src/server/codex-home.test.ts` | +28 | -0 |
-| `packages/adapters/codex-local/src/server/codex-home.ts` | +2 | -0 |
+| `packages/adapters/codex-local/src/server/codex-home.ts` | +1 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -63,7 +63,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `7e821633252a7b859152fa093bbc7d0fe7663844`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `30a9615043da7f44beb5f8426ec51edb7c3165db`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`packages/adapters/codex-local/src/server/codex-home.test.ts`) were run against the base's production code. 3 tests fail there. On the base `codex-home.ts` omits `default_tools_approval_mode = "approve"` from managed MCP server blocks, causing Codex under `approval_policy = "never"` to reject write tool calls locally before contacting Paperclip's gateway. On the head the same run gives: 14 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

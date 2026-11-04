@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/07-retry-skipped-review-handoff` |
-| Head | `c500848b02dc938ce3173a88f90bbb2c021b78a1` |
+| Head | `992f7cf8204fb7b574e47f71aa7101a889dbdc2b` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -17,11 +17,12 @@ Own diff (head against its base commit):
 | `packages/db/src/migrations/meta/{0424_snapshot.json => 0429_snapshot.json}` | +- | -- |
 | `packages/db/src/migrations/meta/_journal.json` | +- | -- |
 | `packages/db/src/schema/agent_wakeup_requests.ts` | +7 | -0 |
-| `server/src/__tests__/heartbeat-review-handoff-retry.test.ts` | +1238 | -0 |
-| `server/src/routes/issues.ts` | +22 | -27 |
+| `server/src/__tests__/heartbeat-review-handoff-retry-routes.test.ts` | +744 | -0 |
+| `server/src/__tests__/heartbeat-review-handoff-retry.test.ts` | +625 | -0 |
+| `server/src/routes/issues.ts` | +17 | -27 |
 | `server/src/services/recovery/review-handoff-retry.test.ts` | +296 | -0 |
-| `server/src/services/recovery/review-handoff-retry.ts` | +713 | -0 |
-| `server/src/services/recovery/service.ts` | +88 | -0 |
+| `server/src/services/recovery/review-handoff-retry.ts` | +637 | -0 |
+| `server/src/services/recovery/service.ts` | +79 | -0 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -53,9 +54,9 @@ Related open pull request: #13880 fixes the same stall with a periodic pass in `
 
 ## Verification
 
-Head `c500848b02dc938ce3173a88f90bbb2c021b78a1`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `992f7cf8204fb7b574e47f71aa7101a889dbdc2b`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
-- Regression proof: the head's tests (server/src/__tests__/heartbeat-review-handoff-retry.test.ts (the new retry module kept, the route and recovery-service wiring of master)) were run against the base's production code. 7 tests fail there. No handoff is enqueued after the blocker clears or the environment lease is released (`0` instead of `1`), and no escalation is created after the last attempt. On the head the same run gives: 28 passed.
+- Regression proof: the head's tests (server/src/__tests__/heartbeat-review-handoff-retry.test.ts and server/src/__tests__/heartbeat-review-handoff-retry-routes.test.ts (the new retry module kept, the route and recovery-service wiring of master)) were run against the base's production code. 7 tests fail there. No handoff is enqueued after the blocker clears or the environment lease is released (`0` instead of `1`), and no escalation is created after the last attempt. On the head the same run gives: 28 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
 
 ## Risks

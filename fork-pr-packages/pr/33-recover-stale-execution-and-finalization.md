@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/recover-stale-execution-and-finalization` |
-| Head | `44db3e21258892ebb46a1df5c32865e184dc3a83` |
+| Head | `7ad2c4b282164cbee98c81ff2505fa5c02dccc45` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -20,12 +20,12 @@ Own diff (head against its base commit):
 | `packages/shared/src/index.ts` | +1 | -1 |
 | `packages/shared/src/types/execution-projection.ts` | +5 | -1 |
 | `packages/shared/src/validators/issue.ts` | +2 | -2 |
-| `server/src/__tests__/issue-execution-reconciliation.test.ts` | +586 | -0 |
-| `server/src/routes/issues.ts` | +55 | -8 |
-| `server/src/services/execution-blocker.ts` | +3 | -2 |
+| `server/src/__tests__/issue-execution-reconciliation.test.ts` | +583 | -0 |
+| `server/src/routes/issues.ts` | +55 | -10 |
+| `server/src/services/execution-blocker.ts` | +1 | -2 |
 | `server/src/services/execution-continuation.test.ts` | +15 | -0 |
 | `server/src/services/execution-projection.ts` | +2 | -1 |
-| `server/src/services/execution-recovery-resolution.ts` | +57 | -27 |
+| `server/src/services/execution-recovery-resolution.ts` | +51 | -27 |
 | `server/src/services/heartbeat/queue.ts` | +2 | -4 |
 | `server/src/services/native-runtime/native-safe-replacement.test.ts` | +9 | -0 |
 
@@ -75,7 +75,7 @@ Related pull requests: builds on the continuation recovery work in #15024 and #1
 
 ## Verification
 
-Head `44db3e21258892ebb46a1df5c32865e184dc3a83`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `7ad2c4b282164cbee98c81ff2505fa5c02dccc45`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`server/src/__tests__/issue-execution-reconciliation.test.ts`, `server/src/services/execution-continuation.test.ts`) were run against the base's production code. 9 tests fail there. On the base `POST /api/issues/:id/recovery-actions/resolve` returns `404 Active recovery action not found` when the recovery action was already settled with `replay = 'blocked'` and `executionBlocker` remains on the issue. On the head the same run gives: 31 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

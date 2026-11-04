@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/11-native-runner-darwin-lsof-unicode` |
-| Head | `6fd4cf278a7fa7d6476e6dde6db1084f5ea85a93` |
+| Head | `c080ad87171d4e09d36e48e331c3169262a9f964` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -13,8 +13,8 @@ Own diff (head against its base commit):
 
 | File | Added | Deleted |
 | --- | --- | --- |
-| `server/src/services/native-runtime/native-runner-file-handoff.test.ts` | +170 | -0 |
-| `server/src/services/native-runtime/native-runner-file-handoff.ts` | +46 | -2 |
+| `server/src/services/native-runtime/native-runner-file-handoff.test.ts` | +143 | -0 |
+| `server/src/services/native-runtime/native-runner-file-handoff.ts` | +17 | -2 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -64,7 +64,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `6fd4cf278a7fa7d6476e6dde6db1084f5ea85a93`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `c080ad87171d4e09d36e48e331c3169262a9f964`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/services/native-runtime/native-runner-file-handoff.test.ts) were run against the base's production code. 2 tests fail there. Registration fails with `ENOENT` for the escaped path, and the invalid escape run fails with `ENOENT` instead of the descriptor error. On the head the same run gives: 21 passed (including the real macOS `/usr/sbin/lsof` check).
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

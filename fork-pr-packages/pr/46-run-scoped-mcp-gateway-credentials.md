@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `fix/run-scoped-mcp-gateway-credentials` |
-| Head | `b6827d03b98dac6df1d56d7b860a0bb0d67770d7` |
+| Head | `eb17ca8e164978f34544ae7ee4b4f15254885d6f` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,13 +14,13 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `packages/adapters/codex-local/src/server/codex-args.ts` | +2 | -1 |
-| `packages/adapters/codex-local/src/server/codex-auth-cache.test.ts` | +72 | -67 |
+| `packages/adapters/codex-local/src/server/codex-auth-cache.test.ts` | +65 | -67 |
 | `packages/adapters/codex-local/src/server/codex-home.test.ts` | +68 | -0 |
-| `packages/adapters/codex-local/src/server/codex-home.ts` | +59 | -3 |
+| `packages/adapters/codex-local/src/server/codex-home.ts` | +43 | -31 |
 | `packages/adapters/codex-local/src/server/execute.remote.test.ts` | +11 | -2 |
 | `packages/adapters/codex-local/src/server/execute.ts` | +10 | -3 |
 | `server/src/__tests__/codex-local-execute.test.ts` | +6 | -2 |
-| `server/src/__tests__/tool-gateway.test.ts` | +96 | -0 |
+| `server/src/__tests__/tool-gateway.test.ts` | +95 | -0 |
 | `server/src/services/tool-gateway.ts` | +31 | -0 |
 
 The pull request body follows the line. Copy it as it is.
@@ -68,7 +68,7 @@ No related open pull request was found.
 
 ## Verification
 
-Head `b6827d03b98dac6df1d56d7b860a0bb0d67770d7`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `eb17ca8e164978f34544ae7ee4b4f15254885d6f`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (`packages/adapters/codex-local/src/server/codex-home.test.ts`, `server/src/__tests__/tool-gateway.test.ts`) were run against the base's production code. 7 tests fail there. On the base overlapping Codex runs overwrite the shared `[mcp_servers.*]` bearer token in `config.toml`, so finishing one run revokes the token presented by the other live run (`401 gateway_token_revoked`). On the head the same run gives: 176 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

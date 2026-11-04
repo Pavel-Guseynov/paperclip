@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/21-shutdown-waits-for-adapter-run-stops` |
-| Head | `cfb0906b153b02b28ac1ebf23f6738e30e10a50b` |
+| Head | `6469d12878d4f50313adad1b3848efef2c4f60ca` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -15,10 +15,12 @@ Own diff (head against its base commit):
 | --- | --- | --- |
 | `docs/deploy/environment-variables.md` | +1 | -0 |
 | `packages/shared/src/config-schema.ts` | +1 | -0 |
-| `server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts` | +172 | -0 |
-| `server/src/config.ts` | +15 | -0 |
-| `server/src/index.ts` | +2 | -0 |
-| `server/src/services/heartbeat.ts` | +10 | -2 |
+| `server/src/__tests__/helpers/heartbeat-queue.ts` | +2 | -1 |
+| `server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts` | +169 | -0 |
+| `server/src/config.ts` | +11 | -0 |
+| `server/src/index.ts` | +2 | -1 |
+| `server/src/services/heartbeat.ts` | +7 | -1 |
+| `server/src/services/heartbeat/queue.ts` | +4 | -2 |
 | `server/src/shutdown.test.ts` | +4 | -3 |
 | `server/src/shutdown.ts` | +5 | -3 |
 
@@ -70,7 +72,7 @@ Related open pull requests: #6712 drains live runs on shutdown with a fixed 5-se
 
 ## Verification
 
-Head `cfb0906b153b02b28ac1ebf23f6738e30e10a50b`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `6469d12878d4f50313adad1b3848efef2c4f60ca`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts, server/src/shutdown.test.ts) were run against the base's production code. 6 tests fail there. The config has no drain timeout, a wakeup after shutdown begins starts the run instead of leaving it queued, and the timeout is not logged as an error with the run IDs. On the head the same run gives: 24 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.

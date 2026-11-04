@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Branch | `pr/28-runchildprocess-stdin-stream-error` |
-| Head | `df2bd81af74efa0aac415a3f4e1b3ccaf13fc8be` |
+| Head | `afb9f3facc479c68b48babf0186de9fab1348db4` |
 | Base commit | `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Upstream base | `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e` |
 | Stack prerequisite | none (based on upstream master) |
@@ -14,8 +14,8 @@ Own diff (head against its base commit):
 | File | Added | Deleted |
 | --- | --- | --- |
 | `packages/adapter-utils/README.md` | +9 | -0 |
-| `packages/adapter-utils/src/server-utils.test.ts` | +72 | -0 |
-| `packages/adapter-utils/src/server-utils.ts` | +26 | -5 |
+| `packages/adapter-utils/src/server-utils.test.ts` | +68 | -0 |
+| `packages/adapter-utils/src/server-utils.ts` | +25 | -4 |
 
 The pull request body follows the line. Copy it as it is.
 
@@ -70,7 +70,7 @@ This pull request differs in one decision: a run whose prompt did not reach the 
 
 ## Verification
 
-Head `df2bd81af74efa0aac415a3f4e1b3ccaf13fc8be`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
+Head `afb9f3facc479c68b48babf0186de9fab1348db4`. Base: `paperclipai/paperclip` master `925965a09b8931c1791f2402f3e7595e2845e68e`.
 
 - Regression proof: the head's tests (packages/adapter-utils/src/server-utils.test.ts) were run against the base's production code. 3 tests fail there. The owning run gets no `EPIPE` result, and the write raises an unhandled `EPIPE` error in the test process. On the head the same run gives: 129 passed.
 - Typecheck and Vitest suites (`pnpm -r typecheck` and `pnpm test:run` on the touched packages and test files) pass locally with PostgreSQL.
