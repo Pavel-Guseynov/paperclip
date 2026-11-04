@@ -467,6 +467,18 @@ function argumentConditionMatches(condition: Record<string, unknown>, ctx: ToolA
   return argumentFiltersMatch(filters, ctx);
 }
 
+const WRITE_CAPABLE_RISK_LEVELS: readonly ToolRiskLevel[] = [
+  "write",
+  "destructive",
+  "medium",
+  "high",
+  "critical",
+];
+
+function isWriteCapableRiskLevel(value: ToolRiskLevel | null): boolean {
+  return value !== null && WRITE_CAPABLE_RISK_LEVELS.includes(value);
+}
+
 function riskRank(value: ToolRiskLevel | null): number {
   if (value === "read" || value === "low") return 1;
   if (value === "write" || value === "medium") return 2;
@@ -1780,7 +1792,22 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
         eq(toolInvocations.companyId, input.companyId),
         eq(toolInvocations.idempotencyKey, idempotencyKey),
       ));
-      if (existing) return { invocation: existing, replayed: true, actionRequest: null };
+      if (existing) {
+        const mayHaveChangedState =
+          existing.riskLevel === null || isWriteCapableRiskLevel(existing.riskLevel);
+        if (existing.status === "timed_out" && mayHaveChangedState) {
+          throw conflict(
+            "A previous write invocation timed out with an ambiguous outcome; it cannot be automatically replayed. Confirm the outcome upstream and retry with a new idempotency key.",
+            {
+              code: "ambiguous_invocation_timeout",
+              invocationId: existing.id,
+              tool: existing.toolName,
+              status: existing.status,
+            },
+          );
+        }
+        return { invocation: existing, replayed: true, actionRequest: null };
+      }
     }
     if (input.request.sideEffecting && input.request.idempotencyKey == null) {
       // Before complete request identities, default keys used shortened and
