@@ -132,6 +132,7 @@
       rootFiles = [
         ./.npmrc
         ./package.json
+        ./patches
         ./pnpm-workspace.yaml
         ./tsconfig.base.json
         ./tsconfig.json
