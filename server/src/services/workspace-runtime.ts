@@ -3689,28 +3689,38 @@ async function realizeGitWorktree(
     ) {
       // Git no longer registers this managed path (for example after a
       // `git worktree prune` on the shared checkout), and its .git file still
-      // points into this repository's worktrees directory, so it is a stale
-      // leftover. Uncommitted content in it is expendable; the branch and its
-      // commits live in the repository and are re-attached below. A directory
-      // that is not such a leftover is never removed.
-      const removeDirectory = () => fs.rm(worktreePath, { recursive: true, force: true });
+      // points into this repository's worktrees directory. Another task's prune
+      // can do this to a live worktree, so the directory is moved aside into
+      // .quarantine with its uncommitted files, never deleted. The branch and its
+      // commits live in the repository and are re-attached below.
+      const quarantinePath = path.join(
+        path.dirname(worktreePath),
+        ".quarantine",
+        `${path.basename(worktreePath)}-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+      );
+      const moveAside = async () => {
+        await fs.mkdir(path.dirname(quarantinePath), { recursive: true });
+        await fs.rename(worktreePath, quarantinePath);
+      };
+      const message = `Moved unregistered worktree directory ${worktreePath} to ${quarantinePath}`;
       if (input.recorder) {
         await input.recorder.recordOperation({
           phase: "worktree_prepare",
           cwd: repoRoot,
-          metadata: { repoRoot, worktreePath, branchName, cleanupAction: "remove_unregistered_worktree_directory" },
+          metadata: { repoRoot, worktreePath, branchName, quarantinePath, cleanupAction: "quarantine_unregistered_worktree_directory" },
           run: async () => {
-            await removeDirectory();
+            await moveAside();
             return {
               status: "succeeded",
               exitCode: 0,
-              system: `Removed unregistered worktree directory ${worktreePath}\n`,
+              system: `${message}\n`,
             };
           },
         });
       } else {
-        await removeDirectory();
+        await moveAside();
       }
+      baseRefreshWarnings.push(message);
     } else {
       const reason = validation && !validation.valid ? ` (${validation.reason})` : "";
       if (requestedExistingBranch) {
