@@ -67,9 +67,11 @@ describe("redaction of long provider text", () => {
       "--verbose",
       "keep",
     ]);
-    expect(sanitizeRecord({ argv: ["--tool-token-name", "a", "token", "b"] }).argv).toEqual([
-      "--tool-token-name",
+    expect(sanitizeRecord({ argv: ["--tool-token-value", "a", "--tool-token-name", "keep", "token", "b"] }).argv).toEqual([
+      "--tool-token-value",
       "***REDACTED***",
+      "--tool-token-name",
+      "keep",
       "token",
       "b",
     ]);
