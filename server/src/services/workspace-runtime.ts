@@ -2815,6 +2815,17 @@ async function directoryExists(value: string) {
   return fs.stat(value).then((stats) => stats.isDirectory()).catch(() => false);
 }
 
+function quarantineDirectoryName(worktreeName: string, movedAt: Date): string {
+  const suffix = `-${movedAt.toISOString().replace(/[:.]/g, "-")}`;
+  const limit = 255 - Buffer.byteLength(suffix);
+  let name = "";
+  for (const character of worktreeName) {
+    if (Buffer.byteLength(name + character) > limit) break;
+    name += character;
+  }
+  return `${name}${suffix}`;
+}
+
 async function isLeftoverLinkedWorktreeOf(repoRoot: string, worktreePath: string): Promise<boolean> {
   const gitEntry = path.join(worktreePath, ".git");
   const entryStats = await fs.lstat(gitEntry).catch(() => null);
@@ -3696,7 +3707,7 @@ async function realizeGitWorktree(
       const quarantinePath = path.join(
         path.dirname(worktreePath),
         ".quarantine",
-        `${path.basename(worktreePath)}-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+        quarantineDirectoryName(path.basename(worktreePath), new Date()),
       );
       const moveAside = async () => {
         await fs.mkdir(path.dirname(quarantinePath), { recursive: true });
