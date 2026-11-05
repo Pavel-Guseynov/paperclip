@@ -770,6 +770,16 @@ and captured stdout/stderr, plus workspace operations recorded before each child
 starts and updated on completion. The gate retains these records with its
 original output; an unfinished child has an explicit running status.
 
+The Discord socket teardown fixture emits JSON-RPC 2.0 `test.phase` records
+for server listen, initial handshake/close, recovery handshake, shard destroy,
+server close and assertions. Its failure hook includes mode, phase, socket,
+connection, session and failure counts, child command, exit code, signal,
+killed status and complete stdout/stderr in the retained diagnostic and test
+failure message. Test failure requests graceful child cleanup and awaits exit;
+there is no subprocess kill timeout. Hello cancellation follows handshake and
+close-listener registration, and recovery connections retain 2,000 ms deadlines.
+Historical command-only child failures do not establish their original cause.
+
 The gate sets `PAPERCLIP_TEST_EVIDENCE_DIR` and its source-identity metadata for
 fixtures. The issue-reconciliation fixture saves a repeatable-read lifecycle
 snapshot before cleanup: test, issue, comment, wake, run, decision and recovery

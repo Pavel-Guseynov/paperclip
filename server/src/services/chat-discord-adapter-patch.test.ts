@@ -2,7 +2,7 @@ import { createDiscordAdapter } from "@chat-adapter/discord";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFailed, vi } from "vitest";
 import { classifyChatPublicationError } from "./chat-publication-errors.js";
 
 type GatewayHandler = (...args: unknown[]) => Promise<void> | void;
@@ -1909,6 +1909,7 @@ describe("pinned Discord Gateway lifecycle patch", () => {
     "timeout recovery",
     "retired recovery",
     "handshake timeout recovery",
+    "injected assertion failure",
   ])("owns real socket teardown through %s", async (mode) => {
     const discordWsRequire = createRequire(
       discordRequire.resolve("discord.js"),
@@ -1920,8 +1921,20 @@ describe("pinned Discord Gateway lifecycle patch", () => {
       const require = createRequire(import.meta.url);
       const { WebSocketShard, DefaultWebSocketManagerOptions } = require(process.argv[1]);
       const mode = process.argv[2];
+      const injectFailure = process.argv[3] === "fail";
       const sockets = new Set();
+      const socketClosures = [];
       let accepted = 0;
+      let sessionReads = 0;
+      const failures = [];
+      let phase;
+      const report = (next, error) => {
+        phase = next;
+        process.stderr.write(JSON.stringify({ jsonrpc: "2.0", method: "test.phase", params: {
+          phase, mode, sockets: sockets.size, accepted, sessionReads, failures,
+          error: error ? { name: error.name, message: error.message, stack: error.stack } : null,
+        } }) + "\n");
+      };
       let observeHandshake;
       const handshake = new Promise(resolve => { observeHandshake = resolve; });
       let observeRecovery;
@@ -1929,62 +1942,158 @@ describe("pinned Discord Gateway lifecycle patch", () => {
       const server = createServer(socket => {
         accepted += 1;
         sockets.add(socket);
-        socket.on("close", () => sockets.delete(socket));
+        socketClosures.push(new Promise(resolve => socket.once("close", () => {
+          sockets.delete(socket);
+          resolve();
+        })));
         socket.once("data", () => accepted === 1 ? observeHandshake() : observeRecovery());
       });
+      report("server_listen");
       await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
       const address = server.address();
-      let sessionReads = 0;
+      const options = {
+        ...DefaultWebSocketManagerOptions,
+        compression: null,
+        handshakeTimeout: mode === "handshake timeout recovery" ? 100 : 1_000,
+        helloTimeout: 2_000,
+        gatewayInformation: { url: "ws://127.0.0.1:" + address.port },
+      };
       const shard = new WebSocketShard({
-        options: {
-          ...DefaultWebSocketManagerOptions,
-          compression: null,
-          handshakeTimeout: mode === "handshake timeout recovery" ? 100 : 1_000,
-          helloTimeout: mode === "retirement" || mode === "handshake timeout recovery" ? 2_000 : 20,
-          gatewayInformation: { url: "ws://127.0.0.1:" + address.port },
+        options,
+        retrieveSessionInfo: async () => {
+          sessionReads += 1;
+          if (sessionReads > 1) {
+            options.handshakeTimeout = 2_000;
+            options.helloTimeout = 2_000;
+          }
+          return null;
         },
-        retrieveSessionInfo: async () => { sessionReads += 1; return null; },
         updateSessionInfo: async () => {},
       }, 0);
-      const failures = [];
       shard.on("error", event => failures.push(event.error?.name));
-      const connecting = shard.internalConnect();
-      await handshake;
-      const connection = shard.connection;
-      assert.equal(connection.readyState, 0);
-      const closed = new Promise(resolve => connection.once("close", resolve));
-      if (mode === "retirement") await shard.destroy();
-      await closed;
-      if (mode === "timeout recovery" || mode === "handshake timeout recovery") await recoveredHandshake;
-      if (mode === "retired recovery") await new Promise(resolve => setImmediate(resolve));
-      const replacement = shard.connection;
-      await shard.destroy();
-      await connecting;
-      assert.equal(connection.readyState, 3);
-      if (replacement) assert.equal(replacement.readyState, 3);
-      const expectedConnections = mode === "timeout recovery" || mode === "handshake timeout recovery" ? 2 : 1;
-      assert.equal(accepted, expectedConnections);
-      assert.equal(sessionReads, expectedConnections);
-      assert.deepEqual(failures, mode === "handshake timeout recovery" ? ["Error"] : []);
-      for (const socket of sockets) socket.destroy();
-      await new Promise(resolve => server.close(resolve));
-      process.stdout.write("all owned sockets closed; expected reconnect and failure counts\n");
+      let cleanupPromise;
+      const cleanup = () => cleanupPromise ??= (async () => {
+        report("shard_destroy");
+        await shard.destroy();
+        report("server_close");
+        for (const socket of sockets) socket.destroy();
+        await Promise.all([
+          new Promise(resolve => server.close(resolve)),
+          ...socketClosures,
+        ]);
+      })();
+      process.once("SIGTERM", async () => {
+        report(phase, new Error("Fixture received graceful stop after test failure"));
+        await cleanup();
+        process.exitCode = 1;
+      });
+      try {
+        report("initial_handshake");
+        const connecting = shard.internalConnect();
+        await handshake;
+        const connection = shard.connection;
+        assert.equal(connection.readyState, 0);
+        const closed = new Promise(resolve => connection.once("close", resolve));
+        report("initial_close");
+        if (mode === "timeout recovery" || mode === "retired recovery") {
+          const hello = shard.timeoutAbortControllers.get("hello");
+          assert.ok(hello);
+          hello.abort();
+        }
+        if (mode === "retirement") await shard.destroy();
+        await closed;
+        report("recovery_handshake");
+        if (mode === "timeout recovery" || mode === "handshake timeout recovery") await recoveredHandshake;
+        if (mode === "retired recovery") await new Promise(resolve => setImmediate(resolve));
+        const replacement = shard.connection;
+        await cleanup();
+        await connecting;
+        report("assertions");
+        assert.equal(connection.readyState, 3);
+        if (replacement) assert.equal(replacement.readyState, 3);
+        const expectedConnections = mode === "timeout recovery" || mode === "handshake timeout recovery" ? 2 : 1;
+        assert.equal(accepted, expectedConnections);
+        assert.equal(sessionReads, expectedConnections);
+        assert.deepEqual(failures, mode === "handshake timeout recovery" ? ["Error"] : []);
+        if (injectFailure) assert.fail("injected Discord fixture assertion");
+        process.stdout.write("all owned sockets closed; expected reconnect and failure counts\n");
+      } catch (error) {
+        report(phase, error);
+        await cleanup();
+        throw error;
+      }
     `;
-    const result = await promisify(execFile)(
+    const command = [
       process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        script,
-        discordWsRequire.resolve("@discordjs/ws"),
-        mode,
-      ],
-      { timeout: 5_000 },
+      "--input-type=module",
+      "-e",
+      script,
+      discordWsRequire.resolve("@discordjs/ws"),
+      mode === "injected assertion failure" ? "retirement" : mode,
+      mode === "injected assertion failure" ? "fail" : "pass",
+    ];
+    const execution = promisify(execFile)(command[0], command.slice(1));
+    const completion = execution.then(
+      (result) => ({ ...result, exitCode: 0, signal: null, killed: false }),
+      (error: NodeJS.ErrnoException & {
+        stdout: string; stderr: string; signal: string | null; killed: boolean;
+      }) => ({
+        stdout: error.stdout, stderr: error.stderr, exitCode: error.code,
+        signal: error.signal, killed: error.killed,
+      }),
     );
+    const reportFailure = async () => {
+      if (execution.child.exitCode === null && execution.child.signalCode === null) {
+        execution.child.kill("SIGTERM");
+      }
+      const child = await completion;
+      const phases = child.stderr.trim().split("\n")
+        .filter((line) => line.startsWith('{"jsonrpc":"2.0","method":"test.phase"'))
+        .map((line) => JSON.parse(line).params);
+      const evidence = JSON.stringify({
+        jsonrpc: "2.0", method: "test.phase", params: {
+          ...phases.at(-1), mode, outcome: "failed", command, ...child,
+        },
+      });
+      process.stderr.write(`${evidence}\n`);
+      return evidence;
+    };
+    onTestFailed(async ({ task }) => {
+      const evidence = await reportFailure();
+      for (const error of task.result?.errors ?? []) error.message += `\n${evidence}`;
+    });
+    if (mode === "injected assertion failure") {
+      await expect(execution).rejects.toThrow("injected Discord fixture assertion");
+      const record = JSON.parse(await reportFailure());
+      expect(record.jsonrpc).toBe("2.0");
+      expect(record.method).toBe("test.phase");
+      expect(record.params).toMatchObject({
+        phase: "assertions", mode, outcome: "failed", sockets: 0, accepted: 1,
+        sessionReads: 1, failures: [], command, exitCode: 1, signal: null,
+        killed: false, stdout: "",
+      });
+      expect(record.params.stderr).toContain("AssertionError");
+      expect(record.params.stderr).toContain("injected Discord fixture assertion");
+      expect(record.params.stderr).toContain('"phase":"server_close"');
+      return;
+    }
+    const result = await execution;
+    process.stderr.write(result.stderr);
     expect(result.stdout).toBe(
       "all owned sockets closed; expected reconnect and failure counts\n",
     );
-    expect(result.stderr).toBe("");
+    const phases = result.stderr.trim().split("\n").map((line) => JSON.parse(line));
+    expect(phases.map((record) => record.params.phase)).toEqual([
+      "server_listen", "initial_handshake", "initial_close", "recovery_handshake",
+      "shard_destroy", "server_close", "assertions",
+    ]);
+    for (const record of phases) {
+      expect(record.jsonrpc).toBe("2.0");
+      expect(record.method).toBe("test.phase");
+      expect(record.params.mode).toBe(mode);
+      expect(record.params.error).toBeNull();
+    }
+    expect(phases.at(-1).params.sockets).toBe(0);
   });
 
   it.each(["connecting callback", "credential lookup"])(
