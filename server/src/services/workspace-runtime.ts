@@ -2815,6 +2815,23 @@ async function directoryExists(value: string) {
   return fs.stat(value).then((stats) => stats.isDirectory()).catch(() => false);
 }
 
+async function isLeftoverLinkedWorktreeOf(repoRoot: string, worktreePath: string): Promise<boolean> {
+  const gitEntry = path.join(worktreePath, ".git");
+  const entryStats = await fs.lstat(gitEntry).catch(() => null);
+  if (!entryStats?.isFile()) return false;
+  const gitdirLine = /^gitdir:\s*(.+)$/m.exec(await fs.readFile(gitEntry, "utf8").catch(() => ""));
+  if (!gitdirLine?.[1]) return false;
+  const linkedGitDir = path.resolve(worktreePath, gitdirLine[1].trim());
+  const commonDirRaw = await runGit(["rev-parse", "--git-common-dir"], repoRoot).catch(() => null);
+  if (!commonDirRaw) return false;
+  const commonDir = path.resolve(repoRoot, commonDirRaw);
+  const commonDirs = [commonDir, await resolvePathForWorktreeComparison(commonDir)];
+  return commonDirs.some((dir) => {
+    const relative = path.relative(path.join(dir, "worktrees"), linkedGitDir);
+    return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  });
+}
+
 async function resolvePathForWorktreeComparison(value: string): Promise<string> {
   const resolved = path.resolve(value);
   return fs.realpath(resolved).then((realPath) => path.resolve(realPath)).catch(() => resolved);
@@ -3664,23 +3681,35 @@ async function realizeGitWorktree(
       return await reuseExistingWorktree(worktreePath, reusable.branchName, reusable.warnings);
     }
     const validation = reusable.validation;
-    if (validation && !validation.valid && validation.reasonCode === "not_registered") {
+    if (
+      validation
+      && !validation.valid
+      && validation.reasonCode === "not_registered"
+      && await isLeftoverLinkedWorktreeOf(repoRoot, worktreePath)
+    ) {
       // Git no longer registers this managed path (for example after a
-      // `git worktree prune` on the shared checkout), so its directory is a
-      // stale leftover. Uncommitted content in it is expendable; the branch and
-      // its commits live in the repository and are re-attached below.
-      await fs.rm(worktreePath, { recursive: true, force: true });
+      // `git worktree prune` on the shared checkout), and its .git file still
+      // points into this repository's worktrees directory, so it is a stale
+      // leftover. Uncommitted content in it is expendable; the branch and its
+      // commits live in the repository and are re-attached below. A directory
+      // that is not such a leftover is never removed.
+      const removeDirectory = () => fs.rm(worktreePath, { recursive: true, force: true });
       if (input.recorder) {
         await input.recorder.recordOperation({
           phase: "worktree_prepare",
           cwd: repoRoot,
           metadata: { repoRoot, worktreePath, branchName, cleanupAction: "remove_unregistered_worktree_directory" },
-          run: async () => ({
-            status: "succeeded",
-            exitCode: 0,
-            system: `Removed unregistered worktree directory ${worktreePath}\n`,
-          }),
+          run: async () => {
+            await removeDirectory();
+            return {
+              status: "succeeded",
+              exitCode: 0,
+              system: `Removed unregistered worktree directory ${worktreePath}\n`,
+            };
+          },
         });
+      } else {
+        await removeDirectory();
       }
     } else {
       const reason = validation && !validation.valid ? ` (${validation.reason})` : "";
