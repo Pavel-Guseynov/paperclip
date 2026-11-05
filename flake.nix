@@ -794,6 +794,29 @@
           ];
         };
 
+      agentLifecycleCoverage =
+        pkgs:
+        nativeCoverage pkgs {
+          name = "agent-lifecycle";
+          projects = [ "server" ];
+          includes = [
+            "server/src/services/cancelled-native-startup.ts"
+            "server/src/services/heartbeat/recovery.ts"
+            "server/src/modules/agent-lifecycle/index.ts"
+            "server/src/modules/agent-lifecycle/adapters/postgres.ts"
+            "server/src/app.ts"
+            "server/src/index.ts"
+          ];
+          tests = [
+            "server/src/modules/agent-lifecycle/__tests__/lifecycle.test.ts"
+            "server/src/modules/agent-lifecycle/__tests__/policy-sweep.test.ts"
+            "server/src/modules/agent-lifecycle/__tests__/diagnostics.test.ts"
+            "server/src/services/heartbeat/recovery.test.ts"
+            "server/src/services/legacy-controller-lease.test.ts"
+            "server/src/__tests__/server-startup-feedback-export.test.ts"
+          ];
+        };
+
       serverPortsCoverage =
         pkgs:
         nativeCoverage pkgs {
@@ -837,6 +860,7 @@
         coverage.run-gateway-auth = gatewayCoverage pkgs;
         coverage.unblock-notifications = unblockCoverage pkgs;
         coverage.server-ports = serverPortsCoverage pkgs;
+        coverage.agent-lifecycle = agentLifecycleCoverage pkgs;
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);

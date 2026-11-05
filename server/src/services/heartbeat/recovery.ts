@@ -1,4 +1,5 @@
 import { preserveWorkspaceRestoreRecoveryMetadataSql } from "../legacy-workspace-restore-recovery.js";
+import { isCancelledNativeStartup } from "../cancelled-native-startup.js";
 import { pendingNativeWorkspaceFinalizationCondition } from "../native-runtime/native-workspace-finalization-state.js";
 import { CHAT_COMPLETION_WAKE_REASON } from "../chat-completion-delivery.js";
 import {
@@ -2447,6 +2448,28 @@ export function createHeartbeatRecovery(db: Db, dependencies: HeartbeatRecoveryD
       await startNextQueuedRunForAgent(run.agentId);
       runningProcesses.delete(run.id);
       reaped.push(run.id);
+    }
+
+    // A terminal startup cancellation can outlive the preparer's process.
+    // Settle only a prior boot's expired preparation with no dispatch evidence.
+    const cancelledPreparations = await db.select().from(heartbeatRuns).where(and(
+      eq(heartbeatRuns.status, "cancelled"), eq(heartbeatRuns.runtimeMode, "legacy"),
+      eq(heartbeatRuns.executionStage, "preparing"), ne(heartbeatRuns.controllerBootId, legacyControllerBootId),
+      or(isNull(heartbeatRuns.controllerLeaseExpiresAt), lte(heartbeatRuns.controllerLeaseExpiresAt, now)),
+    ));
+    for (const run of cancelledPreparations) {
+      if (activeRunExecutions.has(run.id) || !await isCancelledNativeStartup(db, run, undefined)) continue;
+      const [settled] = await db.update(heartbeatRuns).set({
+        executionStage: "settled", controllerBootId: null, controllerLeaseExpiresAt: null,
+        resultJson: sql`coalesce(${heartbeatRuns.resultJson}, '{}'::jsonb) ||
+          jsonb_build_object('startupPreparationSettledAt', ${now.toISOString()}::text)`,
+      }).where(and(eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "cancelled"),
+        eq(heartbeatRuns.executionStage, "preparing"), eq(heartbeatRuns.controllerBootId, run.controllerBootId!),
+        or(isNull(heartbeatRuns.controllerLeaseExpiresAt), lte(heartbeatRuns.controllerLeaseExpiresAt, now)),
+      )).returning({ id: heartbeatRuns.id });
+      if (settled) await appendRunEvent(run, { eventType: "lifecycle", stream: "system", level: "info",
+        message: "Recovered cancelled startup preparation after its controller stopped.",
+        payload: { executionStage: "settled", controllerBootId: run.controllerBootId } });
     }
 
     if (reaped.length > 0) {

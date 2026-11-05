@@ -642,6 +642,34 @@ For remote access, use authenticated mode with a private-network bind such as Ta
 
 <br/>
 
+## Agent lifecycle recovery
+
+Startup execution recovery completes before the lifecycle worker resumes agent
+transitions. It clears the interrupted `pausing` and `resuming` operation leases
+and retry deadlines, retaining operation identity, plugin receipts and policy
+holds. Preparation and verification keep their existing leases and retry rules.
+The application startup hook owns this ordering; a recovery failure fails startup.
+
+A cancelled legacy conversation-adapter startup can prove stopped execution
+without a PID when its persisted stage is `settled`, or `preparing` with an
+expired or cleared controller lease, and no retained dispatch or provider event
+contradicts that evidence. Local workspace cleanup and remote termination
+receipts remain required. The orphan reaper settles expired prior-boot cancelled
+preparations and records a lifecycle event without replaying the cancelled run.
+Live controllers, invoked adapters and unfinished cleanup remain stop barriers.
+
+A board resume during `pausing` removes user holds, clears the pending pause
+retry deadline and awaits lifecycle reconciliation before returning the current
+state. It still completes stop and plugin work before entering `resuming` and
+`ready`; budget and company holds continue to prevent readiness. No schema,
+setting, credential or deployment change is required.
+
+The real PostgreSQL lifecycle and legacy-controller regressions, startup tests
+and the separate `coverage.agent-lifecycle` operation are declared in
+[AGENTS.md](AGENTS.md). Coverage retains `statement-lines.json`; acceptance
+requires zero uncovered ranges intersecting changed production statements,
+without claiming whole-file 100 percent coverage.
+
 ## Blocked owner notifications
 
 Checking out a blocked issue preserves its current unblock notification episode.

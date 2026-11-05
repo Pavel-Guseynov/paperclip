@@ -51,6 +51,7 @@ const {
         }),
         stop: vi.fn(async () => {}),
       },
+      reconcileAgentLifecycleOnStartup: vi.fn(async () => undefined),
       toolGateway: {
         sweepActionReviews: vi.fn(async () => ({ scanned: 0 })),
         cleanupExpiredSessions: vi.fn(async () => ({ deletedCount: 0 })),
@@ -871,6 +872,10 @@ describe("startServer feedback export wiring", () => {
 
     expect(heartbeatServiceMock.reconcileHotRestartAdoption).toHaveBeenCalledTimes(1);
     expect(heartbeatServiceMock.reapOrphanedRuns).toHaveBeenCalledTimes(2);
+    const app = await createAppMock.mock.results[0].value;
+    expect(app.locals.reconcileAgentLifecycleOnStartup).toHaveBeenCalledOnce();
+    expect(app.locals.reconcileAgentLifecycleOnStartup).toHaveBeenCalledAfter(heartbeatServiceMock.reapOrphanedRuns);
+    expect(heartbeatServiceMock.resumeQueuedRuns).toHaveBeenCalledAfter(app.locals.reconcileAgentLifecycleOnStartup);
   });
 
   it("closes the bound listener when native startup recovery fails", async () => {

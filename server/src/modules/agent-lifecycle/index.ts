@@ -8,7 +8,7 @@ import { updateAgentConfiguration } from "./adapters/configuration.js";
 import type { AgentConfigurationPatch, UpdateAgentOptions } from "../../lib/agent-records.js";
 import { purgeAgent } from "./adapters/deletion.js";
 import { agentRecords } from "./adapters/records.js";
-import { assertRootDatabase, createLifecycleStore } from "./adapters/postgres.js";
+import { assertRootDatabase, createLifecycleStore, recoverAgentLifecycleTransitions } from "./adapters/postgres.js";
 import { createLifecycleWorker } from "./application/worker.js";
 import type { LifecycleDriver } from "./application/ports.js";
 
@@ -38,7 +38,10 @@ export function createAgentLifecycle(db: Db, effects: LifecycleEffects) {
   const store = createLifecycleStore(db, effects);
   async function change(id: string, command: "pause" | "resume" | "terminate" | "retry", reason?: string) {
     const result = await store.change(id, command, { reason });
-    if (result) scheduleAgentLifecycle(db, id);
+    if (result) {
+      const work = scheduleAgentLifecycle(db, id);
+      if (command === "resume") await work;
+    }
     return result ? records.getById(id) : null;
   }
   async function decideHire(target: HireDecisionTarget, decision: "approved" | "rejected", userId: string, note?: string | null) {
@@ -119,7 +122,7 @@ export function startAgentLifecycle(db: Db, effects: LifecycleEffects, driver: L
           )).orderBy(asc(agents.id)).limit(policyPageSize);
           for (const row of rows) {
             await store.change(row.id, "reconcile");
-            scheduleAgentLifecycle(db, row.id);
+            await scheduleAgentLifecycle(db, row.id);
             policyCursor = row.id;
           }
           if (rows.length < policyPageSize) policyCursor = undefined;
@@ -134,6 +137,7 @@ export function startAgentLifecycle(db: Db, effects: LifecycleEffects, driver: L
   timer.unref?.();
   return {
     sweep,
+    recover: () => recoverAgentLifecycleTransitions(db),
     async stop() {
       stopped = true;
       clearInterval(timer);

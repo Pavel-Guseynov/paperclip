@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agents, companies, createDb, heartbeatRuns } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, heartbeatRunEvents } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../__tests__/helpers/embedded-postgres.js";
 import { heartbeatService } from "./heartbeat.js";
 import { hasLiveLegacyController, legacyControllerBootId, legacyControllerClaim,
@@ -52,6 +52,28 @@ const support = await getEmbeddedPostgresTestSupport();
     const [saved] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, run.id));
     expect(saved.status).toBe("running");
   });
+  it.each(["expired", "cleared", "live", "current", "invoked"])("reconciles cancelled legacy preparation with %s ownership evidence", async evidence => {
+    const run = await seed();
+    await db.update(heartbeatRuns).set({ status: "cancelled", startedAt: new Date(0), finishedAt: new Date(1),
+      controllerBootId: evidence === "current" ? legacyControllerBootId : randomUUID(),
+      controllerLeaseExpiresAt: evidence === "live" ? new Date(Date.now() + 60_000) : evidence === "cleared" ? null : new Date(0),
+      runnerProfileJson: { adapterDispatch: { adapterType: "codex_local" } },
+    }).where(eq(heartbeatRuns.id, run.id));
+    if (evidence === "invoked") await db.insert(heartbeatRunEvents).values({ companyId: run.companyId,
+      agentId: run.agentId, runId: run.id, seq: 1, eventType: "adapter.invoke", stream: "system", level: "info" });
+    await heartbeatService(db).reapOrphanedRuns();
+    const [saved] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, run.id));
+    expect(saved.status).toBe("cancelled");
+    if (["expired", "cleared"].includes(evidence)) {
+      expect(saved).toMatchObject({ executionStage: "settled", controllerBootId: null, controllerLeaseExpiresAt: null,
+        resultJson: { startupPreparationSettledAt: expect.any(String) } });
+      expect(await db.select().from(heartbeatRunEvents).where(eq(heartbeatRunEvents.runId, run.id)))
+        .toEqual([expect.objectContaining({ eventType: "lifecycle", payload: expect.objectContaining({ executionStage: "settled" }) })]);
+    } else expect(saved.executionStage).toBe("preparing");
+    await db.delete(heartbeatRunEvents).where(eq(heartbeatRunEvents.runId, run.id));
+    await db.delete(heartbeatRuns).where(eq(heartbeatRuns.id, run.id));
+  });
+
   it("a current controller renews and records the dispatch boundary", async () => {
     const run = await seed();
     expect(await renewLegacyControllerLease(db, run, "dispatching")).toBe(true);

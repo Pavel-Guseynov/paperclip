@@ -1,7 +1,7 @@
 import { isPreDispatchReviewWait } from "./pre-dispatch-review-wait.js";
 import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { environmentLeases, heartbeatRunEvents, heartbeatRuns, nativeRunFinalizations, type Db } from "@paperclipai/db";
-import { claimedAdapterType } from "./conversation-continuation.js";
+import { claimedAdapterType, runUsedConversationAdapter } from "./conversation-continuation.js";
 import { PROCESS_IDENTITY_RECORDED, PROCESS_START_REQUESTED } from "./native-local-process-stop.js";
 import { hasRemoteTerminationReceipt } from "./remote-execution-termination.js";
 import { canContinueCancelledRun } from "./run-cancellation.js";
@@ -29,6 +29,11 @@ export async function isCancelledNativeStartup(db: Db, run: Run, coordinator: Co
   if (run.status !== "cancelled" || !run.finishedAt || run.processPid || run.processGroupId ||
       run.processStartedAt || run.sessionIdAfter) return false;
   const cancellation = run.resultJson?.startupCancellation as Record<string, unknown> | undefined;
+  const legacyBeforeDispatch = run.runtimeMode === "legacy" && !coordinator &&
+    !run.nativeIssueId && !run.nativeSessionId &&
+    (run.executionStage === "settled" || run.executionStage === "preparing" &&
+      (!run.controllerLeaseExpiresAt || run.controllerLeaseExpiresAt <= new Date())) &&
+    await runUsedConversationAdapter(db, run);
   // Older builds could omit the cancellation fence or its unwind marker. Their immutable
   // native-adapter claim and unresolved preparation stage still prove that
   // provider dispatch did not begin. Require an expired owner from another
@@ -48,14 +53,15 @@ export async function isCancelledNativeStartup(db: Db, run: Run, coordinator: Co
     coordinator.controllerGeneration === 0 && !coordinator.controllerBootId &&
     !coordinator.controllerPid && !coordinator.leaseOwner && !coordinator.leaseExpiresAt &&
     !coordinator.resultId && !coordinator.failureDetail?.successorRunId;
-  if (!beforeSelection && !neverClaimed) return false;
-  const settled = beforeReviewDispatch || typeof run.resultJson?.startupPreparationSettledAt === "string";
+  if (!beforeSelection && !neverClaimed && !legacyBeforeDispatch) return false;
+  const settled = beforeReviewDispatch || legacyBeforeDispatch && run.executionStage === "settled" ||
+    typeof run.resultJson?.startupPreparationSettledAt === "string";
   // The old preparer can still be unwinding even though the run is terminal.
   if (!settled && run.controllerLeaseExpiresAt && run.controllerLeaseExpiresAt > new Date()) return false;
   const leases = await db.select().from(environmentLeases).where(and(
     eq(environmentLeases.companyId, run.companyId), eq(environmentLeases.heartbeatRunId, run.id),
   ));
-  if ((!settled && leases.length === 0 && !historicalBeforeSelection) || leases.some(lease =>
+  if ((!settled && leases.length === 0 && !historicalBeforeSelection && !legacyBeforeDispatch) || leases.some(lease =>
     lease.provider === "local"
       ? !lease.releasedAt || lease.status === "pending_cleanup" || lease.cleanupStatus === "failed"
       : !hasRemoteTerminationReceipt(lease))) return false;

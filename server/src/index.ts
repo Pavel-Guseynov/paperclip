@@ -1577,6 +1577,7 @@ async function startServerWithDatabaseTeardown(
           }
         }
 
+        await app.locals.reconcileAgentLifecycleOnStartup();
         const promotion = await heartbeat.promoteDueScheduledRetries();
         await heartbeat.resumeQueuedRuns();
         const recoveredGoalActions = await heartbeat.recoverPendingSessionGoalActions();
@@ -1884,6 +1885,8 @@ async function startServerWithDatabaseTeardown(
     // the enabled path does.
     await accountingHeartbeat.reconcileCostAccounting().catch((err) => logger.error({ err }, "Cost accounting recovery failed; pending receipts will retry"));
     await runEnvironmentLeaseCleanupSweep(0);
+    await accountingHeartbeat.reapOrphanedRuns();
+    await app.locals.reconcileAgentLifecycleOnStartup();
     startHeartbeatSchedulerInterval(() => {
       trackHeartbeatSchedulerWork(accountingHeartbeat.reconcileCostAccounting().catch((err) => logger.error({ err }, "Cost accounting recovery failed")));
       scheduleExternalObjectRefreshSweep(new Date());

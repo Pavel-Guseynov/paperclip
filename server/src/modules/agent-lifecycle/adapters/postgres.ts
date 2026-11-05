@@ -10,6 +10,13 @@ export function assertRootDatabase(db: Db) {
   if ("nestedIndex" in db) throw new AgentLifecycleConflict("Lifecycle commands require the root database connection");
 }
 
+/** Run once before this boot enables lifecycle workers, after execution recovery. */
+export async function recoverAgentLifecycleTransitions(db: Db) {
+  await db.update(agents).set({
+    lifecycleOperation: sql`${agents.lifecycleOperation} - 'leaseOwner' - 'leaseUntil' - 'retryAt'`,
+  }).where(inArray(agents.lifecycleState, ["pausing", "resuming"]));
+}
+
 export function createLifecycleStore(db: Db, effects: LifecycleEffects): LifecycleStore {
   const get = (id: string) => db.select().from(agents).where(eq(agents.id, id)).then(rows => rows[0] ?? null);
   return {
@@ -57,6 +64,9 @@ export function createLifecycleStore(db: Db, effects: LifecycleEffects): Lifecyc
         if (command === "complete" && next === "ready" && holds.length) next = "pausing";
         if (command === "complete" && next === "paused" && !holds.length) next = "resuming";
         if (next === agent.lifecycleState) {
+          if (command === "resume" && next === "pausing" && !holds.length) {
+            await tx.update(agents).set({ lifecycleOperation: sql`${agents.lifecycleOperation} - 'retryAt'` }).where(eq(agents.id, id));
+          }
           if (JSON.stringify(holds) !== JSON.stringify(agent.lifecycleHolds) || agent.pauseReason !== (holds[0] ?? null)) {
             await tx.update(agents).set({ lifecycleHolds: holds, pauseReason: holds[0] ?? null }).where(eq(agents.id, id));
           }
