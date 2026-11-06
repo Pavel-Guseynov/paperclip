@@ -947,6 +947,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     companyAgents?: AgentOrgRow[],
     deferredPostCommitEffects?: WakeQueuePostCommitEffect[],
   ) {
+    if (isShutdownInProgress()) return null;
     if (run.status !== "queued") return run;
     // Claim is the first execution boundary. startedAt survives same-run
     // retries; restart recovery may also enter executeRun already running.
@@ -1130,6 +1131,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       }
     }
 
+    if (isShutdownInProgress()) return null;
     const claimedAt = new Date();
     const responsibleUserId = await resolveResponsibleUserIdForRun({
       run,
@@ -1226,8 +1228,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
       });
     const queuedCommentClaim =
       !nativeReviewContext && issueId && run.wakeupRequestId && queuedCommentIds.length > 0
-        ? await db
-            .transaction(async (tx) => {
+        ? await withRunClaimTransaction(db, async (tx) => {
               // Match the queue-edit lock order: issue, wake, then run. Once the
               // run becomes running, a concurrent discard must observe the
               // claimed wake and return an explicit conflict; if discard wins,
@@ -1525,7 +1526,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     }
     const claimed = queuedCommentClaim
       ? queuedCommentClaim.run
-      : await withChatControlRecoveryGate(run, "claim", async (tx) => {
+      : await withChatControlRecoveryGate(run, "claim", (database) => withRunClaimTransaction(database, async (tx) => {
           const patch = {
             runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
             ...legacyControllerClaim(run.runtimeMode),
@@ -1545,19 +1546,17 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
               agentNameKey: normalizeAgentNameKey(agent.name),
             });
           }
-          return tx.transaction(async (claimTx) => {
-            const issueClaim = await lockIssueExecutionClaim(claimTx as unknown as Db);
-            if (issueClaim.blocked) return null;
-            const claimedRun = await transitionHeartbeatRunStatus(claimTx, run.id, {
-              toStatus: "running",
-              patch,
-              phase: "started",
-              whereCondition: eq(heartbeatRuns.status, "queued"),
-            });
-            await bindClaimedIssueExecution(claimTx as unknown as Db, issueClaim.ownsIssue, claimedRun);
-            return claimedRun;
+          const issueClaim = await lockIssueExecutionClaim(tx);
+          if (issueClaim.blocked) return null;
+          const claimedRun = await transitionHeartbeatRunStatus(tx, run.id, {
+            toStatus: "running",
+            patch,
+            phase: "started",
+            whereCondition: eq(heartbeatRuns.status, "queued"),
           });
-        });
+          await bindClaimedIssueExecution(tx, issueClaim.ownsIssue, claimedRun);
+          return claimedRun;
+        }));
     if (!claimed) return null;
 
     publishLiveEvent({
@@ -1625,6 +1624,25 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     }
 
     return claimed;
+  }
+
+  const shutdownClaimAborted = new Error("Heartbeat admission stopped during claim");
+
+  // A shutdown can arrive while PostgreSQL is waiting on a pool connection,
+  // row lock or write. Roll back every part of the claim if it crossed that
+  // boundary; returning null alone would commit its run, wake or issue writes.
+  async function withRunClaimTransaction<T>(database: Db, claim: (tx: Db) => Promise<T>): Promise<T | null> {
+    try {
+      return await database.transaction(async (tx) => {
+        if (isShutdownInProgress()) return null;
+        const result = await claim(tx as unknown as Db);
+        if (isShutdownInProgress()) throw shutdownClaimAborted;
+        return result;
+      });
+    } catch (error) {
+      if (error === shutdownClaimAborted) return null;
+      throw error;
+    }
   }
 
   // startNextQueuedRunForAgent checks admission suppression once, then claims
@@ -1907,6 +1925,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
     let cancellationReason: string | undefined;
 
     return withAgentStartLock(agentId, async () => {
+      if (isShutdownInProgress()) return [];
       const agent = await getAgent(agentId);
       if (!agent) return [];
       const invokability = await getAgentInvokability(agent);

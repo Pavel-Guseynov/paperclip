@@ -844,6 +844,25 @@
           tests = serialGroups.server-ports;
         };
 
+      shutdownAdmissionCoverage =
+        pkgs:
+        nativeCoverage pkgs {
+          name = "shutdown-admission";
+          projects = [ "server" ];
+          includes = [
+            "server/src/services/heartbeat.ts"
+            "server/src/services/heartbeat/queue.ts"
+            "server/src/shutdown.ts"
+            "server/src/index.ts"
+          ];
+          tests = [
+            "server/src/__tests__/heartbeat-task-drain-admission-release.test.ts"
+            "server/src/__tests__/shutdown-waits-for-adapter-run-stops.test.ts"
+            "server/src/shutdown.test.ts"
+            "server/src/__tests__/server-startup-feedback-export.test.ts"
+          ];
+        };
+
       worktreeRegressionTest =
         pkgs:
         mkCheck pkgs "test" "server" ''
@@ -880,6 +899,7 @@
         coverage.server-ports = serverPortsCoverage pkgs;
         coverage.agent-lifecycle = agentLifecycleCoverage pkgs;
         coverage.execution-workspaces = executionWorkspacesCoverage pkgs;
+        coverage.shutdown-admission = shutdownAdmissionCoverage pkgs;
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);

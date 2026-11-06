@@ -298,6 +298,25 @@ function commentMetadataRows(
   ) as Array<Record<string, unknown>>;
 }
 
+async function withPublicFailureReportEnvironment(test: (isolateEnvironment: () => void) => Promise<void>) {
+  const inheritedEnv = process.env;
+  const isolateEnvironment = () => {
+    process.env = Object.fromEntries(
+      ["PATH", "HOME", "USER", "USERNAME", "LOGNAME", "USERPROFILE", "TMPDIR", "TEMP", "TMP"]
+        .flatMap((key) => inheritedEnv[key] === undefined ? [] : [[key, inheritedEnv[key]]]),
+    );
+  };
+  try {
+    await test(isolateEnvironment);
+  } finally {
+    try {
+      await waitForPendingRunFailureReports();
+    } finally {
+      process.env = inheritedEnv;
+    }
+  }
+}
+
 function spawnAliveProcess() {
   return spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
     stdio: "ignore",
@@ -585,6 +604,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     // Terminal rows do not mean their background finalizers have returned.
     // Drain tracked wakeups too: one can still create a run after the row poll.
     await heartbeatService(db).drainActiveRunExecutions();
+    heartbeatService(db).setShutdownInProgress(false);
     await db.delete(activityLog);
     await db.delete(agentRuntimeState);
     await db.delete(companySkills);
@@ -1941,7 +1961,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     "continuation_source_context_missing",
     "continuation_user_authorization_missing",
     "continuation_task_ownership_changed",
-  ])("retains untyped continuation setup failures: %s", async (message) => {
+  ])("retains untyped continuation setup failures: %s", async (message) => withPublicFailureReportEnvironment(async (isolateEnvironment) => {
+    isolateEnvironment();
     const { runId, wakeupRequestId } = await seedQueuedIssueRunFixture();
     const error = new Error(message, { cause: Object.assign(new Error("upstream setup failed"), { code: "ECONNRESET" }) });
     const build = vi.spyOn(executionContinuation, "buildExecutionContinuation")
@@ -1969,7 +1990,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     } finally {
       build.mockRestore();
     }
-  });
+  }));
 
   it("does not immediately continue a low-trust preflight setup failure", async () => {
     const { agentId, runId, issueId, companyId } =
@@ -5352,7 +5373,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(notice?.body).not.toContain("secret/env bindings");
   });
 
-  it("escalates (does not retry) an accepted-interaction-continuation setup failure whose message matches neither retryable pattern", async () => {
+  it("escalates (does not retry) an accepted-interaction-continuation setup failure whose message matches neither retryable pattern", async () => withPublicFailureReportEnvironment(async (isolateEnvironment) => {
     // Negative-case counterpart to "schedules an infra retry for a setup
     // failure caused by a transient sandbox provider worker restart" above.
     // The injected failure message is the real *permanent* "provider not
@@ -5427,11 +5448,12 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .set({ status: "in_progress" })
       .where(eq(issues.id, issueId));
 
-    mockAdapterExecute.mockRejectedValueOnce(
-      new Error(
+    mockAdapterExecute.mockImplementationOnce(async () => {
+      isolateEnvironment();
+      throw new Error(
         'Sandbox provider "kubernetes" is not installed or its plugin worker is not running.',
-      ),
-    );
+      );
+    });
 
     const heartbeat = heartbeatService(db);
     await heartbeat.resumeQueuedRuns();
@@ -5529,7 +5551,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     });
 
     mockAdapterExecute.mockClear();
-  });
+  }));
 
   it("escalates exhausted plan approval resume failures with a system comment and recovery action", async () => {
     const { companyId, agentId, runId, issueId } =
@@ -5941,7 +5963,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     const workspaceId = randomUUID();
     const heartbeat = heartbeatService(db);
     const previousSettings = await instanceSettingsService(db).getExperimental();
+    const previousGitDiscovery = process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM;
     try {
+      process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM = "1";
       await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: true });
       await db.insert(projects).values({ id: projectId, companyId, name: "Local documents", status: "in_progress" });
       await db.insert(projectWorkspaces).values({
@@ -5978,6 +6002,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       expect(comments.some((comment) => comment.body.includes("workspace failed validation"))).toBe(true);
       expect(mockCaptureRunFailure.mock.calls.filter(([event]) => event.runId === runId)).toEqual([]);
     } finally {
+      if (previousGitDiscovery === undefined) delete process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM;
+      else process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM = previousGitDiscovery;
       await heartbeat.waitForRunExecutionDrain(runId);
       await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: previousSettings.enableIsolatedWorkspaces });
       await fs.rm(cwd, { recursive: true, force: true });

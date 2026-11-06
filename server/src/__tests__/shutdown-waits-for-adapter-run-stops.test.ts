@@ -16,6 +16,7 @@ function stubLogger() {
 
 describe("shutdown waits for adapter run stops", () => {
   afterEach(() => {
+    heartbeatService({} as never).setShutdownInProgress(false);
     vi.useRealTimers();
   });
 

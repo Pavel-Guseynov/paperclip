@@ -72,6 +72,7 @@ const {
     reason: null,
   }));
   const heartbeatServiceMock = {
+    setShutdownInProgress: vi.fn(),
     reconcileCostAccounting: vi.fn(async () => ({ scanned: 0, accounted: 0 })),
     resolveSchedulingSuppression: resolveHeartbeatSchedulingSuppressionMock,
     recoverNativeRunsAfterRestart: vi.fn(async () => ({
@@ -444,6 +445,18 @@ import { startServer } from "../index.ts";
 import { reconcileSafeNativeReplacements } from "../services/native-runtime/native-safe-replacement.js";
 import { EXECUTION_RECONCILIATION_INTERVAL_MS } from "../services/execution-control-deadline.js";
 
+let originalSignalListeners: Map<"SIGINT" | "SIGTERM", ReturnType<typeof process.listeners>>;
+beforeEach(() => {
+  originalSignalListeners = new Map((["SIGINT", "SIGTERM"] as const).map(signal => [signal, process.listeners(signal)]));
+});
+afterEach(() => {
+  for (const [signal, original] of originalSignalListeners) {
+    for (const listener of process.listeners(signal)) {
+      if (!original.includes(listener)) process.removeListener(signal, listener);
+    }
+  }
+});
+
 describe("startServer feedback export wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -457,6 +470,13 @@ describe("startServer feedback export wiring", () => {
     createBetterAuthInstanceMock.mockReturnValue({});
     deriveAuthTrustedOriginsMock.mockReturnValue([]);
     process.env.BETTER_AUTH_SECRET = "test-secret";
+  });
+
+  it.each(["SIGINT", "SIGTERM"] as const)("closes heartbeat admission synchronously when %s shutdown starts", async (signal) => {
+    const started = await startServer();
+    const stopping = started.shutdown(signal);
+    expect(heartbeatServiceMock.setShutdownInProgress).toHaveBeenCalledOnce();
+    await stopping;
   });
 
   it.each([false, true].flatMap(checkpointMode => [false, true].map(fails => ({ checkpointMode, fails }))))
