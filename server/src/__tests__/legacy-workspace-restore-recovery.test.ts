@@ -9,6 +9,7 @@ import { preserveWorkspaceRestoreRecoveryMetadataSql } from "../services/legacy-
 import { hasConfirmedSandboxStopAndRetain, prepareSandboxStopAndRetain, settleStopOnlyCleanup } from "../services/sandbox-stop-and-retain.js";
 import { environmentService } from "../services/environments.js";
 import { hasRequiredWorkspaceRecovery } from "../services/workspace-restore-recovery-state.js";
+import { getExecutionBlocker } from "../services/execution-blocker.js";
 
 const externalTestDatabaseUrl = process.env.PAPERCLIP_TEST_DATABASE_URL?.trim();
 const support = externalTestDatabaseUrl ? { supported: true } : await getEmbeddedPostgresTestSupport();
@@ -470,6 +471,11 @@ const support = externalTestDatabaseUrl ? { supported: true } : await getEmbedde
     const source = actions.find(a => a.evidence.runId === f.runId)!;
     expect(source).toMatchObject({ status: "resolved", outcome: "blocked", ownerType: "board",
       returnOwnerAgentId: null, attemptCount: 1, evidence: { automaticRecovery: { replay: "blocked" } } });
+    const retainedLease = await readLease(f.lease.id);
+    await settleStopOnlyCleanup(db, retainedLease, {
+      attemptId: String(retainedLease.metadata?.pendingCleanupAttemptId),
+      receipt: { providerLeaseId: retainedLease.providerLeaseId, state: "stopped" },
+    });
     const { markExecutionReconciliation } = await import("../services/execution-recovery-resolution.js");
     await markExecutionReconciliation(db, source, { runId: f.runId, providerStopped: true, actionOutcome: "mixed",
       outcomeEvidence: "The original provider's actions were inspected.",
@@ -477,9 +483,12 @@ const support = externalTestDatabaseUrl ? { supported: true } : await getEmbedde
     }, "board-test", undefined, { workspaceRepairOnly: true });
     await terminalizeLegacyExecution({ db, run: failed!, status: "failed", patch });
     const [repaired] = await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.id, source.id));
-    expect(repaired.evidence.automaticRecovery).toBeUndefined();
+    expect(repaired.evidence.automaticRecovery).toMatchObject({
+      policy: "preserve_without_replay_v1", runId: f.runId, replay: "blocked",
+    });
     expect(repaired.evidence.continuationDelivery).toBe("not_requested");
     expect(repaired.evidence.executionReconciliation).toMatchObject({ runId: f.runId });
+    expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toBeNull();
   });
 
 });

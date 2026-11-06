@@ -1356,7 +1356,7 @@ The current app also exposes V1-supporting surfaces for:
   bounded `matchesPerIssue` override for machine consumers, and explicit issue/match truncation flags
 - execution workspaces, project workspaces, workspace runtime services, and workspace operations. Workspace reads
   derive `deliveryState` as `merged_via_pr | merged_by_ancestry | unmerged | unknown`; terminal issue trees with a
-  merged delivery and no active checkout run become cleanup-eligible with reason `issue_terminal` and are archived
+  merged delivery and no queued or running heartbeat bound to the workspace or any linked issue become cleanup-eligible with reason `issue_terminal` and are archived
   through the workspace cleanup path. Reopening the source issue records activity but does not restore that workspace.
 - task watchdog configuration and reusable watchdog issue orchestration for explicitly watched issue subtrees
 - routines and scheduled/API/webhook triggers

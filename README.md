@@ -283,6 +283,19 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 **Workspaces & Runtime** — Project repositories and workspaces, optional isolated execution workspaces (git worktrees, operator branches), and runtime services (dev servers, preview URLs). Sandbox providers extend execution beyond the local host; availability depends on the configured environment and adapter.
 
+A terminal task's execution workspace remains open while any queued or running
+heartbeat references that workspace or a linked issue. The workspace service
+uses the persisted run context, active environment leases and issue/run bindings
+for close readiness, worktree contention and the terminal reaper's atomic archive
+guard. Workspace preparation records `contextSnapshot.executionWorkspaceId`
+before acquisition and after realization, including replacement workspaces.
+Clearing task checkout ownership does not release the running heartbeat's
+workspace. After all bound runs finish, existing delivery, terminal-tree and
+cooldown checks govern cleanup. No setting or database migration is required.
+The owning server buckets and `coverage.execution-workspaces` verify this
+lifecycle against test-owned PostgreSQL and Git worktrees; the latter retains
+statement reports for comparison with changed production lines.
+
 </td>
 <td>
 

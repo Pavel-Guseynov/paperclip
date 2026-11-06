@@ -111,6 +111,18 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
     expect(input.controllerLease.assertOwned).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a projectless run without a fabricated durable workspace binding", async () => {
+    const { input, issue } = await fixture();
+    await db.update(issues).set({ projectId: null, projectWorkspaceId: null }).where(eq(issues.id, issue.id));
+    input.task.issueRef = { ...input.task.issueRef!, projectId: null, projectWorkspaceId: null };
+    input.task.executionProjectId = null;
+    input.task.context = { issueId: issue.id };
+    const result = await prepareHeartbeatWorkspace(db, input);
+    expect(result.persistedExecutionWorkspace).toBeNull();
+    expect((await readRun(input.run.id)).contextSnapshot).toBeNull();
+    expect(await leases(input.run.id)).toMatchObject([{ executionWorkspaceId: null }]);
+  });
+
   it("creates a real isolated worktree and reuses its recorded workspace", async () => {
     const { input, source, issue } = await fixture(true);
     const first = await prepareHeartbeatWorkspace(db, input);
@@ -230,6 +242,7 @@ describe.skipIf(!support.supported)("heartbeat workspace preparation boundary", 
     const result = await prepareHeartbeatWorkspace(db, input);
     expect((await readIssue(issue.id)).executionWorkspaceId).toBe(result.persistedExecutionWorkspace!.id);
     expect(result.persistedExecutionWorkspace!.name).toBe("Realized workspace");
+    expect((await readRun(input.run.id)).contextSnapshot).toMatchObject({ issueId: issue.id, executionWorkspaceId: result.persistedExecutionWorkspace!.id });
     result.activeEnvironmentLease.lease.metadata!.remoteCwd = "/rebound";
     expect(result.workspaceRestoreSource.metadata?.remoteCwd).toBe("/original");
   });

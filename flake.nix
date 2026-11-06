@@ -817,6 +817,21 @@
           ];
         };
 
+      executionWorkspacesCoverage =
+        pkgs:
+        nativeCoverage pkgs {
+          name = "execution-workspaces";
+          projects = [ "server" ];
+          includes = [
+            "server/src/services/execution-workspaces.ts"
+            "server/src/services/heartbeat/workspace-preparation.ts"
+          ];
+          tests = [
+            "server/src/__tests__/execution-workspaces-service.test.ts"
+            "server/src/services/heartbeat/workspace-preparation.test.ts"
+          ];
+        };
+
       serverPortsCoverage =
         pkgs:
         nativeCoverage pkgs {
@@ -861,6 +876,7 @@
         coverage.unblock-notifications = unblockCoverage pkgs;
         coverage.server-ports = serverPortsCoverage pkgs;
         coverage.agent-lifecycle = agentLifecycleCoverage pkgs;
+        coverage.execution-workspaces = executionWorkspacesCoverage pkgs;
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
