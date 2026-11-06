@@ -210,7 +210,7 @@ describeEmbeddedPostgres("connectionIntentService", () => {
       } finally {
         setDatabaseObserver(null);
       }
-      return statements.filter((statement) => /for update/i.test(statement));
+      return statements.filter((statement) => /for (?:no key )?update/i.test(statement));
     }
 
     async function giveRunIdentity(status: "accepted" | "pending") {

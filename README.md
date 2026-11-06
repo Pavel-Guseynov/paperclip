@@ -276,6 +276,19 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 **Heartbeat Execution** — DB-backed wakeup queue with coalescing, budget checks, workspace resolution, secret injection, skill loading, and adapter invocation. Runs produce logs, usage records, and adapter-specific session state. Bounded recovery handles supported failures and surfaces cases that need human action.
 
+Run-bound named-gateway credentials remain valid past their expiry timestamp
+while their company-scoped heartbeat is running. Session cleanup preserves those
+rows, rechecking run activity at deletion, and removes expired credentials once
+the run is inactive or missing. Non-run gateway credentials retain timestamp
+expiry. Runtime connection tools likewise verify the signed company, agent,
+run, user, instance and scope, then validate the live run and task through
+`loadRunContext` on every MCP lifecycle call and connection operation. Their
+one-hour `exp` does not interrupt active runs. Finished and cancelled runs are
+refused immediately; the separate GitHub credential capability retains its
+expiry. These contracts add no setting or migration. PostgreSQL/HTTP token
+lifetime regressions and the separate `coverage.run-gateway-auth` operation
+prove cleanup, continued access and terminal-run rejection.
+
 </td>
 </tr>
 <tr>
@@ -838,7 +851,8 @@ real configuration-lock rollback regressions use test-owned Git repositories.
 
 The separately requested `coverage.run-gateway-auth` output measures native
 Vitest V8 statements for heartbeat, gateway, remote HTTP transport, policy and
-Codex credential source files, using the route, HTTP/SSE, SOCKS proxy, pinned
+Codex credential and runtime-tools token source files, using the route, token
+lifetime, HTTP/SSE, SOCKS proxy, pinned
 transport/rebinding, policy,
 execution and profile suites. It preserves
 `coverage-final.json`, `coverage-summary.json` and repository-relative

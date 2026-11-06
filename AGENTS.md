@@ -217,6 +217,15 @@ The fork's `flake.nix` caches dependencies and test results so a repeated run bu
 
 ## 8. API and Auth Expectations
 
+Run-bound token cleanup and runtime connection-token lifetime changes require
+`test-paperclipai-server-b37`, `test-paperclipai-server-b42`,
+`test-paperclipai-server-b14`, `test-paperclipai-server-run-gateway-auth`,
+`typecheck-paperclipai-server`, `test-graph-current` and the separate
+`coverage.run-gateway-auth` operation. That coverage operation includes
+`run-gateway-token-lifetime.test.ts` and `runtime-tools-token.test.ts` and
+measures `runtime-tools-token.ts` as well as the gateway source. No uncovered
+statement range may intersect changed production lines.
+
 - Base path: `/api`
 - Board access is treated as full-control operator context
 - Agent access uses bearer API keys (`agent_api_keys`), hashed at rest

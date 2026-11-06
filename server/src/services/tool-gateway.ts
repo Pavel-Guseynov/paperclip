@@ -33,6 +33,7 @@ import {
   isNull,
   lte,
   ne,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -3472,8 +3473,9 @@ export function createToolGatewayService(
         decisionCache.set(`profile-entries:${session.companyId}:${gatewayProfile.id}`, Promise.resolve(gatewayProfileEntries));
       }
     }
+    const includeEntries = gatewayProfileEntries.filter((e) => e.effect === "include");
     const isRestrictedGatewayProfile = Boolean(
-      gatewayProfile && gatewayProfile.defaultAction !== "allow",
+      gatewayProfile && gatewayProfile.defaultAction !== "allow" && includeEntries.length > 0,
     );
 
     let onDemandTargets: ToolGatewayDescriptor[];
@@ -3497,7 +3499,6 @@ export function createToolGatewayService(
           (tool.connectionId === guestBotConnection && tool.providerType === "paperclip_github_chat"),
       );
       onDemandTargets = allConnectedTools.filter(isOnDemandRemoteTool);
-      const includeEntries = gatewayProfileEntries.filter((e) => e.effect === "include");
       const builtins = [...allTools(), ...githubBotTools, ...slackTools, ...spekoTools].filter((tool) =>
         toolMatchesProfileIncludes(tool, includeEntries),
       );
@@ -11935,14 +11936,25 @@ export function createToolGatewayService(
 
     async cleanupExpiredSessions(input: { now?: Date } = {}) {
       const now = input.now ?? new Date();
+      const expiredInactiveToken = and(
+        lte(toolMcpGatewayTokens.expiresAt, now),
+        or(
+          ne(toolMcpGatewayTokens.subjectType, "heartbeat_run"),
+          notExists(db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(and(
+            eq(sql`${heartbeatRuns.id}::text`, toolMcpGatewayTokens.subjectId),
+            eq(heartbeatRuns.companyId, toolMcpGatewayTokens.companyId),
+            inArray(heartbeatRuns.status, [...ACTIVE_GATEWAY_RUN_STATUSES]),
+          ))),
+        ),
+      );
       const expiredTokens = await db.select({ id: toolMcpGatewayTokens.id })
         .from(toolMcpGatewayTokens)
-        .where(lte(toolMcpGatewayTokens.expiresAt, now))
+        .where(expiredInactiveToken)
         .orderBy(asc(toolMcpGatewayTokens.expiresAt), asc(toolMcpGatewayTokens.id))
         .limit(500);
       if (expiredTokens.length > 0) {
         await db.delete(toolMcpGatewayTokens)
-            .where(and(inArray(toolMcpGatewayTokens.id, expiredTokens.map((token) => token.id)), lte(toolMcpGatewayTokens.expiresAt, now)))
+            .where(and(inArray(toolMcpGatewayTokens.id, expiredTokens.map((token) => token.id)), expiredInactiveToken))
             .returning({ id: toolMcpGatewayTokens.id });
       }
       const rows = await db

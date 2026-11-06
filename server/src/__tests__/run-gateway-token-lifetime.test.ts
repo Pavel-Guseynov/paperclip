@@ -2,16 +2,22 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import { eq } from "drizzle-orm";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
+  authUsers,
   companies,
+  companyMemberships,
   createDb,
   heartbeatRuns,
   issues,
   projects,
   toolProfiles,
+  toolMcpGatewayTokens,
 } from "@paperclipai/db";
+import { runtimeConnectionIntentRoutes } from "../routes/connection-intents.js";
+import { createRuntimeToolsToken } from "../runtime-tools-token.js";
+import { errorHandler } from "../middleware/error-handler.js";
 import {
   mcpGatewayProtocolRoutes,
   toolGatewayRoutes,
@@ -114,7 +120,7 @@ async function createIssueAndRun(db: any, companyId: string, agentId: string) {
   return { project, issue, run };
 }
 
-describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
+describeEmbeddedPostgres("Run gateway and runtime-tools token lifetime", () => {
   let db: any;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
 
@@ -127,7 +133,12 @@ describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
     await tempDb?.cleanup();
   });
 
-  it("a run-bound token presented more than an hour after minting, while its run is running, is accepted", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it("cleanup retains an expired active-run token for protocol and HTTP use", async () => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
     const profile = await createProfile(db, company.id);
@@ -158,7 +169,9 @@ describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
       actor: { agentId: agent.id },
     });
 
-    // Initialize named gateway protocol - must succeed while run is running
+    await gateway.cleanupExpiredSessions();
+
+    // Cleanup must retain the expired credential while its run is active.
     const session = await gateway.initializeNamedGatewayProtocol({
       gatewayId: namedGateway.id,
       bearerToken: token.token,
@@ -181,7 +194,7 @@ describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
     expect(response.body).toHaveProperty("result");
   });
 
-  it("the same token is rejected once the run has finished", async () => {
+  it.each(["succeeded", "cancelled"])("the same token is rejected and cleaned up once the run is %s", async (status) => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
     const profile = await createProfile(db, company.id);
@@ -210,10 +223,10 @@ describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
       actor: { agentId: agent.id },
     });
 
-    // Set run to succeeded (no longer active)
+    // Terminal state ends authorization even before timestamp expiry.
     await db
       .update(heartbeatRuns)
-      .set({ status: "succeeded", completedAt: new Date() })
+      .set({ status, completedAt: new Date() })
       .where(eq(heartbeatRuns.id, run.id));
 
     // initializeNamedGatewayProtocol must reject with gateway_token_run_inactive
@@ -236,6 +249,66 @@ describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
       .expect(401);
 
     expect(response.body.error.data.reasonCode).toBe("gateway_token_run_inactive");
+
+    await gateway.cleanupExpiredSessions({ now: new Date(Date.now() + 7200_000) });
+    expect(await db.select().from(toolMcpGatewayTokens).where(eq(toolMcpGatewayTokens.id, token.id))).toEqual([]);
+  });
+
+  it.each(["missing", "malformed", "foreign-company"])("cleans up expired credentials with a %s run binding", async (binding) => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const profile = await createProfile(db, company.id);
+    const gateway = createTestToolGatewayService(db);
+    const namedGateway = await gateway.createNamedGateway({
+      companyId: company.id,
+      body: { name: "Missing run", profileId: profile.id, defaultProfileMode: "gateway_only" },
+    });
+    let subjectId = binding === "malformed" ? "invalid-run-id" : randomUUID();
+    if (binding === "foreign-company") {
+      const foreignCompany = await createCompany(db);
+      const foreignAgent = await createAgent(db, foreignCompany.id);
+      subjectId = (await createIssueAndRun(db, foreignCompany.id, foreignAgent.id)).run.id;
+    }
+    const token = await gateway.createNamedGatewayToken({
+      companyId: company.id, gatewayId: namedGateway.id,
+      body: { name: "Orphan", subjectType: "heartbeat_run", subjectId, expiresAt: new Date(0) },
+      actor: { agentId: agent.id },
+    });
+    await gateway.cleanupExpiredSessions();
+    expect(await db.select().from(toolMcpGatewayTokens).where(eq(toolMcpGatewayTokens.id, token.id))).toEqual([]);
+  });
+
+  it.each(["succeeded", "cancelled"])("runtime-tools accepts an expired live-run token and rejects it after %s", async (status) => {
+    vi.stubEnv("PAPERCLIP_AGENT_JWT_SECRET", "test-runtime-tools-secret");
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    const userId = randomUUID();
+    await db.insert(authUsers).values({ id: userId, name: "Responsible", email: `${userId}@example.test`, createdAt: new Date(), updatedAt: new Date() });
+    await db.insert(companyMemberships).values({ companyId: company.id, principalType: "user", principalId: userId, status: "active", membershipRole: "member" });
+    await db.update(heartbeatRuns).set({ responsibleUserId: userId }).where(eq(heartbeatRuns.id, run.id));
+    vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
+    const token = createRuntimeToolsToken({ agentId: agent.id, companyId: company.id, runId: run.id, responsibleUserId: userId })!;
+    vi.setSystemTime(new Date("2026-11-01T02:00:00Z"));
+    const app = express();
+    app.use(express.json());
+    app.use(runtimeConnectionIntentRoutes(db));
+    app.use(errorHandler);
+
+    const initialize = () => request(app).post("/mcp/runtime-tools").set("authorization", `Bearer ${token.token}`)
+      .send({ jsonrpc: "2.0", id: 1, method: "initialize" });
+    const response = await initialize().expect(200);
+    expect(response.body.result.serverInfo.name).toBe("paperclip-runtime-tools");
+    await request(app).get("/mcp/runtime-tools").set("authorization", `Bearer ${token.token}`).expect(405);
+    const search = () => request(app).post("/runtime-tools/connections/search").set("authorization", `Bearer ${token.token}`).send({ query: "" });
+    expect((await search().expect(200)).body.version).toBe(1);
+    const connect = () => request(app).post("/runtime-tools/connections/request").set("authorization", `Bearer ${token.token}`).send({ service: "test-service-does-not-exist" });
+    expect((await connect().expect(404)).body.error).toBe("Connection service was not found");
+
+    await db.update(heartbeatRuns).set({ status, completedAt: new Date() }).where(eq(heartbeatRuns.id, run.id));
+    expect((await initialize().expect(403)).body.error).toBe("Runtime tool token is no longer active");
+    expect((await search().expect(403)).body.error).toBe("Runtime tool token is no longer active");
+    expect((await connect().expect(403)).body.error).toBe("Runtime tool token is no longer active");
   });
 
   it("a token that is not run-bound still expires at its expiresAt", async () => {
@@ -285,5 +358,7 @@ describeEmbeddedPostgres("Change 24: Run gateway token lifetime", () => {
       .expect(401);
 
     expect(response.body.error.data.reasonCode).toBe("gateway_token_expired");
+    await gateway.cleanupExpiredSessions();
+    expect(await db.select().from(toolMcpGatewayTokens).where(eq(toolMcpGatewayTokens.id, token.id))).toEqual([]);
   });
 });

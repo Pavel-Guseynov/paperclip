@@ -875,7 +875,7 @@ console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_t
       }).returning();
       await db.insert(toolProfileEntries).values({
         companyId: company.id, profileId: profile.id,
-        selectorType: "tool_name", effect: "include", toolName,
+        selectorType: "tool_name", effect: "include", toolName: catalogEntry.toolName,
       });
       const gateway = createTestToolGatewayService(db);
       const named = await gateway.createNamedGateway({
@@ -1649,7 +1649,7 @@ console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_t
         id: 1,
         result: { serverInfo: { name: "Paperclip MCP Gateway" } },
       });
-      expect(observedActors).toEqual([{ type: "none", source: "none", runId: run.id }]);
+      expect(observedActors).toEqual([{ type: "none", source: "none", deploymentMode, runId: run.id }]);
     });
 
     it.each([
@@ -1702,7 +1702,7 @@ console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_t
         id: 1,
         result: { serverInfo: { name: "Paperclip MCP Gateway" } },
       });
-      expect(observedActors).toEqual([{ type: "none", source: "none" }]);
+      expect(observedActors).toEqual([{ type: "none", source: "none", deploymentMode }]);
     });
 
     it("returns an empty server error when notification verification loses its database client", async () => {
@@ -5167,7 +5167,7 @@ rl.on("line", (line) => {
   ];
 
   for (const scenario of perCallResponseFailures) {
-    it(`keeps a remote MCP connection healthy and starts a fresh MCP session after ${scenario.name}`, async () => {
+    it(`preserves connection health and session only for an oversized response after ${scenario.name}`, async () => {
       const company = await createCompany(db);
       const agent = await createAgent(db, company.id);
       const { run } = await createIssueAndRun(db, company.id, agent.id);
@@ -5213,9 +5213,15 @@ rl.on("line", (line) => {
 
         await expect(db.select({ healthStatus: toolConnections.healthStatus }).from(toolConnections).where(
           eq(toolConnections.id, connection.id),
-        )).resolves.toEqual([{ healthStatus: "ok" }]);
+        )).resolves.toEqual([{ healthStatus: scenario.reasonCode === "mcp_remote_response_too_large" ? "ok" : "error" }]);
 
         const nextSession = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+        if (scenario.reasonCode !== "mcp_remote_response_too_large") {
+          await expect(gateway.listToolsForSession(nextSession.token)).resolves.not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ name: connectedTool!.name })]),
+          );
+          return;
+        }
         await expect(gateway.listToolsForSession(nextSession.token)).resolves.toEqual(
           expect.arrayContaining([expect.objectContaining({ name: connectedTool!.name })]),
         );
@@ -5228,7 +5234,7 @@ rl.on("line", (line) => {
         const toolCallSessionIds = fake.requests
           .filter((request) => request.body?.method === "tools/call")
           .map((request) => request.headers["mcp-session-id"]);
-        expect(toolCallSessionIds).toEqual(["session-1", "session-2"]);
+        expect(toolCallSessionIds).toEqual(["session-1", "session-1"]);
       } finally {
         await fake.close();
       }

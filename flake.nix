@@ -751,6 +751,7 @@
             "packages/adapters/codex-local"
           ];
           includes = [
+            "server/src/runtime-tools-token.ts"
             "server/src/services/heartbeat.ts"
             "server/src/services/tool-gateway.ts"
             "server/src/services/mcp-http.ts"
@@ -762,6 +763,8 @@
             "packages/adapters/codex-local/src/server/acp.ts"
           ];
           tests = [
+            "server/src/__tests__/run-gateway-token-lifetime.test.ts"
+            "server/src/runtime-tools-token.test.ts"
             "server/src/__tests__/tool-gateway.test.ts"
             "server/src/__tests__/mcp-http.test.ts"
             "server/src/__tests__/remote-mcp-socks-proxy.test.ts"
