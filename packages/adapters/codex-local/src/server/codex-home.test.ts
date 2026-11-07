@@ -281,6 +281,43 @@ describe("run-scoped native MCP profiles", () => {
     },
   );
 
+  it.each(["symlink", "hard link"] as const)(
+    "refuses a selected native profile that is a %s, so no host file bytes reach the run profile", async (kind) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-linked-profile-"));
+      try {
+        const home = path.join(root, "home");
+        await fs.mkdir(home);
+        const hostFile = path.join(root, "host-secret.txt");
+        await fs.writeFile(hostFile, "host-secret-bytes\n");
+        const selected = path.join(home, "operator.config.toml");
+        if (kind === "symlink") await fs.symlink(hostFile, selected);
+        else await fs.link(hostFile, selected);
+        await expect(prepareManagedCodexMcpProfile({
+          codexHome: home, apiBaseUrl: "https://paperclip.test", runId: "run-a", extraArgs: ["--profile", "operator"],
+          gateways: [{ name: "direct", endpointPath: "/mcp", bearerToken: "only-run-a" }],
+        })).rejects.toThrow("Selected Codex profile must be an owned regular file, not a link");
+        expect((await fs.readdir(home)).filter((name) => name.startsWith("paperclip-run-"))).toEqual([]);
+      } finally { await fs.rm(root, { recursive: true, force: true }); }
+    },
+  );
+
+  it("stages a run profile only when it is a private regular file with a run profile name", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-stage-run-profile-"));
+    try {
+      const home = path.join(root, "home");
+      await fs.mkdir(home);
+      const hostFile = path.join(root, "host-secret.txt");
+      await fs.writeFile(hostFile, "host-secret-bytes\n", { mode: 0o600 });
+      const profileName = "paperclip-run-0b9f7e1c-1d2e-4f3a-8b4c-5d6e7f8a9b0c";
+      await fs.symlink(hostFile, path.join(home, `${profileName}.config.toml`));
+      await expect(stageCodexHomeForSync(home, { profileName })).rejects.toThrow("Run-scoped Codex profile must be an owned private regular file");
+      await expect(stageCodexHomeForSync(home, { profileName: "operator" })).rejects.toThrow("Invalid run-scoped Codex profile");
+      await fs.rm(path.join(home, `${profileName}.config.toml`));
+      await fs.writeFile(path.join(home, `${profileName}.config.toml`), "model = \"run\"\n", { mode: 0o644 });
+      await expect(stageCodexHomeForSync(home, { profileName })).rejects.toThrow("Run-scoped Codex profile must be an owned private regular file");
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
   it("removes a partial profile when gateway configuration is invalid", async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "codex-invalid-gateway-"));
     try {
