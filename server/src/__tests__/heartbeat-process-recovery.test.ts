@@ -13693,6 +13693,38 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     },
   );
 
+  it("keeps a native restart recovery running when graceful shutdown has begun", async () => {
+    await withTempPaperclipHome(async () => {
+      await fs.mkdir(resolvePaperclipInstanceRoot(), { recursive: true });
+      const { source, child } = await seedPreparedChatRecovery("admitted");
+      const factory = vi.fn(() => {
+        throw new NativeRunnerOwnershipUnverifiedError();
+      });
+      const heartbeat = heartbeatService(db, {
+        nativeSessionBackendFactory: factory,
+      });
+      heartbeat.setShutdownInProgress();
+      try {
+        const recovery = await heartbeat.recoverNativeRunsAfterRestart();
+        expect(recovery.claims).toEqual([
+          expect.objectContaining({
+            runId: child.runId,
+            kind: "bootstrap_incomplete",
+          }),
+        ]);
+        await heartbeat.drainActiveRunExecutions();
+      } finally {
+        heartbeat.setShutdownInProgress(false);
+      }
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect((await heartbeat.getRun(child.runId))?.status).not.toBe("queued");
+      expect(
+        (await db.select().from(issues).where(eq(issues.id, source.issueId)))[0]
+          ?.executionRunId,
+      ).toBe(child.runId);
+    });
+  });
+
   it.each(["admitted", "historical"] as const)(
     "does not acquire a new chat gate lock for protected native recovery: %s",
     async (admission) => {
