@@ -462,6 +462,14 @@ type RemoteHttpErrorEvidence = {
   cause: RemoteHttpErrorEvidence | null;
 };
 
+// Deliberate stops of a remote tool call. They are not failures, and a deadline
+// that passes while they are recorded must not turn them into a timeout.
+const REMOTE_TOOL_CALL_WORKFLOW_REASON_CODES = new Set([
+  "elicitation_required",
+  "provider_interaction_required",
+  "oauth_insufficient_scope",
+]);
+
 // Project only diagnostic fields; never persist request objects or arbitrary
 // provider properties. Error.cause is normally non-enumerable.
 function remoteHttpErrorEvidence(error: unknown, seen = new Set<unknown>()): RemoteHttpErrorEvidence {
@@ -6902,6 +6910,14 @@ export function createToolGatewayService(
     } catch (error) {
       execution.error = remoteHttpErrorEvidence(error);
       execution.deadline = { timeoutMs: ms, aborted: controller.signal.aborted };
+      // A deliberate workflow stop, such as a tool question for the user, keeps
+      // its own reason even when the deadline passes while it is recorded.
+      if (error instanceof ToolGatewayHttpError && REMOTE_TOOL_CALL_WORKFLOW_REASON_CODES.has(error.reasonCode)) {
+        throw new ToolGatewayHttpError(error.status, error.message, error.reasonCode, {
+          ...error.details,
+          execution: error.details.execution ?? execution,
+        });
+      }
       // node:http reports an aborted response body as Error/ECONNRESET, even
       // when our deadline caused it. The owning signal is the timeout authority.
       if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {

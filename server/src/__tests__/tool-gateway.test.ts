@@ -5045,6 +5045,43 @@ rl.on("line", (line) => {
     }
   });
 
+  async function startRemoteCallWithControlledBody(respond: (body: ReadableStream<Uint8Array>) => Response) {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    await createRemoteMcpTool(db, company.id);
+    await allowAllToolsForAgent(db, company.id, agent.id);
+    const reading = Promise.withResolvers<void>();
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>;
+    const gateway = createTestToolGatewayService(db, {
+      remoteHttpRequest: async () => respond(new ReadableStream<Uint8Array>({
+        start(controller) { bodyController = controller; },
+        pull() { reading.resolve(); },
+      }, { highWaterMark: 0 })),
+    });
+    const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+    const tool = (await gateway.listToolsForSession(session.token)).find((entry) => entry.providerType === "mcp_remote_http")!;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const call = gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: { key: "a", value: "b" }, timeoutMs: 1500 })
+      .then((value) => ({ value, error: null }), (error: unknown) => ({ value: null, error }));
+    await reading.promise;
+    return { call, body: () => bodyController };
+  }
+
+  it("keeps a tool question when the call deadline passes while the question is recorded", async () => {
+    const remote = await startRemoteCallWithControlledBody((body) => new Response(body, { headers: { "content-type": "text/event-stream" } }));
+    try {
+      await vi.advanceTimersByTimeAsync(1500);
+      const question = { jsonrpc: "2.0", id: "question-1", method: "elicitation/create", params: { message: "Which folder?", requestedSchema: { type: "object" } } };
+      remote.body().enqueue(new TextEncoder().encode(`data: ${JSON.stringify(question)}\n\n`));
+      expectGatewayError((await remote.call).error, 409, "elicitation_required");
+    } finally {
+      vi.useRealTimers();
+      remote.body().error(new Error("fixture cleanup"));
+      await remote.call;
+    }
+  });
+
   for (const scenario of ["slow success", "default deadline", "explicit deadline", "peer reset", "cyclic peer reset", "primitive peer reset"] as const) {
     it(`records remote SSE ${scenario} without confusing a call deadline with a broken transport`, async () => {
       const company = await createCompany(db);
