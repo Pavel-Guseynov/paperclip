@@ -276,6 +276,20 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 **Heartbeat Execution** — DB-backed wakeup queue with coalescing, budget checks, workspace resolution, secret injection, skill loading, and adapter invocation. Runs produce logs, usage records, and adapter-specific session state. Bounded recovery handles supported failures and surfaces cases that need human action.
 
+Graceful shutdown (`SIGINT` or `SIGTERM`) closes heartbeat admission for the
+whole server process before any shutdown await. Route and scheduler service
+instances share that fence. Claims crossing shutdown during database work roll
+back, and a claim committed just before shutdown is released by the executor
+to `queued` together with its wake, releasing the issue lock. New wakes remain
+durable and queued for the next boot. Already executing runs become
+`interrupted` with `server_shutdown_interrupted` and retain the existing
+bounded-retry lifecycle: the retry is `scheduled_retry`, its wake is `queued`,
+and its issue execution lock reserves that retry. No retry starts during
+shutdown. No setting or
+migration is required. Real PostgreSQL admission regressions and the separate
+`coverage.shutdown-admission` operation prove the state transitions and retain
+statement reports for comparison with changed production lines.
+
 Run-bound named-gateway credentials remain valid past their expiry timestamp
 while their company-scoped heartbeat is running. Session cleanup preserves those
 rows, rechecking run activity at deletion, and removes expired credentials once

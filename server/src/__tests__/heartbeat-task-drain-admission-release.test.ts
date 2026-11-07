@@ -10,16 +10,23 @@ import {
   companies,
   companySkills,
   createDb,
+  environmentLeases,
   heartbeatRunEvents,
   heartbeatRuns,
   issues,
+  issueComments,
+  setDatabaseObserver,
+  type DatabaseStatementInfo,
 } from "@paperclipai/db";
+import { getDatabaseObserver } from "../../../packages/db/src/query-observer.js";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { heartbeatService, getTaskDrainStatus, startTaskDrain, stopTaskDrain } from "../services/heartbeat.ts";
 import { subscribeCompanyLiveEvents } from "../services/live-events.ts";
+import { registerServerAdapter, unregisterServerAdapter } from "../adapters/index.js";
+import { withAgentStartLock } from "../services/agent-start-lock.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -33,39 +40,37 @@ if (!embeddedPostgresSupport.supported) {
 describeEmbeddedPostgres("heartbeat task-drain admission release", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+  let onStatementFinished: ((info: DatabaseStatementInfo) => void) | null = null;
 
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("heartbeat-task-drain-admission-release-");
-    db = createDb(tempDb.connectionString);
+    const previousObserver = getDatabaseObserver();
+    setDatabaseObserver({
+      observePool() {},
+      startStatement(info) {
+        return { started() {}, finish() { onStatementFinished?.(info); } };
+      },
+    });
+    try {
+      db = createDb(tempDb.connectionString);
+    } finally {
+      setDatabaseObserver(previousObserver);
+    }
   }, 60_000);
 
-  function isHeartbeatRunDependentFkError(error: unknown) {
-    const message = error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : String(error);
-    return (
-      message.includes("heartbeat_run_events_run_id_heartbeat_runs_id_fk") ||
-      message.includes("activity_log_run_id_heartbeat_runs_id_fk")
-    );
-  }
-
-  async function deleteHeartbeatRunsWithDependents() {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await db.delete(heartbeatRunEvents);
-      await db.delete(activityLog);
-      try {
-        await db.delete(costEvents);
-        await db.delete(heartbeatRuns);
-        return;
-      } catch (error) {
-        if (!isHeartbeatRunDependentFkError(error) || attempt === 4) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-    }
-  }
-
   afterEach(async () => {
+    onStatementFinished = null;
+    await heartbeatService(db).drainActiveRunExecutions();
+    heartbeatService(db).setShutdownInProgress(false);
+    unregisterServerAdapter("shutdown_fixture");
     stopTaskDrain();
-    await deleteHeartbeatRunsWithDependents();
+    await db.delete(heartbeatRunEvents);
+    await db.delete(activityLog);
+    await db.delete(costEvents);
+    await db.delete(environmentLeases);
+    await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
+    await db.delete(issueComments);
     await db.delete(issues);
     await db.delete(agentRuntimeState);
     await db.delete(agents);
@@ -123,8 +128,8 @@ describeEmbeddedPostgres("heartbeat task-drain admission release", () => {
     return { companyId, agentId, issueId };
   }
 
-  async function seedQueuedRun() {
-    const { companyId, agentId, issueId } = await seedAgentAndIssue();
+  async function seedQueuedRun(owner?: Awaited<ReturnType<typeof seedAgentAndIssue>>) {
+    const { companyId, agentId, issueId } = owner ?? await seedAgentAndIssue();
     const runId = randomUUID();
     const wakeupRequestId = randomUUID();
 
@@ -134,6 +139,7 @@ describeEmbeddedPostgres("heartbeat task-drain admission release", () => {
       agentId,
       source: "assignment",
       status: "queued",
+      runId,
     });
 
     await db.insert(heartbeatRuns).values({
@@ -149,6 +155,232 @@ describeEmbeddedPostgres("heartbeat task-drain admission release", () => {
 
     return { companyId, agentId, issueId, runId, wakeupRequestId };
   }
+
+  async function withinDeadline<T>(promise: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([promise, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Shutdown fixture did not reach its lifecycle barrier")), 10_000);
+      })]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async function expectQueuedClaim(fixture: Awaited<ReturnType<typeof seedQueuedRun>>) {
+    expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, fixture.runId)))
+      .toEqual([expect.objectContaining({ status: "queued", startedAt: null })]);
+    expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, fixture.wakeupRequestId)))
+      .toEqual([expect.objectContaining({ status: "queued", claimedAt: null })]);
+    expect(await db.select().from(issues).where(eq(issues.id, fixture.issueId)))
+      .toEqual([expect.objectContaining({ executionRunId: null, executionLockedAt: null })]);
+  }
+
+  async function addQueuedComment(fixture: Awaited<ReturnType<typeof seedQueuedRun>>) {
+    const [message] = await db.insert(issueComments).values({
+      companyId: fixture.companyId, issueId: fixture.issueId,
+      authorAgentId: fixture.agentId, body: "Queued message",
+    }).returning();
+    await db.update(heartbeatRuns).set({ contextSnapshot: {
+      issueId: fixture.issueId, wakeReason: "issue_commented", wakeCommentIds: [message!.id],
+    } }).where(eq(heartbeatRuns.id, fixture.runId));
+    await db.update(agentWakeupRequests).set({ payload: {
+      issueId: fixture.issueId, _paperclipWakeContext: { wakeCommentIds: [message!.id] },
+    } }).where(eq(agentWakeupRequests.id, fixture.wakeupRequestId));
+  }
+
+  it("keeps the comment queued when shutdown begins before its claim transaction opens", async () => {
+    const fixture = await seedQueuedRun();
+    await addQueuedComment(fixture);
+    await db.update(heartbeatRuns).set({ invocationSource: "automation" })
+      .where(eq(heartbeatRuns.id, fixture.runId));
+    const heartbeat = heartbeatService(db, {
+      beforeChatControlRecoveryCheck: async () => { heartbeatService(db).setShutdownInProgress(); },
+    });
+    await heartbeat.startNextQueuedRunForAgent(fixture.agentId);
+    await heartbeat.drainActiveRunExecutions();
+    await expectQueuedClaim(fixture);
+  });
+
+  it.each([false, true])("keeps a capacity retry queued until predecessor cleanup finishes (native review=%s)", async (nativeReview) => {
+    const fixture = await seedQueuedRun();
+    const [predecessor] = await db.insert(heartbeatRuns).values({
+      companyId: fixture.companyId, agentId: fixture.agentId,
+      status: "failed", contextSnapshot: { issueId: fixture.issueId },
+    }).returning();
+    await db.update(heartbeatRuns).set({
+      retryOfRunId: predecessor!.id, scheduledRetryReason: "native_provider_overloaded",
+      contextSnapshot: { issueId: fixture.issueId, ...(nativeReview ? {
+        nativeReviewInteractionId: randomUUID(), nativeReviewDecisionId: randomUUID(),
+      } : {}) },
+    }).where(eq(heartbeatRuns.id, fixture.runId));
+    await db.insert(environmentLeases).values({
+      companyId: fixture.companyId, heartbeatRunId: predecessor!.id,
+      provider: "local", status: "pending_cleanup", cleanupStatus: "failed",
+    });
+    const heartbeat = heartbeatService(db);
+    await heartbeat.startNextQueuedRunForAgent(fixture.agentId);
+    await heartbeat.drainActiveRunExecutions();
+    await expectQueuedClaim(fixture);
+  });
+
+  it("keeps another service instance's run and wake queued after graceful shutdown begins", async () => {
+    const fixture = await seedQueuedRun();
+    const routeHeartbeat = heartbeatService(db);
+    await heartbeatService(db).drainRunningRunsForShutdown("SIGTERM");
+    await routeHeartbeat.startNextQueuedRunForAgent(fixture.agentId);
+    await routeHeartbeat.drainActiveRunExecutions();
+    await expectQueuedClaim(fixture);
+  });
+
+  it("keeps wakes arriving after shutdown durable and queued", async () => {
+    const { agentId, issueId } = await seedAgentAndIssue();
+    await heartbeatService(db).drainRunningRunsForShutdown("SIGTERM");
+    const routeHeartbeat = heartbeatService(db);
+    await routeHeartbeat.wakeup(agentId, {
+      source: "assignment", reason: "issue_assigned", payload: { issueId },
+      contextSnapshot: { issueId, wakeReason: "issue_assigned" },
+    });
+    await routeHeartbeat.drainActiveRunExecutions();
+    expect(await db.select().from(heartbeatRuns)).toEqual([
+      expect.objectContaining({ status: "queued", startedAt: null }),
+    ]);
+    expect(await db.select().from(agentWakeupRequests)).toEqual([
+      expect.objectContaining({ status: "queued", claimedAt: null }),
+    ]);
+    expect(await db.select().from(issues).where(eq(issues.id, issueId))).toEqual([
+      expect.objectContaining({ executionRunId: null }),
+    ]);
+  });
+
+  it("leaves a start already waiting on the agent lock queued during shutdown", async () => {
+    const fixture = await seedQueuedRun();
+    const routeHeartbeat = heartbeatService(db);
+    let unlock!: () => void;
+    const lockRelease = new Promise<void>(resolve => { unlock = resolve; });
+    let entered!: () => void;
+    const lockEntered = new Promise<void>(resolve => { entered = resolve; });
+    const lock = withAgentStartLock(fixture.agentId, async () => { entered(); await lockRelease; });
+    await withinDeadline(lockEntered);
+    const starting = routeHeartbeat.startNextQueuedRunForAgent(fixture.agentId);
+    try {
+      await heartbeatService(db).drainRunningRunsForShutdown("SIGINT");
+    } finally {
+      unlock();
+      await lock;
+      await starting;
+      await routeHeartbeat.drainActiveRunExecutions();
+    }
+    await expectQueuedClaim(fixture);
+  });
+
+  it("interrupts an admitted run and preserves its retry when its other-instance finalizer settles", async () => {
+    const fixture = await seedQueuedRun();
+    let entered!: () => void;
+    const adapterEntered = new Promise<void>(resolve => { entered = resolve; });
+    registerServerAdapter({
+      type: "shutdown_fixture",
+      supportsConversationContinuation: true,
+      async execute(context) {
+        if (context.runId !== fixture.runId) return { exitCode: 0, signal: null, timedOut: false, errorMessage: null };
+        await context.onCancellationReady?.();
+        context.onDispatch?.();
+        await new Promise<void>(resolve => {
+          context.signal!.addEventListener("abort", () => resolve(), { once: true });
+          entered();
+        });
+        return { exitCode: 1, signal: "SIGTERM", timedOut: false, errorMessage: "Shutdown acknowledged" };
+      },
+      async testEnvironment() { return { adapterType: "shutdown_fixture", status: "pass", checks: [], testedAt: "2026-11-06T00:00:00.000Z" }; },
+    });
+    await db.update(agents).set({ adapterType: "shutdown_fixture" }).where(eq(agents.id, fixture.agentId));
+    const routeHeartbeat = heartbeatService(db);
+    await routeHeartbeat.startNextQueuedRunForAgent(fixture.agentId);
+    try {
+      await withinDeadline(adapterEntered);
+      const [waitingIssue] = await db.insert(issues).values({
+        companyId: fixture.companyId, title: "Queued task waiting for the same agent",
+        status: "todo", assigneeAgentId: fixture.agentId, responsibleUserId: "responsible-user",
+      }).returning();
+      const pending = await seedQueuedRun({ ...fixture, issueId: waitingIssue!.id });
+      const result = await heartbeatService(db).drainRunningRunsForShutdown("SIGTERM");
+      await routeHeartbeat.drainActiveRunExecutions();
+      expect(await routeHeartbeat.getRun(fixture.runId)).toMatchObject({
+        status: "interrupted", errorCode: "server_shutdown_interrupted",
+      });
+      expect(result.interruptedRunIds).toContain(fixture.runId);
+      expect(result.retryRunIds).toHaveLength(1);
+      await expectQueuedClaim(pending);
+      expect(await routeHeartbeat.getRun(result.retryRunIds[0]!)).toMatchObject({ status: "scheduled_retry", startedAt: null });
+      const [retry] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, result.retryRunIds[0]!));
+      expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, retry!.wakeupRequestId!)))
+        .toEqual([expect.objectContaining({ status: "queued" })]);
+      expect(await db.select().from(issues).where(eq(issues.id, fixture.issueId)))
+        .toEqual([expect.objectContaining({ executionRunId: retry!.id })]);
+    } finally {
+      await heartbeatService(db).drainRunningRunsForShutdown("SIGTERM");
+      await routeHeartbeat.drainActiveRunExecutions();
+    }
+  }, 30_000);
+
+  const claimBoundaries = [
+    { phase: "queue read", matches: (info: DatabaseStatementInfo) => info.operation === "SELECT" && info.table === "heartbeat_runs" },
+    { phase: "issue row lock", matches: (info: DatabaseStatementInfo) => info.table === "issues" && /for update/i.test(info.statement) },
+    { phase: "run transition", matches: (info: DatabaseStatementInfo) => info.operation === "UPDATE" && info.table === "heartbeat_runs" },
+  ];
+  it.each(claimBoundaries.flatMap(boundary => [false, true].map(comment => ({ ...boundary, comment }))))
+  ("keeps the claim queued when shutdown begins during the $phase (comment=$comment)", async ({ matches, comment }) => {
+    const fixture = await seedQueuedRun();
+    if (comment) await addQueuedComment(fixture);
+    const routeHeartbeat = heartbeatService(db);
+    let shutdownBegan = false;
+    onStatementFinished = (info) => {
+      if (!matches(info)) return;
+      onStatementFinished = null;
+      shutdownBegan = true;
+      heartbeatService(db).setShutdownInProgress();
+    };
+    await routeHeartbeat.startNextQueuedRunForAgent(fixture.agentId);
+    await routeHeartbeat.drainActiveRunExecutions();
+    expect(shutdownBegan).toBe(true);
+    await expectQueuedClaim(fixture);
+  });
+
+  it("releases a claim made just before another service instance begins shutdown", async () => {
+    const fixture = await seedQueuedRun();
+    const routeHeartbeat = heartbeatService(db);
+    let shutdownBegan = false;
+    const unsubscribe = subscribeCompanyLiveEvents(fixture.companyId, (event) => {
+      if (event.type !== "heartbeat.run.status" || event.payload.runId !== fixture.runId || event.payload.status !== "running") return;
+      shutdownBegan = true;
+      heartbeatService(db).setShutdownInProgress();
+    });
+    try {
+      await routeHeartbeat.startNextQueuedRunForAgent(fixture.agentId);
+      await routeHeartbeat.drainActiveRunExecutions();
+    } finally {
+      unsubscribe();
+    }
+    expect(shutdownBegan).toBe(true);
+    await expectQueuedClaim(fixture);
+  });
+
+  it("preserves a queued claim and reports the original PostgreSQL refusal", async () => {
+    const fixture = await seedQueuedRun();
+    await db.execute(sql`create function reject_shutdown_fixture_claim() returns trigger language plpgsql as $$
+      begin raise exception 'fixture claim denied'; end $$`);
+    await db.execute(sql`create trigger reject_shutdown_fixture_claim before update on heartbeat_runs
+      for each row when (new.status = 'running') execute function reject_shutdown_fixture_claim()`);
+    try {
+      await expect(heartbeatService(db).startNextQueuedRunForAgent(fixture.agentId)).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: "fixture claim denied" }),
+      });
+      await expectQueuedClaim(fixture);
+    } finally {
+      await db.execute(sql`drop trigger reject_shutdown_fixture_claim on heartbeat_runs`);
+      await db.execute(sql`drop function reject_shutdown_fixture_claim()`);
+    }
+  });
 
   it("releases the run, wakeup, and issue lock when a task drain trips right after the run is claimed", async () => {
     const { companyId, issueId, runId, wakeupRequestId } = await seedQueuedRun();
