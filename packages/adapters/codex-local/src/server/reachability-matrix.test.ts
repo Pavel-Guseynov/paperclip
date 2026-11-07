@@ -54,6 +54,32 @@ describe("Codex runtime reachability matrix", () => {
     return { rootDir, workspaceDir, codexHome };
   }
 
+  // A CLI run reads its managed MCP bearers from a run-scoped native profile
+  // (paperclip-run-<uuid>.config.toml), and Paperclip removes that profile
+  // when the run ends. Read it while the stubbed process runs, as Codex would.
+  async function stubCodexProcessReadingRunProfile(codexHome: string, stdout: string, pid: number) {
+    const executionTargetMod = await import("@paperclipai/adapter-utils/execution-target");
+    const seen: { profileName: string | null; profileText: string | null } = { profileName: null, profileText: null };
+    const runSpy = vi.spyOn(executionTargetMod, "runAdapterExecutionTargetProcess")
+      .mockImplementation(async (_runId, _target, _command, args) => {
+        const index = args.indexOf("--profile");
+        seen.profileName = index >= 0 ? args[index + 1] ?? null : null;
+        seen.profileText = seen.profileName
+          ? await readFile(path.join(codexHome, `${seen.profileName}.config.toml`), "utf8")
+          : null;
+        return { exitCode: 0, signal: null, timedOut: false, stdout, stderr: "", pid,
+          startedAt: new Date().toISOString() };
+      });
+    return { runSpy, seen };
+  }
+
+  async function readSharedCodexConfig(codexHome: string): Promise<string> {
+    return readFile(path.join(codexHome, "config.toml"), "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+  }
+
   describe("Resolution and precedence across execution matrix", () => {
     const modes: Array<"cli" | "acp"> = ["cli", "acp"];
     const namespaces: Array<{
@@ -276,16 +302,7 @@ describe("Codex runtime reachability matrix", () => {
       const publicDashboardUrl = "https://dashboard.paperclip.test";
 
       // Mock child process execution
-      const executionTargetMod = await import("@paperclipai/adapter-utils/execution-target");
-      const runSpy = vi.spyOn(executionTargetMod, "runAdapterExecutionTargetProcess").mockResolvedValue({
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-        stdout: "Codex finished work",
-        stderr: "",
-        pid: 12345,
-        startedAt: new Date().toISOString(),
-      });
+      const { runSpy, seen } = await stubCodexProcessReadingRunProfile(codexHome, "Codex finished work", 12345);
 
       const context: AdapterExecutionContext = {
         runId: "run-mcp-parity-cli",
@@ -328,14 +345,16 @@ describe("Codex runtime reachability matrix", () => {
       const result = await execute(context);
       expect(result.exitCode).toBe(0);
 
-      // Verify CODEX_HOME/config.toml was written with managed MCP using runtime URL
-      const configPath = path.join(codexHome, "config.toml");
-      const configContent = await readFile(configPath, "utf8");
-
-      expect(configContent).toContain('[mcp_servers."test-gateway"]');
-      expect(configContent).toContain(`url = "${runtimeApiUrl}/api/tool-gateway/gateways/gw-1/mcp"`);
-      expect(configContent).not.toContain(publicDashboardUrl);
-      expect(configContent).toContain('Authorization = "Bearer pcgw_secret_token_123"');
+      // The run profile selected for Codex carries the managed MCP with the runtime URL.
+      expect(seen.profileName).toMatch(/^paperclip-run-[A-Za-z0-9-]+$/);
+      expect(seen.profileText).toContain('[mcp_servers."test-gateway"]');
+      expect(seen.profileText).toContain(`url = "${runtimeApiUrl}/api/tool-gateway/gateways/gw-1/mcp"`);
+      expect(seen.profileText).not.toContain(publicDashboardUrl);
+      expect(seen.profileText).toContain('Authorization = "Bearer pcgw_secret_token_123"');
+      // The shared config never holds the run bearer, and the run profile is gone after the run.
+      expect(await readSharedCodexConfig(codexHome)).not.toContain("pcgw_secret_token_123");
+      await expect(readFile(path.join(codexHome, `${seen.profileName}.config.toml`), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
 
       // Verify spawned process environment received PAPERCLIP_RUNTIME_API_URL
       expect(runSpy).toHaveBeenCalled();
@@ -405,12 +424,17 @@ describe("Codex runtime reachability matrix", () => {
       const result = await acpExec(context);
       expect(result.exitCode).toBe(0);
 
-      // Verify that config.toml also wrote the managed MCP block for ACP
-      const configPath = path.join(codexHome, "config.toml");
-      const configContent = await readFile(configPath, "utf8");
-      expect(configContent).toContain('[mcp_servers."acp-gateway"]');
-      expect(configContent).toContain(`url = "${runtimeApiUrl}/api/tool-gateway/gateways/gw-acp-1/mcp"`);
-      expect(configContent).not.toContain(publicDashboardUrl);
+      // ACP supplies managed servers through its native per-session MCP options:
+      // the executor receives the run's gateways and the runtime API URL, and the
+      // shared Codex config never holds the run bearer.
+      expect(capturedContext?.context?.paperclipManagedMcp?.gateways).toEqual([
+        expect.objectContaining({ name: "acp-gateway", endpointPath: "/api/tool-gateway/gateways/gw-acp-1/mcp",
+          bearerToken: "pcgw_acp_token_456" }),
+      ]);
+      expect(capturedContext?.config?.env?.PAPERCLIP_RUNTIME_API_URL).toBe(runtimeApiUrl);
+      const sharedConfig = await readSharedCodexConfig(codexHome);
+      expect(sharedConfig).not.toContain("pcgw_acp_token_456");
+      expect(sharedConfig).not.toContain(publicDashboardUrl);
     });
   });
 
@@ -420,16 +444,7 @@ describe("Codex runtime reachability matrix", () => {
       const runtimeApiUrl = "http://127.0.0.1:3100";
       const logs: Array<{ stream: string; message: string }> = [];
 
-      const executionTargetMod = await import("@paperclipai/adapter-utils/execution-target");
-      vi.spyOn(executionTargetMod, "runAdapterExecutionTargetProcess").mockResolvedValue({
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-        stdout: "Codex finished task with resolution",
-        stderr: "",
-        pid: 9999,
-        startedAt: new Date().toISOString(),
-      });
+      const { seen } = await stubCodexProcessReadingRunProfile(codexHome, "Codex finished task with resolution", 9999);
 
       const context: AdapterExecutionContext = {
         runId: "run-isolated-fixture-e2e",
@@ -487,11 +502,11 @@ describe("Codex runtime reachability matrix", () => {
       expect(result.exitCode).toBe(0);
       expect(result.timedOut).toBe(false);
 
-      // Verify managed MCP config written correctly with internal runtime URL
-      const configPath = path.join(codexHome, "config.toml");
-      const configContent = await readFile(configPath, "utf8");
-      expect(configContent).toContain(`url = "${runtimeApiUrl}/api/tool-gateway/gateways/gw-fixture/mcp"`);
-      expect(configContent).toContain('Authorization = "Bearer pcgw_fixture_token"');
+      // Verify the run profile carries managed MCP with the internal runtime URL,
+      // and the shared config does not hold the run bearer.
+      expect(seen.profileText).toContain(`url = "${runtimeApiUrl}/api/tool-gateway/gateways/gw-fixture/mcp"`);
+      expect(seen.profileText).toContain('Authorization = "Bearer pcgw_fixture_token"');
+      expect(await readSharedCodexConfig(codexHome)).not.toContain("pcgw_fixture_token");
 
       // Verify logs show confinement and MCP write
       const logText = logs.map((l) => l.message).join("");
