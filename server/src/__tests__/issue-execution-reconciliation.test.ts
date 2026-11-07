@@ -246,6 +246,22 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     expect(successors).toHaveLength(contradictory ? 0 : 1);
   });
 
+  it("the retry route refuses a verified review-wait receipt while another run holds the task", async () => {
+    const f = await settledProcessHold();
+    await db.update(agents).set({ role: "ceo" }).where(eq(agents.id, f.agent.id));
+    expect((await request(f.app).get(`/api/issues/${f.issue.id}`).expect(200)).body.executionBlocker)
+      .toMatchObject({ runId: f.run.id });
+    const [reviewWait] = await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id,
+      invocationSource: "retry", status: "cancelled", finishedAt: new Date(),
+      errorCode: "issue_continuation_waiting_on_review", contextSnapshot: { issueId: f.issue.id },
+      resultJson: { stopReason: "issue_continuation_waiting_on_review", timeoutSource: "stale_queued_run_gate" } }).returning();
+    await request(f.app).post(`/api/agents/${f.agent.id}/wakeup`)
+      .send({ reason: "retry_failed_run", failedRunId: reviewWait!.id }).expect(409);
+    expect(await db.select().from(heartbeatRuns).where(and(
+      eq(heartbeatRuns.companyId, f.company.id), eq(heartbeatRuns.status, "queued"),
+    ))).toHaveLength(0);
+  });
+
   async function settledProcessHold(stopped = true, asAgent = false) {
     const f = await fixture(asAgent);
     const provider = await startProvider();

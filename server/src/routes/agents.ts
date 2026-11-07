@@ -29,6 +29,7 @@ import { isAiConnectionCompatible } from "@paperclipai/shared";
 import { applyConnectorSkills, resolveConnectorAssignments, annotateConnectorSkills, isConnectorSkill } from "../services/connector-runtime.js";
 import { getExecutionBlocker } from "../services/execution-blocker.js";
 import { canRetryStoppedRun } from "../services/cancelled-native-startup.js";
+import { isPreDispatchReviewWaitVerified } from "../services/pre-dispatch-review-wait.js";
 import { getNativeReviewAssignment, readNativeReviewAssignmentContext, type NativeReviewAssignmentContext } from "../services/native-runtime/native-review-participant.js";
 import { paperclipRunnerTransitionConfig, normalizeLegacyRunnerProvider, isPaperclipRunnerProvider } from "@paperclipai/adapter-utils";
 import { applyMcpReasoningEffort } from "../services/public-mcp/agent-config.js";
@@ -5759,9 +5760,15 @@ export function agentRoutes(
         typeof failedContext.issueId === "string"
           ? failedContext.issueId
           : null;
-      if (failedRun.status === "cancelled" && (!issueId ||
-          (await getExecutionBlocker(db, agent.companyId, issueId))?.runId !== failedRun.id)) {
-        throw conflict("The stopped run no longer owns this task's recovery hold.");
+      if (failedRun.status === "cancelled") {
+        const blocker = issueId ? await getExecutionBlocker(db, agent.companyId, issueId) : null;
+        // A review continuation cancelled before dispatch never takes a recovery
+        // hold, so it can own none. Admit it only when its no-start proof holds
+        // and no other run holds the task.
+        const holdlessReviewWait = !blocker && await isPreDispatchReviewWaitVerified(db, failedRun);
+        if (!issueId || (blocker?.runId !== failedRun.id && !holdlessReviewWait)) {
+          throw conflict("The stopped run no longer owns this task's recovery hold.");
+        }
       }
       if (issueId) {
         const issue = await issueService(db).getById(issueId);
