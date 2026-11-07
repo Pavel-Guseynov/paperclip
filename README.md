@@ -600,23 +600,6 @@ and retrieval surfaces. No live Sentry payload is needed for verification:
 the gateway, MCP HTTP and SOCKS suites exercise controlled streams and a real
 test-owned proxy with virtual deadline advancement.
 
-### Remote MCP response size
-
-The gateway accepts at most 1,000,000 bytes in an individual remote MCP tool
-or context response. This bound applies to JSON and SSE, including resource
-and prompt requests and their `paperclip_*` wrapper tools. A declared length
-above the bound rejects the response before body consumption; streamed
-overflow cancels and releases the reader at the first chunk beyond the bound.
-
-An oversized HTTP success response fails that request with HTTP 502 and
-`mcp_remote_response_too_large`. Error details include `maxBytes`, the declared
-or observed `responseBytes`, and the connection and tool or context method.
-The gateway retains the authenticated MCP session and healthy connection so
-subsequent calls can proceed. Actual authentication, transport and protocol
-faults retain connection failure handling. The size error carries bounded
-metadata without the rejected payload; callers should request a smaller
-result. No configuration option raises this bound.
-
 ### Gateway write replay
 
 Gateway write replay identity uses the complete canonical arguments, including

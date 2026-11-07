@@ -5167,7 +5167,7 @@ rl.on("line", (line) => {
   ];
 
   for (const scenario of perCallResponseFailures) {
-    it(`preserves connection health and session only for an oversized response after ${scenario.name}`, async () => {
+    it(`keeps a remote MCP connection healthy and starts a fresh MCP session after ${scenario.name}`, async () => {
       const company = await createCompany(db);
       const agent = await createAgent(db, company.id);
       const { run } = await createIssueAndRun(db, company.id, agent.id);
@@ -5213,15 +5213,9 @@ rl.on("line", (line) => {
 
         await expect(db.select({ healthStatus: toolConnections.healthStatus }).from(toolConnections).where(
           eq(toolConnections.id, connection.id),
-        )).resolves.toEqual([{ healthStatus: scenario.reasonCode === "mcp_remote_response_too_large" ? "ok" : "error" }]);
+        )).resolves.toEqual([{ healthStatus: "ok" }]);
 
         const nextSession = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
-        if (scenario.reasonCode !== "mcp_remote_response_too_large") {
-          await expect(gateway.listToolsForSession(nextSession.token)).resolves.not.toEqual(
-            expect.arrayContaining([expect.objectContaining({ name: connectedTool!.name })]),
-          );
-          return;
-        }
         await expect(gateway.listToolsForSession(nextSession.token)).resolves.toEqual(
           expect.arrayContaining([expect.objectContaining({ name: connectedTool!.name })]),
         );
@@ -5234,7 +5228,7 @@ rl.on("line", (line) => {
         const toolCallSessionIds = fake.requests
           .filter((request) => request.body?.method === "tools/call")
           .map((request) => request.headers["mcp-session-id"]);
-        expect(toolCallSessionIds).toEqual(["session-1", "session-1"]);
+        expect(toolCallSessionIds).toEqual(["session-1", "session-2"]);
       } finally {
         await fake.close();
       }
