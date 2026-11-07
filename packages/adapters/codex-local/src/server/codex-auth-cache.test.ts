@@ -1,4 +1,3 @@
-import { promises as fs } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -70,23 +69,18 @@ describe("codex auth cache store", () => {
     const secondContended = new Promise<"contended">((resolve) => {
       contended = () => resolve("contended");
     });
-    const realMkdir = fs.mkdir;
-    const mkdirSpy = vi.spyOn(fs, "mkdir").mockImplementation(async (target, options) => {
-      try {
-        return await realMkdir(target, options);
-      } catch (error) {
-        // Observe the real exclusive acquire, without changing its result.
-        // Recursive prerequisite mkdir calls cannot signal lock contention.
-        if (
-          options === undefined && typeof target === "string" &&
-          target.startsWith(home + path.sep) &&
-          (error as NodeJS.ErrnoException).code === "EEXIST"
-        ) {
-          contended();
-        }
-        throw error;
-      }
-    });
+    // The directory merge lock holds SQLite's RESERVED lock. A second acquirer
+    // gets SQLITE_BUSY and only then waits 50 ms before it tries again
+    // (acquireDirectoryMergeLock). Observe that retry wait, without changing
+    // it: the real timer still runs.
+    let watching = false;
+    const realSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]
+    ) => {
+      if (watching && delay === 50) contended();
+      return realSetTimeout(callback, delay, ...args);
+    }) as typeof setTimeout);
     const operations: Promise<string>[] = [];
     try {
       const firstCall = lock(env, "company-shared", async () => {
@@ -99,6 +93,7 @@ describe("codex auth cache store", () => {
       operations.push(firstCall);
       // A failed acquire must reject the test instead of leaving entry pending.
       await Promise.race([firstEntered, firstCall]);
+      watching = true;
       const secondCall = lock(env, "company-shared", async () => {
         events.push("second-enter");
         events.push("second-exit");
@@ -106,15 +101,16 @@ describe("codex auth cache store", () => {
       });
       operations.push(secondCall);
       // A non-exclusive lock completes the second callback instead of
-      // observing EEXIST, so it fails here without a timer or hanging wait.
+      // waiting to retry, so it fails here without a test timer or hanging wait.
       expect(await Promise.race([secondContended, secondCall])).toBe("contended");
       expect(events).toEqual(["first-enter"]);
     } finally {
       // Settle every operation before afterEach can remove its instance root,
       // including when an entry or exclusion assertion fails.
       release();
+      watching = false;
       await Promise.allSettled(operations);
-      mkdirSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
     }
     expect(await Promise.all(operations)).toEqual(["first", "second"]);
     expect(events).toEqual(["first-enter", "first-exit", "second-enter", "second-exit"]);
