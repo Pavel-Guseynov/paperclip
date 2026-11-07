@@ -6,11 +6,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   agents,
   companies,
+  companyMemberships,
   connectionGrants,
   createDb,
   heartbeatRuns,
   issues,
   toolApplications,
+  toolCatalogEntries,
   toolConnections,
 } from "@paperclipai/db";
 import { toolAccessService } from "../services/tool-access.js";
@@ -377,6 +379,49 @@ describeEmbeddedPostgres("Change 25: Remote MCP SOCKS5 proxy", () => {
   });
   }
 
+  it("sends the Composio account calls of a connection through its proxy", async () => {
+    const managed: string[][] = [];
+    const composio = createServer(async (req, res) => {
+      let bodyText = "";
+      for await (const chunk of req) bodyText += chunk;
+      const request = JSON.parse(bodyText);
+      const toolkits = request.params.arguments.toolkits as { name: string; action: string }[];
+      managed.push(toolkits.map((toolkit) => toolkit.action));
+      const results = Object.fromEntries(toolkits.map((toolkit) => [toolkit.name, toolkit.action === "add"
+        ? { redirect_url: "https://connect.composio.dev/link/test" }
+        : { toolkit: toolkit.name, accounts: [] }]));
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { structuredContent: { data: { results } } } }));
+    });
+    await new Promise<void>((resolve) => composio.listen(0, "127.0.0.1", resolve));
+    const composioPort = (composio.address() as AddressInfo).port;
+    try {
+      proxy = await createSocks5TestProxy({ "composio.remote.test": composioPort });
+      const [company] = await db.insert(companies)
+        .values({ name: "ComposioProxyCo", issuePrefix: `CP${randomUUID().slice(0, 6).toUpperCase()}` }).returning();
+      const userId = randomUUID();
+      await db.insert(companyMemberships).values({ companyId: company!.id, principalType: "user", principalId: userId, membershipRole: "admin", status: "active" });
+      const [app] = await db.insert(toolApplications).values({ companyId: company!.id, applicationKey: randomUUID(), name: "Composio", type: "mcp_http", metadata: { sourceTemplateKey: "composio" } }).returning();
+      const [connection] = await db.insert(toolConnections).values({
+        companyId: company!.id, applicationId: app!.id, uid: randomUUID(), name: "Proxied Composio", transport: "mcp_remote",
+        authKind: "none", credentialPolicy: "shared", status: "active", enabled: true,
+        config: { sourceTemplateKey: "composio", url: `http://composio.remote.test:${composioPort}/mcp`, proxy: `socks5h://127.0.0.1:${proxy.port}` },
+      }).returning();
+      await db.insert(connectionGrants).values({ companyId: company!.id, connectionId: connection!.id, kind: "organization", isDefault: true, status: "active" });
+      await db.insert(toolCatalogEntries).values({ companyId: company!.id, connectionId: connection!.id, name: "COMPOSIO_MANAGE_CONNECTIONS", toolName: "COMPOSIO_MANAGE_CONNECTIONS", versionHash: "v1", status: "active", riskLevel: "destructive" });
+      const access = toolAccessService(db, { composioAppToolkits: ["circleback_mcp"] });
+
+      const result = await access.setupComposioApp(connection!.id, "circleback_mcp", { action: "start" }, { actorType: "user", actorId: userId });
+
+      expect(result).toMatchObject({ status: "authorization_required" });
+      expect(managed).toEqual([["list"], ["add"]]);
+      expect(proxy.connections.length).toBeGreaterThanOrEqual(2);
+      expect(proxy.connections.every((connect) => connect.targetHost === "composio.remote.test" && connect.atyp === 0x03)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => composio.close(() => resolve()));
+    }
+  });
+
   it("connection without a proxy uses pinned transport unchanged", async () => {
     mcpServer = await createMcpTestServer();
     proxy = await createSocks5TestProxy({ "127.0.0.1": mcpServer.port });
@@ -582,5 +627,52 @@ describeEmbeddedPostgres("Change 25: Remote MCP SOCKS5 proxy", () => {
     ).catch((e) => e);
     // Verified that it passed proxy validation and target-URL validation, reaching the socket factory
     expect(loopbackProxyResult.code).toBe("test_stop");
+  });
+
+  it("denies a target hostname that resolves here to a private address when private networks are not allowed, before opening a socket", async () => {
+    const socketFactory = vi.fn();
+    await expect(
+      guardedRemoteHttpFetch("http://internal.corp.test/mcp", {}, {
+        allowPrivateNetwork: false,
+        error: (message, code) => Object.assign(new Error(message), { code }),
+        proxy: "socks5h://93.184.216.34:1080",
+        lookup: async (hostname) =>
+          hostname === "internal.corp.test" ? [{ address: "10.0.0.5", family: 4 }] : [{ address: "93.184.216.34", family: 4 }],
+        socketFactory,
+      }),
+    ).rejects.toMatchObject({
+      code: "remote_http_private_endpoint",
+      message: "Remote MCP connection URL cannot resolve to private or reserved network addresses",
+    });
+    expect(socketFactory).not.toHaveBeenCalled();
+  });
+
+  it("denies a target hostname that resolves here to a link-local address even when private networks are allowed", async () => {
+    const socketFactory = vi.fn();
+    await expect(
+      guardedRemoteHttpFetch("http://metadata.corp.test/latest", {}, {
+        allowPrivateNetwork: true,
+        error: (message, code) => Object.assign(new Error(message), { code }),
+        proxy: "socks5h://93.184.216.34:1080",
+        lookup: async (hostname) =>
+          hostname === "metadata.corp.test" ? [{ address: "169.254.169.254", family: 4 }] : [{ address: "93.184.216.34", family: 4 }],
+        socketFactory,
+      }),
+    ).rejects.toMatchObject({ code: "remote_http_private_endpoint" });
+    expect(socketFactory).not.toHaveBeenCalled();
+  });
+
+  it("lets a target hostname that resolves here to a private address reach the proxy when private networks are allowed", async () => {
+    const socketFactory = vi.fn(() => { throw Object.assign(new Error("proxy dialled"), { code: "test_stop" }); });
+    const result = await guardedRemoteHttpFetch("http://internal.corp.test/mcp", {}, {
+      allowPrivateNetwork: true,
+      error: (message, code) => Object.assign(new Error(message), { code }),
+      proxy: "socks5h://93.184.216.34:1080",
+      lookup: async (hostname) =>
+        hostname === "internal.corp.test" ? [{ address: "10.0.0.5", family: 4 }] : [{ address: "93.184.216.34", family: 4 }],
+      socketFactory,
+    }).catch((e) => e);
+    expect(result.code).toBe("test_stop");
+    expect(socketFactory).toHaveBeenCalled();
   });
 });

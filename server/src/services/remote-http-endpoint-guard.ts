@@ -67,11 +67,11 @@ export function parseRemoteHttpProxy(
   return parsed;
 }
 
-export function assertProxiedRemoteHttpEndpoint(
+export async function assertProxiedRemoteHttpEndpoint(
   endpoint: URL,
   options: RemoteHttpEndpointGuardOptions,
   error: RemoteHttpEndpointErrorFactory,
-): void {
+): Promise<void> {
   if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
     throw error("Remote MCP connection URL must use http or https", "mcp_remote_url_invalid");
   }
@@ -79,11 +79,29 @@ export function assertProxiedRemoteHttpEndpoint(
   if (!options.allowPrivateNetwork && (hostname === "localhost" || hostname.endsWith(".localhost"))) {
     throw error("Remote MCP connection URL cannot target private or reserved network addresses", "remote_http_private_endpoint");
   }
-  const literalVersion = isIP(hostname);
-  if (literalVersion !== 0) {
+  if (isIP(hostname) !== 0) {
     if (isAlwaysDeniedLinkLocalIp(hostname) || (!options.allowPrivateNetwork && isPrivateOrReservedIp(hostname))) {
       throw error("Remote MCP connection URL cannot target private or reserved network addresses", "remote_http_private_endpoint");
     }
+    return;
+  }
+  // The proxy resolves the hostname. When this host also resolves it, deny a
+  // link-local answer always, and a private or reserved answer unless private
+  // networks are allowed. A hostname that does not resolve here goes to the proxy.
+  let results: LookupResult[];
+  try {
+    results = await lookupWithTimeout(
+      hostname,
+      options.lookup ?? defaultLookup,
+      options.dnsTimeoutMs ?? DEFAULT_DNS_TIMEOUT_MS,
+    );
+  } catch {
+    return;
+  }
+  if (results.some((result) =>
+    isAlwaysDeniedLinkLocalIp(result.address)
+    || (!options.allowPrivateNetwork && isPrivateOrReservedIp(result.address)))) {
+    throw error("Remote MCP connection URL cannot resolve to private or reserved network addresses", "remote_http_private_endpoint");
   }
 }
 

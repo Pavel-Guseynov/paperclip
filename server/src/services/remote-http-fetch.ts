@@ -107,7 +107,7 @@ export async function guardedRemoteHttpFetch(
 
   const proxyUrl = parseRemoteHttpProxy(options.proxy, options.error);
   if (proxyUrl) {
-    assertProxiedRemoteHttpEndpoint(endpoint, options, options.error);
+    await assertProxiedRemoteHttpEndpoint(endpoint, options, options.error);
     return proxiedRequest(endpoint, proxyUrl, init, options);
   }
 
