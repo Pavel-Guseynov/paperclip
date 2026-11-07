@@ -405,13 +405,16 @@ describe("issue execution reconciliation with real routes and Postgres", () => {
     const f = await settledProcessHold();
     await occupyDispatchSlot(f);
     const [project] = await db.insert(projects).values({ companyId: f.company.id, name: "Task project" }).returning();
-    const [workspace] = await db.insert(executionWorkspaces).values({ companyId: f.company.id,
+    const [created] = await db.insert(executionWorkspaces).values({ companyId: f.company.id,
       projectId: project!.id, mode: "isolated_workspace", strategyType: "git_worktree",
       name: "Task workspace", branchName: "tasks/fixture", cwd: process.cwd() }).returning();
     const state = { status: "changes_requested", currentStageId: randomUUID(),
       returnAssignee: { type: "agent", agentId: f.agent.id }, changesRequestedCount: 2 };
     await db.update(issues).set({ status: "blocked", executionState: state, projectId: project!.id,
-      executionWorkspaceId: workspace!.id }).where(eq(issues.id, f.issue.id));
+      executionWorkspaceId: created!.id }).where(eq(issues.id, f.issue.id));
+    // Linking the task records it in the workspace's privacy sources (migration 0313
+    // trigger), so take the snapshot after this fixture write, before reconciliation.
+    const [workspace] = await db.select().from(executionWorkspaces).where(eq(executionWorkspaces.id, created!.id));
     const [product] = await db.insert(issueWorkProducts).values({ companyId: f.company.id,
       issueId: f.issue.id, type: "branch", provider: "gitea", title: "Task branch", status: "active",
       externalId: "tasks/fixture", metadata: { workspace: "/test-owned/workspace" } }).returning();
